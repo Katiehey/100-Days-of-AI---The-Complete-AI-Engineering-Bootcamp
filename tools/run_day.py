@@ -27,7 +27,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from validate_day import ROOT, LESSONS_DIR, section_for
+from validate_day import ROOT, lessons_dir, section_for
 
 PIPELINE = ROOT / "00_pipeline"
 PASS, FAIL = "✅", "❌"
@@ -41,7 +41,7 @@ def _run(cmd):
 def _render(day: int, fast: bool, lines: list[str]) -> bool:
     ok = True
     nnn = f"{day:03d}"
-    lessons = sorted(LESSONS_DIR.glob(f"day_{nnn}_lesson_*.yaml"))
+    lessons = sorted(lessons_dir(day).glob(f"day_{nnn}_lesson_*.yaml"))
     if not lessons:
         lines.append(f"  {FAIL} no lesson YAMLs found to render")
         return False

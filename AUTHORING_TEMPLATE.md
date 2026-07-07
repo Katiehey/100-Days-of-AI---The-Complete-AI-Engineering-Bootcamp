@@ -15,7 +15,7 @@ Each day (`day_NNN`) is made of four parts:
 
 | Part | Where it lives | Purpose |
 |------|----------------|---------|
-| **Lessons** (4–6) | `00_pipeline/lessons/day_NNN_lesson_XX.yaml` | The taught content → becomes the videos |
+| **Lessons** (4–6) | `<section>/day_NNN/lessons/day_NNN_lesson_XX.yaml` | The taught content → becomes the videos |
 | **Exercises** (1 per lesson concept) | `<section>/day_NNN/exercises/exercise_XX.ipynb` | Hands-on practice with automated tests |
 | **Project** (1) | `<section>/day_NNN/project/project.ipynb` | The day's real, runnable deliverable |
 | **Solution** (1) | `<section>/day_NNN/project/solution/solution.ipynb` | Reference build, revealed after attempt |

@@ -20,7 +20,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LESSONS_DIR = ROOT / "00_pipeline" / "lessons"
 
 ALLOWED_SLIDE_TYPES = {"title", "concept", "how_it_works", "code", "exercise", "summary"}
 MIN_LESSONS, MAX_LESSONS = 4, 6
@@ -45,6 +44,12 @@ def section_for(day: int) -> str | None:
         if lo <= day <= hi:
             return name
     return None
+
+
+def lessons_dir(day: int) -> Path:
+    """Per-day lesson-scripts folder: <section>/day_NNN/lessons/."""
+    section = section_for(day) or ""
+    return ROOT / section / f"day_{day:03d}" / "lessons"
 
 
 def end_of_section_reminder(day: int) -> str | None:
@@ -111,10 +116,11 @@ def validate(day: int) -> tuple[bool, list[str]]:
     day_dir = ROOT / section / f"day_{nnn}"
 
     # ---- Lessons ----------------------------------------------------------
-    lesson_files = sorted(LESSONS_DIR.glob(f"day_{nnn}_lesson_*.yaml"))
+    l_dir = lessons_dir(day)
+    lesson_files = sorted(l_dir.glob(f"day_{nnn}_lesson_*.yaml"))
     n = len(lesson_files)
     hard(MIN_LESSONS <= n <= MAX_LESSONS,
-         f"lesson count {n} within {MIN_LESSONS}-{MAX_LESSONS}  ({LESSONS_DIR})")
+         f"lesson count {n} within {MIN_LESSONS}-{MAX_LESSONS}  ({l_dir})")
 
     import yaml  # local import so --help works without PyYAML
     for i, lf in enumerate(lesson_files, 1):

@@ -5,13 +5,13 @@ Usage:
     conda activate ai-course
 
     # Step 1 — local: generate slides + audio
-    python 00_pipeline/lesson_build.py 00_pipeline/lessons/day_001_lesson_01.yaml --prep
+    python 00_pipeline/lesson_build.py 00_warmup/day_001/lessons/day_001_lesson_01.yaml --prep
 
     # Then: upload the printed audio path to Colab, run SadTalker, download
     #       talking head to 00_pipeline/talking_heads/<lesson_id>_talking_head.mp4
 
     # Step 2 — local: composite final video
-    python 00_pipeline/lesson_build.py 00_pipeline/lessons/day_001_lesson_01.yaml --finalize
+    python 00_pipeline/lesson_build.py 00_warmup/day_001/lessons/day_001_lesson_01.yaml --finalize
 """
 
 import argparse
