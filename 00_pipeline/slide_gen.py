@@ -4,7 +4,7 @@ Called by lesson_build.py — not usually run directly.
 
 Usage (standalone):
     conda activate ai-course
-    python 00_pipeline/slide_gen.py 00_pipeline/lessons/day_001_lesson_01.yaml
+    python 00_pipeline/slide_gen.py 00_warmup/day_001/lessons/day_001_lesson_01.yaml
 """
 
 import os
@@ -312,8 +312,10 @@ if __name__ == "__main__":
 
     _yaml  = sys.argv[1]
     _stem  = os.path.splitext(os.path.basename(_yaml))[0]
-    _out   = os.path.join(os.path.dirname(_yaml), "..", "slides", _stem)
-    _out   = os.path.abspath(_out)
+    # Generated slides always land in the pipeline's own scratch dir (gitignored),
+    # never next to the source lesson YAML. Optional arg 2 overrides the target.
+    _default = os.path.join(os.path.dirname(os.path.abspath(__file__)), "slides", _stem)
+    _out   = os.path.abspath(sys.argv[2] if len(sys.argv) > 2 else _default)
 
     print(f"Generating slides → {_out}\n")
     _paths = generate_slides(_yaml, _out)

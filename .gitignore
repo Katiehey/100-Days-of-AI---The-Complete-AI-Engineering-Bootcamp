@@ -17,6 +17,11 @@ __pycache__/
 00_pipeline/talking_heads/
 00_pipeline/final/
 00_pipeline/samples/
+# belt-and-suspenders: never commit generated output that lands inside a day folder
+**/day_*/slides/
+**/day_*/audio/
+**/day_*/talking_heads/
+**/day_*/final/
 
 # Generated audio/video outputs from running notebooks & check harnesses
 *.mp3
