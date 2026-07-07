@@ -1,0 +1,15 @@
+Welcome to Day 1 of 100 Days of AI — The Complete AI Engineering Bootcamp.
+
+Today you're going to build the video generation pipeline that will produce every single lesson in this course. By the end of this session, you'll have working code that takes a text script, converts it to speech, and assembles it into a video. That's the same pipeline running right now to deliver this very lesson to you.
+
+Here's what we're building:
+
+Step one — Text to Audio. We'll use Microsoft Edge's Text-to-Speech engine, which is free and produces natural-sounding voices. No API key needed.
+
+Step two — Talking Head. We'll use SadTalker, an open-source model that animates a still photo to match the audio. You'll run it on Google Colab so you don't need a GPU.
+
+Step three — Final Assembly. FFmpeg stitches the audio and video together and burns in any overlays.
+
+The result is a fully automated pipeline. You write a script, run three commands, and you get a video.
+
+Let's start with the Text-to-Speech step. Open your terminal, make sure your conda environment is active, and let's write some code.

@@ -1,0 +1,300 @@
+day: "001"
+lesson: "02"
+title: "Edge TTS Deep Dive"
+
+slides:
+
+  - type: title
+    heading: "Edge TTS Deep Dive"
+    subheading: "Voices, prosody, word boundaries, and production patterns"
+    narration: >
+      In Lesson 1 we used Edge TTS to generate speech from text with a single line of
+      code. That was enough to build the pipeline. Now we go deeper. By the end of
+      this lesson you'll know how to explore and choose from over 400 voices, how to
+      control the speed, pitch, and volume of speech using SSML, how to capture
+      word-level timing data so you can sync audio to slides or subtitles, and how
+      to handle long text reliably in production. These are the skills you'll reach
+      for every time you add voice to an application.
+
+  - type: concept
+    label: "The Voice Landscape"
+    heading: "400+ Voices, One Naming Convention"
+    body: >
+      Every Edge TTS voice follows the same naming pattern:
+      {language}-{locale}-{name}Neural
+
+      en-US-JennyNeural: English, United States, Jenny.
+      zh-CN-XiaoxiaoNeural: Chinese, China, Xiaoxiao.
+
+      Each voice has a gender, a primary locale, and optionally a set of styles —
+      modes like "cheerful", "newscast", or "customer-service" that shift the
+      emotional quality of delivery without changing the underlying voice.
+    bullets:
+      - "Jenny (en-US): instructional, calm — our course voice"
+      - "Guy (en-US): conversational, male"
+      - "Aria (en-US): newscast and customer-service styles"
+      - "Xiaoxiao (zh-CN): 28 styles including audiobook and sports commentary"
+    narration: >
+      Every Edge TTS voice follows a consistent naming pattern: language, locale,
+      name, then the word Neural. So en-US-JennyNeural breaks down as English
+      language, United States locale, Jenny as the voice name, and Neural indicating
+      this is a neural text-to-speech model rather than older concatenative synthesis.
+
+      Voices have three key attributes. Gender — male or female. Locale — the
+      regional accent and vocabulary, so en-US and en-GB both speak English but sound
+      noticeably different. And optionally, styles — pre-trained emotional modes
+      that shift how the voice sounds without changing the speaker. Aria, for
+      example, has a newscast style that sounds like a broadcaster and a
+      customer-service style that sounds warmer and more patient.
+
+      For this course we use Jenny because she's designed for instructional content —
+      clear pacing, neutral tone, easy to follow. But when you're building a customer
+      service bot you might choose a warmer voice in a conversational style. A
+      language learning app might use a native speaker voice for each target language.
+      Choosing the right voice for the context is a real product decision, not just
+      an aesthetic one.
+
+  - type: code
+    label: "Listing Voices"
+    heading: "Exploring Available Voices"
+    body: >
+      edge_tts.list_voices() fetches the current catalogue from Microsoft's servers.
+      Returns a list of dicts — one per voice — with ShortName, Gender, Locale,
+      and VoiceTag (which includes the styles list).
+    code: |
+      import edge_tts, asyncio
+
+      async def find_voices(locale_prefix="en-US"):
+          voices = await edge_tts.list_voices()
+          return [v for v in voices
+                  if v["Locale"].startswith(locale_prefix)]
+
+      for v in asyncio.run(find_voices()):
+          styles = v.get("VoiceTag", {}).get("VoicePersonalities", [])
+          print(f"{v['ShortName']:42s}  {v['Gender']:6s}  {styles}")
+    narration: >
+      Here's how you explore what's available. list_voices is an async function
+      that fetches the current voice catalogue from Microsoft's servers and returns
+      a list of dictionaries — one per voice.
+
+      In this helper we filter by locale prefix, so passing "en-US" gives us only
+      US English voices. Passing "en" gives all English variants across every locale.
+      The VoiceTag field contains a list of personalities — these are the style names
+      you can use to shift the voice's emotional delivery.
+
+      In practice you'd run this once to explore, pick your voice, and hardcode it
+      in your application. The catalogue doesn't change often enough to query it at
+      runtime — unless you're building a product where users choose their own voice,
+      in which case you'd cache the list and refresh it on a schedule.
+
+  - type: concept
+    label: "Prosody"
+    heading: "Controlling Rate, Pitch, and Volume"
+    body: >
+      SSML (Speech Synthesis Markup Language) is a W3C standard for controlling how
+      text is spoken. Edge TTS supports a useful subset. The most important tag is
+      <prosody>, which controls three things:
+
+      rate — how fast the speech is delivered
+      pitch — how high or low the voice sounds
+      volume — how loud the audio is
+
+      You wrap your text in the tag and pass the whole string to Communicate — Edge
+      TTS detects the markup and applies it before synthesis.
+    bullets:
+      - "rate: x-slow / slow / medium / fast / x-fast, or +20% / -20%"
+      - "pitch: x-low / low / medium / high / x-high, or +10Hz / -10Hz"
+      - "volume: x-soft / soft / medium / loud / x-loud, or +6dB"
+    narration: >
+      SSML stands for Speech Synthesis Markup Language. It's a W3C standard —
+      the same body that defines HTML — and it's supported by Edge TTS, Google
+      Cloud TTS, Amazon Polly, and most production text-to-speech systems. It lets
+      you embed delivery instructions directly in your text using XML tags.
+
+      The most important tag is prosody, which controls three parameters. Rate
+      controls how fast the speech is delivered. You can use named levels like slow
+      or fast, or you can use a percentage offset — plus twenty percent makes it
+      faster, minus twenty percent makes it slower. Pitch controls the fundamental
+      frequency of the voice — how high or low it sounds. Volume controls loudness.
+
+      Why does this matter for AI engineering? Because in a real product the right
+      pacing and tone aren't the same in every context. A reading app might slow
+      speech down for learners. A real-time assistant might speak faster to feel
+      more natural. An accessibility tool might need specific volume levels. SSML
+      gives you that control without switching voices or managing audio files manually.
+
+  - type: code
+    label: "SSML Prosody"
+    heading: "Rate and Pitch in Practice"
+    body: >
+      Wrap the text in a <prosody> tag before passing to Communicate.
+      Default values of +0% and +0Hz are neutral — they don't change anything,
+      so this signature is a drop-in replacement for plain generate_audio.
+    code: |
+      import edge_tts, asyncio, html
+
+      async def generate_audio(text, voice, output_path,
+                               rate="+0%", pitch="+0Hz"):
+          safe = html.escape(text)   # handles <, >, &, " in input
+          ssml = f'<prosody rate="{rate}" pitch="{pitch}">{safe}</prosody>'
+          communicate = edge_tts.Communicate(ssml, voice)
+          await communicate.save(output_path)
+
+      # Slower delivery for a learner reading tool
+      asyncio.run(generate_audio(
+          "Welcome to the lesson.",
+          "en-US-JennyNeural",
+          "slow.mp3",
+          rate="-20%",
+      ))
+    narration: >
+      The implementation is straightforward. We escape the text first using
+      html.escape — this converts angle brackets, ampersands, and quotes into their
+      XML-safe equivalents, so arbitrary user input doesn't break the SSML structure.
+      Then we wrap the escaped text in a prosody tag with the rate and pitch values
+      and pass it to Communicate exactly as we would plain text.
+
+      Notice the default values: plus zero percent for rate and plus zero hertz for
+      pitch. These are neutral — they don't modify anything. This means you can
+      replace any existing call to generate_audio with this version and the behaviour
+      is identical unless you explicitly pass non-default values.
+
+      The html.escape call is a good habit to build early. Whenever you're
+      constructing XML or HTML by string concatenation rather than a proper library,
+      you need to escape user-controlled content. Missing this is a common source of
+      bugs — and in web contexts, a security vulnerability.
+
+  - type: how_it_works
+    label: "Word Boundaries"
+    heading: "How the Audio Stream Works"
+    body: >
+      .save() is a convenience wrapper over .stream(), which yields chunks in real
+      time as the audio is synthesised. Two chunk types matter:
+
+      "audio" — raw MP3 bytes. Write them to disk.
+      "WordBoundary" — the word, its start time, and duration in 100ns units.
+
+      Divide by 10,000,000 to convert to seconds.
+      This is the raw data behind subtitles, slide sync, and karaoke-style displays.
+    narration: >
+      When you call dot save, edge-tts is calling dot stream internally and writing
+      the audio chunks to disk for you. But you can call dot stream yourself to get
+      finer-grained control over what happens with the output.
+
+      The stream yields two types of chunks. Audio chunks contain raw MP3 bytes —
+      you write these to your output file exactly as dot save would. WordBoundary
+      chunks are different. Each one contains the word text, its offset from the
+      start of the audio in 100-nanosecond units, and its duration also in
+      100-nanosecond units. This is a Windows timestamp format. Divide by ten million
+      to get seconds.
+
+      This is how you would build subtitle generation: collect all the WordBoundary
+      events, convert the times to seconds, and write a WebVTT or SRT file. It's also
+      the foundation for displaying text that highlights in sync with spoken audio —
+      the kind of thing you see in language learning apps. Later in the course we'll
+      use this to generate auto-subtitles for course videos.
+
+  - type: code
+    label: "Streaming"
+    heading: "Capturing Word Boundaries"
+    code: |
+      async def generate_with_boundaries(text, voice, output_path):
+          communicate = edge_tts.Communicate(text, voice)
+          boundaries = []
+
+          with open(output_path, "wb") as f:
+              async for chunk in communicate.stream():
+                  if chunk["type"] == "audio":
+                      f.write(chunk["data"])
+                  elif chunk["type"] == "WordBoundary":
+                      offset_s   = chunk["offset"]   / 10_000_000
+                      duration_s = chunk["duration"] / 10_000_000
+                      boundaries.append({
+                          "word":  chunk["text"],
+                          "start": offset_s,
+                          "end":   offset_s + duration_s,
+                      })
+
+          return boundaries
+          # [{"word": "Hello", "start": 0.0, "end": 0.31}, ...]
+    narration: >
+      Here's the streaming implementation. Instead of dot save, we call dot stream
+      and iterate over chunks with an async for loop. Audio chunks go straight to
+      disk. WordBoundary chunks get converted from 100-nanosecond units to seconds
+      and stored as a list of dicts with the word text, start time, and end time.
+
+      The return value is a list — one dict per word — that looks like this: word
+      "Hello", start 0.0, end 0.31. You can write this directly to a JSON file,
+      convert it to a WebVTT file with timestamps, or use it to drive any UI
+      that needs to know when each word is being spoken.
+
+      One caveat: word boundaries don't always map one-to-one to your input words.
+      Numbers and abbreviations are expanded before synthesis. "100" becomes the
+      three boundary events "one", "hundred" — actually Edge TTS might give it as
+      a single expanded word, but numbers, dates, and currencies are rendered in
+      their spoken form. Keep this in mind if you're using boundaries for
+      text matching rather than just timing.
+
+  - type: exercise
+    heading: "Exercise 2: SSML Prosody"
+    prompt: >
+      Open exercise_02.ipynb in 00_warmup/day_001/exercises/.
+
+      Write generate_audio_ssml(text, voice, output_path, rate="+0%", pitch="+0Hz")
+      that uses SSML to apply rate and pitch before synthesis.
+
+      Requirements:
+      · Use html.escape() on the text before building the SSML string
+      · Default values must be neutral (no change to output vs. plain TTS)
+      · The rate parameter must actually affect the audio
+
+      The grader checks that rate="+50%" produces a smaller file than rate="-50%".
+      Faster speech = shorter audio = smaller MP3.
+    hint: "Build the SSML string: f'<prosody rate=\"{rate}\">{html.escape(text)}</prosody>'"
+    narration: >
+      Time to build it yourself. Open exercise two in the exercises folder. You're
+      writing generate_audio_ssml — the same function we just walked through, but
+      you write it from scratch.
+
+      Two things to get right: first, escape the text with html.escape before
+      building the SSML string. Second, wrap it in a prosody tag with the rate
+      and pitch attributes.
+
+      The auto-grader has a specific check for the rate parameter: it generates audio
+      at rate plus fifty percent, then again at minus fifty percent, and compares the
+      file sizes. Plus fifty percent is faster speech, which produces shorter audio,
+      which compresses to a smaller MP3. If your rate parameter isn't being applied —
+      if you're just ignoring it and generating plain TTS — both files will be the
+      same size and the check will fail.
+
+      This kind of check — testing behaviour by observing side effects — is a useful
+      pattern for grading code where you can't inspect internals directly.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Voice names: {lang}-{locale}-{name}Neural — use list_voices() to explore"
+      - "SSML <prosody> controls rate, pitch, volume — wrap text, pass to Communicate"
+      - "html.escape() before SSML construction — never skip this with user input"
+      - "stream() yields audio bytes and WordBoundary events with per-word timing"
+      - "Offset and duration are in 100ns units — divide by 10,000,000 for seconds"
+      - "Next lesson: SadTalker — what it does, how to run it, and what to do when it fails"
+    narration: >
+      Let's lock in what you've learned. Edge TTS voices follow a consistent naming
+      convention — language, locale, name, Neural. list_voices gives you the full
+      catalogue with styles listed in the VoiceTag field.
+
+      SSML prosody gives you control over rate, pitch, and volume by wrapping your
+      text in a prosody tag. Use html.escape on the text first — this makes the
+      function safe for arbitrary input, not just clean strings. The default parameter
+      values of plus zero percent and plus zero hertz are neutral, so this is a
+      drop-in replacement for plain TTS calls.
+
+      The stream method gives you word-level timing data through WordBoundary events.
+      Each event has a word, an offset, and a duration — all in 100-nanosecond units,
+      which you convert to seconds by dividing by ten million. This is the raw data
+      behind subtitle generation, slide sync, and highlighted text displays.
+
+      In the next lesson we go into SadTalker — what the model actually does, why
+      it needs a GPU, how to run it reliably on Colab, and what the failure modes
+      look like so you know what to fix when something goes wrong. See you there.

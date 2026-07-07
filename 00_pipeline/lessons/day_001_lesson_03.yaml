@@ -1,0 +1,310 @@
+day: "001"
+lesson: "03"
+title: "SadTalker Deep Dive"
+
+slides:
+
+  - type: title
+    heading: "SadTalker Deep Dive"
+    subheading: "What the model does, how to run it, and what to do when it breaks"
+    narration: >
+      In Lesson 1 we ran SadTalker as a black box — audio in, talking head video out.
+      That was enough to build the pipeline. Now we go deeper. By the end of this
+      lesson you'll understand what SadTalker is actually doing under the hood, why
+      it needs a GPU, what makes a good input image, what every inference flag does,
+      and how to diagnose it when it fails. You'll also learn one of the most important
+      AI engineering skills: knowing when to treat a model as a black box and when
+      you need to understand it more deeply.
+
+  - type: concept
+    label: "What SadTalker Is"
+    heading: "A CVPR 2023 Research Model"
+    body: >
+      SadTalker was published at CVPR 2023 — one of the top computer vision conferences —
+      by researchers at Tencent AI Lab. The paper is called "SadTalker: Learning
+      Realistic 3D Motion Coefficients for Stylized Audio-Driven Single Image
+      Talking Face Animation."
+
+      The problem it solves is specific: given one still portrait image and one audio
+      track, generate a video of that face speaking in sync with the audio, with
+      realistic head motion and facial expressions. Not a deep fake. Not fine-tuning
+      on the person. One image, one audio, one video. No training required.
+    narration: >
+      SadTalker was published at CVPR 2023 — the Conference on Computer Vision and
+      Pattern Recognition, one of the two or three most important venues in the field.
+      It was built by researchers at Tencent AI Lab and has become one of the most
+      widely used open-source talking head models because it runs on a single GPU
+      and requires no fine-tuning.
+
+      The problem it solves is very specific. You have one still portrait image —
+      a photo of a person's face. You have one audio track — a speech recording.
+      SadTalker generates a video of that face speaking in sync with the audio,
+      including realistic head motion, eye blinking, and facial expressions. The model
+      was never shown this particular person during training. It generalises from
+      a face model learned on thousands of identities.
+
+      This is different from deep fake technology, which typically requires many
+      hours of video of the target person for fine-tuning. SadTalker works from
+      a single image because it represents the face not as pixels but as parameters
+      in a mathematical model — and that's the key insight we need to understand.
+
+  - type: how_it_works
+    label: "The Architecture"
+    heading: "3D Face Model + Audio Features"
+    body: >
+      SadTalker works in two stages:
+
+      Stage 1 — Audio to Expression: A neural network extracts expression
+      coefficients from the audio waveform. These coefficients describe the
+      mouth shape, jaw position, and head rotation at each frame.
+
+      Stage 2 — Expression to Video: A 3D Morphable Face Model (3DMM) applies
+      those coefficients to the portrait image and renders each frame. The GFPGAN
+      enhancer then upscales and sharpens the output.
+
+      The 3DMM is the key: it's a statistical model of human face shape learned
+      from thousands of 3D face scans. A face is represented as a vector of
+      ~200 parameters — not pixels.
+    narration: >
+      SadTalker works in two stages, and understanding both helps you know what
+      can go wrong and where.
+
+      Stage one: audio to expression. A neural network analyses the audio waveform
+      and outputs a sequence of expression coefficients — one set per frame of the
+      output video. These coefficients describe how the mouth is shaped, where the
+      jaw is, how the head is rotated. The network learned this mapping from training
+      data where audio and facial motion were paired.
+
+      Stage two: expression to video. A 3D Morphable Face Model — usually abbreviated
+      3DMM — applies those expression coefficients to the portrait image and renders
+      each frame. A 3DMM represents a human face not as pixels but as a mathematical
+      model: a mean face shape plus a set of parameters that shift it in different
+      directions. The model was learned from thousands of 3D face scans, so it
+      knows the statistical space of all plausible human face shapes and expressions.
+
+      Finally, GFPGAN — a generative face restoration model — runs on each output
+      frame to sharpen details and remove artifacts introduced by the rendering step.
+      This is why we pass the flag --enhancer gfpgan in our inference command.
+
+  - type: concept
+    label: "GPU Requirement"
+    heading: "Why SadTalker Needs a GPU"
+    body: >
+      SadTalker runs 60 frames of inference per second of output video.
+      Each frame involves:
+      · Running the audio encoder
+      · Computing 3DMM coefficients
+      · Rendering the face mesh
+      · Running GFPGAN enhancement
+
+      On a CPU this takes roughly 30–60 seconds per output second of video.
+      On a T4 GPU it takes under 2 seconds per output second. For a 60-second
+      lesson, that's 30+ minutes on CPU vs under 2 minutes on GPU.
+
+      This is why we use Google Colab: free T4 access, no local GPU required.
+    narration: >
+      SadTalker is computationally intensive. For every second of output video,
+      the model needs to run the audio encoder, compute expression coefficients,
+      render each frame using the 3DMM, and run GFPGAN enhancement on each of
+      those frames. This is not a quick calculation.
+
+      On a CPU this runs at roughly one thirtieth to one sixtieth of real time —
+      meaning a sixty-second output video could take thirty to sixty minutes to
+      generate on a modern laptop CPU. On a T4 GPU, the same video takes under
+      two minutes.
+
+      This is why we use Google Colab. Colab provides free access to T4 GPUs
+      with no local hardware requirement. The workflow is: generate your audio
+      locally, upload to Colab, run SadTalker on the GPU, download the output.
+      It's two minutes of GPU time per lesson video. That's a reasonable trade-off
+      for avoiding a three thousand dollar GPU purchase.
+
+      Understanding why a model needs GPU is part of understanding the model.
+      It tells you about the architecture — this is not a lightweight API call,
+      it's a full render pipeline running per-frame neural inference.
+
+  - type: concept
+    label: "Portrait Requirements"
+    heading: "What Makes a Good Input Image"
+    body: >
+      SadTalker doesn't work equally well on all portraits. The model was trained
+      on faces that meet specific constraints. Violate these and quality drops.
+    bullets:
+      - "Face should be roughly centred and forward-facing — side profiles work poorly"
+      - "Single person only — multiple faces confuse the face detector"
+      - "Clear, well-lit face — heavy shadows, sunglasses, or masks degrade output"
+      - "Minimum ~256×256 resolution — low-res inputs produce blurry output"
+      - "Neutral or slight expression — extreme expressions in the portrait don't animate well"
+      - "Plain or simple background — complex backgrounds occasionally bleed into the face"
+    narration: >
+      Not all portrait images produce good output from SadTalker. The model was
+      trained on faces that meet a specific set of conditions, and deviating from
+      those conditions degrades the output quality in predictable ways.
+
+      The face should be roughly centred in the frame and forward-facing. SadTalker
+      uses a face detector to locate the face and crop it before processing. If the
+      face is off to one side, or if the head is rotated significantly from the camera,
+      the detector may crop incorrectly and the 3DMM fitting will be less accurate.
+
+      The image should contain exactly one person. Multiple faces confuse the detector.
+      The face should be clearly visible — heavy shadows, dark sunglasses, surgical
+      masks, or heavy makeup all reduce the quality of the 3DMM fit, which propagates
+      into poor animation.
+
+      Resolution matters. SadTalker internally resizes its input, but starting from a
+      blurry or low-resolution image means GFPGAN has less detail to work with.
+      Aim for at least 512 by 512, ideally higher.
+
+      The expression in the portrait should be neutral or mild. If the input image
+      shows the person mid-laugh with a wide-open mouth, the animation will look
+      strange because the model is trying to animate from an already-exaggerated
+      starting expression.
+
+  - type: code
+    label: "Inference Command"
+    heading: "What Every Flag Does"
+    body: >
+      We run SadTalker with five non-default flags. Each one matters.
+    code: |
+      python inference.py \
+        --driven_audio  lesson.mp3 \
+        --source_image  Avatar.png \
+        --result_dir    output/ \
+        --still              \
+        --preprocess    crop \
+        --size          256  \
+        --enhancer      gfpgan
+    narration: >
+      Let's go through the inference command flag by flag.
+
+      --driven_audio is the audio file that drives the animation — this is our
+      lesson MP3. --source_image is the portrait — our Avatar PNG. --result_dir
+      is where the output video will be saved.
+
+      --still tells SadTalker to minimise large head movements and keep the pose
+      close to the input image. Without this flag, the model generates exaggerated
+      head motion that can feel unnatural for instructional content.
+
+      --preprocess crop tells SadTalker to crop the face from the portrait rather
+      than process the full image. This is more robust because it isolates the face
+      before the 3DMM fitting step.
+
+      --size 256 sets the resolution of the face crop. 256 is sufficient for our
+      PiP overlay which is 200 by 200 pixels. Using a larger size increases
+      processing time without visible benefit at our output resolution.
+
+      --enhancer gfpgan enables the GFPGAN face restoration step. This runs on
+      every output frame and significantly improves sharpness, especially around
+      the mouth and eyes where the animation introduces the most artifacts.
+
+  - type: how_it_works
+    label: "Failure Modes"
+    heading: "What Breaks and Why"
+    body: >
+      SadTalker is research code from 2023. It was written for Python 3.8 and
+      NumPy 1.x. Running it on modern environments requires patching three things:
+
+      NumPy 2.0 removed type aliases — np.float, np.int, np.bool no longer exist.
+      torchvision removed functional_tensor — basicsr still imports it.
+      numpy.VisibleDeprecationWarning was removed — one SadTalker file catches it.
+
+      Understanding why these break helps you diagnose similar issues in any
+      research code you pick up.
+    narration: >
+      When you clone a research repository from 2023 and run it in a modern Python
+      environment, you're almost guaranteed to hit compatibility issues. This is
+      one of the realities of working with open-source AI research code — it was
+      tested in a specific environment that no longer exists as described.
+
+      The three patches we applied in the Colab notebook address three distinct
+      problems. NumPy 2.0 removed shorthand type aliases like np.float, np.int,
+      and np.bool. These were deprecated since NumPy 1.20 and finally removed in
+      2.0. Any code using them needs to be updated to the full names: float, int,
+      bool — the Python builtins that NumPy has always accepted. We patched this
+      with a find-and-replace across all SadTalker Python files.
+
+      The torchvision issue is similar. The basicsr library that SadTalker depends
+      on imports from torchvision.transforms.functional_tensor, a module that was
+      removed in a recent version of torchvision. We patch the import to use the
+      replacement location.
+
+      The VisibleDeprecationWarning patch fixes one file in the SadTalker face
+      processing code that catches numpy.VisibleDeprecationWarning, which no longer
+      exists as a named attribute in NumPy 2.0.
+
+      The lesson here: when you adopt research code, lock your dependencies. If
+      the repository has a requirements.txt, pin the exact versions. If it doesn't,
+      run it once, freeze the working environment, and document what you changed.
+
+  - type: exercise
+    heading: "Exercise 3: Inspect a Video"
+    prompt: >
+      Open exercise_03.ipynb in 00_warmup/day_001/exercises/.
+
+      Write inspect_video(path) that uses ffprobe to extract metadata from a video
+      file and returns a dict with five keys:
+        duration  — float, total seconds
+        width     — int, horizontal resolution
+        height    — int, vertical resolution
+        fps       — float, frames per second
+        codec     — str, video codec name (e.g. "h264")
+
+      Use subprocess.run with ffprobe -print_format json -show_streams.
+      Parse the JSON and pull values from the video stream (codec_type == "video").
+      fps is stored as a fraction string like "30/1" — split and divide.
+    hint: "ffprobe -v quiet -print_format json -show_streams path — then json.loads(result.stdout)"
+    narration: >
+      The exercise for this lesson is about a tool you'll use throughout the course:
+      ffprobe, the companion program to FFmpeg that reads media file metadata.
+
+      You're writing inspect_video, a function that runs ffprobe as a subprocess,
+      parses its JSON output, and returns a clean dictionary with the video's
+      duration, resolution, frame rate, and codec. This function is genuinely useful
+      whenever you generate a video programmatically — it's how you verify the output
+      is what you expected.
+
+      A few things to watch for. ffprobe's output includes both video and audio streams.
+      You want the stream where codec_type equals "video". The frame rate is stored
+      as a fraction string like "30/1" — you need to split on the slash and divide.
+      Duration is a string in the JSON output — cast it to float.
+
+      The auto-grader generates a test video using FFmpeg, runs your function on it,
+      and checks that all five keys are present and the values match what FFmpeg
+      created.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "SadTalker: CVPR 2023 — one still image + audio → talking head video, no fine-tuning"
+      - "Architecture: audio → expression coefficients → 3DMM render → GFPGAN enhance"
+      - "GPU is required — 30x+ faster than CPU; Google Colab T4 is sufficient"
+      - "Portrait: centred, forward-facing, well-lit, neutral expression, 512px+ preferred"
+      - "--still, --preprocess crop, --enhancer gfpgan are the flags that matter"
+      - "Research code breaks on new environments — patch deps and lock versions"
+      - "Next lesson: FFmpeg deep dive — filters, compositing, and the concat demuxer"
+    narration: >
+      Let's lock in what you've learned. SadTalker is a CVPR 2023 model from Tencent
+      AI Lab that takes one still portrait and one audio track and generates a
+      talking head video with no fine-tuning required. It achieves this through a
+      two-stage pipeline: an audio encoder maps the waveform to facial expression
+      coefficients, and a 3D morphable face model applies those coefficients to
+      render each frame. GFPGAN enhancement runs on the output to sharpen the result.
+
+      The model requires a GPU because per-frame neural inference is computationally
+      intensive — on CPU it runs thirty times slower than real time. Google Colab's
+      T4 GPU makes this free and practical.
+
+      Good input images are centred, forward-facing, well-lit, and at least 512
+      pixels square. The inference flags we use — still, crop, size 256, gfpgan —
+      are chosen specifically for our use case: a 200 by 200 pixel PiP overlay
+      with minimal head motion.
+
+      When SadTalker breaks in a new environment, it's almost always a dependency
+      version mismatch. The patches address NumPy 2.0 type alias removal, torchvision
+      module restructuring, and a deprecated exception class. This pattern repeats
+      constantly with research code — understanding what broke and why makes you
+      faster at diagnosing it the next time.
+
+      In the next lesson we go deep on FFmpeg — how the filter graph works, what
+      the concat demuxer does, and how we composite the slides and talking head
+      into a final video. See you there.

@@ -1,0 +1,341 @@
+day: "001"
+lesson: "05"
+title: "The Orchestrator: lesson_build.py"
+
+slides:
+
+  - type: title
+    heading: "The Orchestrator"
+    subheading: "How lesson_build.py ties the pipeline together — and what it teaches about AI systems"
+    narration: >
+      You've now seen every individual component: TTS, SadTalker, FFmpeg, slide
+      generation. In this final lesson for Day 1 we look at how they're connected.
+      lesson_build.py is the orchestrator — the program that runs the other programs
+      in the right order, passes outputs between them, and handles the things that
+      go wrong. By the end of this lesson you'll understand what orchestrators are,
+      why they're split into stages, how YAML configuration drives the whole system,
+      and how to verify each step before proceeding. You'll also write the last
+      exercise for the day before tackling the Day Project on your own.
+
+  - type: concept
+    label: "Orchestration"
+    heading: "What an Orchestrator Is"
+    body: >
+      Every real AI system has more than one component. A pipeline that connects
+      them needs something that:
+
+      · Calls each component in the correct order
+      · Passes outputs from one step as inputs to the next
+      · Handles paths, formats, and naming conventions consistently
+      · Fails loudly and informatively when something goes wrong
+      · Resumes from a checkpoint rather than rerunning everything
+
+      This is the orchestrator. It's not doing the work — it's managing the work.
+      In production AI systems, orchestrators are often the most important and least
+      glamorous code you write.
+    narration: >
+      As soon as a system has more than one component — more than one model, more
+      than one API, more than one processing step — you need something to manage
+      the connections between them. That's the orchestrator.
+
+      The orchestrator is responsible for calling each component in the right order
+      and passing the right data between them. In our pipeline: generate slides, then
+      generate audio for each slide, then measure the audio durations, then build the
+      concat file, then run FFmpeg for the slide video, then run FFmpeg again for the
+      final composite. Seven steps. The orchestrator ensures they happen in order,
+      with the right inputs, and that a failure in step three doesn't silently
+      produce a broken output at step six.
+
+      In production AI systems, orchestrators manage things like model serving,
+      vector database queries, API calls, caching, retries, and logging. Tools like
+      Airflow, Prefect, and LangGraph are orchestration frameworks. But the core
+      concept is the same as what lesson_build.py does: manage the flow, not the work.
+
+      The orchestrator pattern also applies at a smaller scale than you might think.
+      When you write a function that calls three helper functions in sequence and
+      passes the output of each as input to the next — that's also orchestration.
+      The skill scales.
+
+  - type: how_it_works
+    label: "Two-Stage Design"
+    heading: "Why --prep and --finalize Are Separate"
+    body: >
+      lesson_build.py has two modes, not one. This is a deliberate design choice.
+
+      --prep runs locally: generates slides, generates audio, measures durations,
+      saves the timing manifest. Output: slides/, audio/, manifest.yaml.
+
+      Then: manual step — upload audio to Colab, run SadTalker, download the result.
+
+      --finalize runs locally: reads the manifest, builds the slide video, composites
+      the talking head. Output: final/lesson_id_final.mp4.
+
+      The split exists because one step (SadTalker) runs on a different machine.
+      Good pipeline design acknowledges hardware constraints and makes the boundary explicit.
+    narration: >
+      One of the first decisions we made when designing this pipeline was to split
+      it into two commands rather than one. This was driven by a real constraint:
+      SadTalker requires a GPU, and we're running it on Google Colab.
+
+      If we had a single end-to-end command, it would need to handle the Colab step
+      somehow — either by automating the upload, waiting for the result, or blocking
+      until it's done. That's complicated, fragile, and unnecessary. Instead, the
+      pipeline is honest about the boundary. --prep produces everything you need to
+      hand off to Colab. --finalize picks up exactly where Colab left off.
+
+      This is a general design principle: identify the natural seams in your system
+      and make them explicit. Don't paper over machine boundaries with automation
+      that breaks in non-obvious ways. A clear handoff point — with a human step in
+      the middle — is often more reliable than a fragile automated bridge.
+
+      The manifest.yaml file is the contract between the two stages. It records
+      which slide goes with which audio file and exactly how long each one lasts.
+      As long as the manifest exists and is accurate, --finalize can run correctly —
+      regardless of how much time has passed since --prep.
+
+  - type: code
+    label: "The Prep Step"
+    heading: "What --prep Does in Order"
+    body: >
+      prep() reads the YAML, generates slides, generates per-slide audio, measures
+      each duration, concatenates the audio, and saves the manifest. Five steps,
+      one function.
+    code: |
+      def prep(yaml_path):
+          lesson = yaml.safe_load(open(yaml_path))
+          lid    = _lesson_id(lesson)       # "day_001_lesson_01"
+
+          # 1. Generate slide PNGs
+          slide_paths = generate_slides(yaml_path, _slides_dir(lid))
+
+          # 2. Generate per-slide audio + measure duration
+          timed = []
+          for i, slide in enumerate(lesson["slides"], 1):
+              mp3 = os.path.join(_audio_dir(lid), f"slide_{i:03d}.mp3")
+              asyncio.run(_tts(slide["narration"], mp3))
+              dur = _duration(mp3)           # ffprobe for exact seconds
+              timed.append((slide_paths[i-1], mp3, dur))
+
+          # 3. Concatenate audio → one MP3 for Colab
+          # 4. Save manifest (png, mp3, duration per slide)
+          yaml.dump([{"png":p,"mp3":m,"duration":d}
+                     for p,m,d in timed], open(manifest_path,"w"))
+    narration: >
+      Let's walk through the prep function. It starts by loading the lesson YAML
+      and computing the lesson ID — a string like day-underscore-001-underscore-lesson-underscore-01
+      that's used as the folder name for all generated assets.
+
+      First it calls generate_slides, which renders each slide in the YAML to a PNG
+      using Pillow. Then it loops over the slides again, calling the TTS function for
+      each slide's narration field and saving the result as an MP3. After generating
+      each audio file, it immediately measures the duration using ffprobe. This gives
+      us the exact length in seconds — not an estimate.
+
+      The timing data — slide PNG path, audio MP3 path, and duration — is collected
+      into a list called timed. This list drives everything that follows. The audio
+      files are concatenated into a single MP3 for the Colab upload. And the list is
+      serialised to manifest.yaml, which is the handoff document for the finalize step.
+
+      Notice that prep never touches FFmpeg for video. It only generates the ingredients.
+      The reason: video encoding is slow and only needs to happen once. If you run
+      prep and then realise you need to tweak one narration, you can regenerate just
+      that slide's audio, update the manifest, and re-run finalize — without re-encoding
+      the slides that didn't change.
+
+  - type: code
+    label: "The Finalize Step"
+    heading: "What --finalize Does in Order"
+    body: >
+      finalize() reads the manifest, builds a concat file for the slides, encodes the
+      slide video, then composites the talking head PiP onto it with the master audio.
+    code: |
+      def finalize(yaml_path):
+          # Load manifest — the contract from --prep
+          timed = yaml.safe_load(open(manifest_path))
+
+          # 1. Build concat file: one entry per slide with its exact duration
+          with open(concat_txt, "w") as f:
+              for s in timed:
+                  f.write(f"file '{s['png']}'\nduration {s['duration']}\n")
+              f.write(f"file '{timed[-1]['png']}'\n")  # termination frame
+
+          # 2. Encode slide video (concat demuxer → H.264)
+          ffmpeg(-f concat -safe 0 -i concat_txt
+                 -vf scale=1280:720:lanczos,fps=25
+                 -c:v libx264 -crf 18 slides.mp4)
+
+          # 3. Composite: slides + PiP talking head + master audio
+          ffmpeg(-i slides.mp4 -i talking_head.mp4 -i full_audio.mp3
+                 -filter_complex "[1:v]scale=200:200[pip];[0:v][pip]overlay=x=1060:y=500[out]"
+                 -map [out] -map 2:a
+                 -t {total_duration}
+                 -movflags +faststart  final.mp4)
+    narration: >
+      The finalize function starts by reading the manifest — it trusts that --prep
+      ran successfully and that the files listed in the manifest actually exist. It
+      checks for the three files it needs before doing any work: the talking head
+      from Colab, the full audio MP3, and the manifest itself. If any are missing
+      it exits with a clear error message.
+
+      Then it builds the concat file. For each slide in the manifest it writes the
+      file path and duration. The last slide gets written a second time without a
+      duration — the termination frame that the concat demuxer requires. This is
+      a detail that's easy to miss and causes a subtle bug where the last slide is
+      cut off slightly early.
+
+      The slide video is encoded as a single H.264 MP4 at 1280 by 720. Then the
+      final composite step takes three inputs — the slide video, the talking head,
+      and the master audio — and runs the overlay filter to place the PiP at
+      position 1060, 500. The -t flag clamps the output to the exact lesson
+      duration so the video doesn't overrun the audio.
+
+      The entire finalize step runs in under two minutes for a typical lesson on
+      a modern laptop. The slow part is the --prep audio generation, which calls
+      the Edge TTS API once per slide.
+
+  - type: concept
+    label: "YAML Configuration"
+    heading: "Why YAML Drives the Whole System"
+    body: >
+      Every lesson is defined entirely in a YAML file. The pipeline code never
+      has lesson-specific content hardcoded in it.
+
+      This is the configuration-as-code pattern. The YAML is the single source
+      of truth — change the YAML, re-run the pipeline, get a different video.
+
+      It also enables automation. You could write a script that reads ten YAML
+      files and builds ten lessons sequentially. You could validate YAML files
+      before running the pipeline. You could generate YAML programmatically
+      from a database of lesson content.
+
+      The pipeline doesn't know anything about "Day 1 Lesson 3". It only knows
+      how to build "a lesson" from a spec. That separation is intentional.
+    narration: >
+      One of the most important design decisions in lesson_build.py is that all
+      lesson content lives in YAML files, and the Python code is completely generic.
+      The pipeline has no hardcoded lesson titles, slide counts, or narration text.
+      It only knows how to process "a lesson" described in the YAML format.
+
+      This is the configuration-as-code pattern. When content and logic are separated,
+      both become easier to maintain. You can update a narration script without
+      touching the pipeline code. You can fix a slide rendering bug without touching
+      any content. And you can test the pipeline on a minimal YAML file without
+      needing a full lesson.
+
+      The separation also enables automation. Because lessons are data, not code,
+      you could generate them programmatically. Later in this course you'll see
+      exactly that pattern: language models generating structured YAML from natural
+      language specifications. The YAML format we designed here becomes an output
+      format for an AI assistant.
+
+      This principle — separating configuration from implementation — is one of the
+      most consistently valuable design patterns in software engineering. It appears
+      in environment variables, database-driven UIs, policy-as-code in infrastructure,
+      and model cards in machine learning. Internalise it early.
+
+  - type: concept
+    label: "The Eval Mindset"
+    heading: "Verifying Before Proceeding"
+    body: >
+      lesson_build.py has a specific pattern: before finalize does any work,
+      it checks that all three required inputs exist. If any are missing, it
+      stops with a clear error. It never silently produces a broken output.
+
+      This is the beginning of what we'll call eval-first thinking — the practice
+      of verifying your system's outputs at every stage, not just at the end.
+
+      In this pipeline: verify audio was generated, verify duration is reasonable,
+      verify the talking head file arrived from Colab, verify the manifest is intact.
+      Each check catches a different failure mode before it propagates downstream.
+    narration: >
+      Look at how finalize handles its inputs. Before it runs a single FFmpeg command,
+      it checks that all three required files exist — the talking head, the full audio,
+      and the manifest. If any are missing it prints an informative error and exits.
+      It never attempts to build a video from incomplete inputs.
+
+      This might seem obvious, but a lot of pipeline code doesn't do this. It tries
+      to proceed and fails halfway through with a cryptic error. Or worse, it silently
+      produces a broken output that looks fine until someone tries to play it.
+
+      The pattern here is: verify inputs before processing, and verify outputs after.
+      This is the foundation of what we'll build into throughout the course as
+      eval-first thinking. Right now it's simple existence checks. Later it becomes
+      quality checks — does the audio meet a minimum duration, does the video have
+      the right resolution, does the narration match the slide content? By the time
+      you reach the capstone projects, you'll have automated eval harnesses that
+      run after every generation and flag outputs that don't meet a quality threshold.
+
+      The instinct to verify rather than assume is one of the habits that separates
+      reliable AI engineering from systems that work on the happy path and break
+      silently in production.
+
+  - type: exercise
+    heading: "Exercise 5: Audio to Video"
+    prompt: >
+      Open exercise_05.ipynb in 00_warmup/day_001/exercises/.
+
+      Write audio_to_video(audio_path, output_path, bg_color="0f172a", size=(1280,720))
+      that combines an audio file with a solid colour background to produce a video.
+      The output duration must match the audio exactly.
+
+      Use FFmpeg's lavfi source to generate the background:
+        -f lavfi -i "color=c=#{bg_color}:s={width}x{height}:r=25"
+      Pair it with the audio input and use -shortest to clamp to audio length.
+
+      This is the simplest possible "slides + audio" video — one colour, no images.
+      It's a building block for any pipeline where you need to package audio as video.
+    hint: "Two -i inputs: one lavfi color source, one audio file. Then -shortest to stop at audio end."
+    narration: >
+      The final exercise of Day 1 brings several things together. You're writing
+      audio_to_video, a function that takes an audio file and produces a video
+      with a solid colour background for exactly the duration of the audio.
+
+      The new concept here is the lavfi source — a virtual input that FFmpeg generates
+      synthetically rather than reading from a file. The color filter produces a video
+      stream of any colour and resolution you specify. Combined with an audio input
+      and the -shortest flag, you get a perfectly timed video with no need for a
+      real background image.
+
+      This function is more useful than it sounds. Any time you need to package audio
+      as a video — for platforms that require video format, for testing your pipeline
+      without real slides, or for generating a simple cover frame — this is the tool.
+
+      The auto-grader generates a short silent audio file, calls your function, then
+      verifies that the output is a valid video with both a video stream and an audio
+      stream, and that the duration matches the input.
+
+  - type: summary
+    heading: "Day 1 Complete"
+    bullets:
+      - "Orchestrators manage flow between components — not the work itself"
+      - "Two-stage design (--prep / --finalize) makes machine boundaries explicit"
+      - "manifest.yaml is the contract between stages — the timing source of truth"
+      - "Configuration-as-code: YAML drives content, Python drives logic — keep them separate"
+      - "Verify inputs before processing, verify outputs after — the eval mindset starts here"
+      - "The pipeline: YAML → slides + audio → SadTalker → FFmpeg composite → final MP4"
+      - "Next: the Day 1 Project — build a pipeline tool of your own from scratch"
+    narration: >
+      That's Day 1 complete. Let's take stock of what you've built and what you
+      now understand.
+
+      You built a complete automated video production pipeline. A YAML file
+      describing a lesson goes in. A polished 1280 by 720 MP4 video with slides,
+      a talking head, and professional narration comes out. The pipeline runs
+      on two commands and produces consistent results every time.
+
+      More importantly, you understand every component. Edge TTS — what it is,
+      how to control it with SSML, how to capture word-level timing. SadTalker —
+      the 3DMM architecture, why it needs a GPU, what makes a good input, how to
+      diagnose it when it breaks. FFmpeg — the filter graph model, the concat
+      demuxer, the encoding flags that matter for real-world compatibility.
+      And the orchestrator that connects them all.
+
+      You've also seen three patterns that will repeat throughout this course.
+      Pipelines that separate configuration from implementation. Two-stage designs
+      that acknowledge hardware constraints. And the verify-before-proceeding
+      instinct that makes systems reliable rather than fragile.
+
+      Now it's your turn. The Day 1 Project is open. Close these lessons, open
+      project.ipynb, and build something from scratch. You have everything you
+      need. Check the solution only after you've got a working version.
+      See you on Day 2.

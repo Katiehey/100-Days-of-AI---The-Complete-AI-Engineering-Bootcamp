@@ -1,0 +1,32 @@
+# 100 Days of AI — dependencies (FREE / LOCAL ONLY — no paid API)
+#
+# Install the CORE block now. Install a per-section block only when you reach
+# that section, to keep the env lean and fast.
+#
+#   conda activate ai-course
+#   pip install -r requirements.txt
+#   pip freeze > requirements.lock.txt      # pin exact versions after installing
+
+# ── CORE: authoring tools + video pipeline + warmup (Days 1–5) ───────────────
+jupyter
+nbconvert
+ipykernel
+PyYAML
+Pillow
+edge-tts
+pydantic
+python-dotenv
+pytest
+pandas
+matplotlib
+requests
+beautifulsoup4
+ollama            # local LLM client — needs the Ollama app + a pulled model (from Day 3)
+
+# ── PER-SECTION (install when you get there; heavy deps kept out of core) ─────
+# Section 1  Text AI (6–20):         chromadb  sentence-transformers
+# Section 2  Automation (21–35):     openpyxl  gspread  apscheduler
+# Section 3  Data & ML (36–50):      scikit-learn  seaborn
+# Section 4  Real Apps (51–65):      fastapi  uvicorn  streamlit  sqlalchemy
+# Section 5  Vision & Audio (66–78): opencv-python  openai-whisper
+# Section 7  Finance (89–100):       yfinance  backtesting

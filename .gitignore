@@ -1,0 +1,30 @@
+# Secrets & environments
+.env
+.venv/
+miniconda/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Generated video-pipeline artifacts — regenerable from lesson YAML + Colab, keep out of git
+00_pipeline/audio/
+00_pipeline/slides/
+00_pipeline/talking_heads/
+00_pipeline/final/
+00_pipeline/samples/
+
+# Generated audio/video outputs from running notebooks & check harnesses
+*.mp3
+*.mp4
+*.wav
+__check*
+my_intro.mp3
+
+# Model weights / large binaries
+*.pth
+*.pkl

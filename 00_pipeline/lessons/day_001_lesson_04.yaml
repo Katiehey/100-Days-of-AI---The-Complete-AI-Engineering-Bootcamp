@@ -1,0 +1,300 @@
+day: "001"
+lesson: "04"
+title: "FFmpeg Deep Dive"
+
+slides:
+
+  - type: title
+    heading: "FFmpeg Deep Dive"
+    subheading: "Filter graphs, the concat demuxer, and how the pipeline assembles a video"
+    narration: >
+      In Lesson 1 we used FFmpeg as a black box — three inputs in, one video out.
+      Now we open it up. By the end of this lesson you'll understand what FFmpeg
+      actually is under the hood, how its filter graph model works, exactly what
+      the concat demuxer does and why we use it for slide timing, how the PiP
+      overlay composite is constructed, and what the encoding flags in lesson_build.py
+      mean and why they were chosen. You'll also write your first FFmpeg command
+      from scratch.
+
+  - type: concept
+    label: "What FFmpeg Is"
+    heading: "A Media Processing Framework, Not Just a CLI"
+    body: >
+      Most people think of FFmpeg as a command-line tool. It's actually a framework
+      of C libraries that powers most of the world's media software.
+
+      libavformat — reads and writes container formats (MP4, MKV, WebM, MOV)
+      libavcodec  — encodes and decodes audio/video (H.264, AAC, VP9, Opus)
+      libavfilter — the filter graph engine (scale, overlay, concat, equalise)
+
+      The ffmpeg CLI is a thin wrapper around these libraries. When you call ffmpeg
+      from Python via subprocess, you're orchestrating the same code that runs
+      inside YouTube's encoding pipeline, Chrome's video player, and VLC.
+    narration: >
+      When most people hear FFmpeg they picture a command-line tool you run in a
+      terminal. But FFmpeg is actually a collection of C libraries that have been
+      embedded into the media stack of the modern internet.
+
+      Three libraries do most of the work. libavformat handles reading and writing
+      container formats — the outer wrapper of a media file. An MP4 container can
+      hold H.264 video and AAC audio. An MKV container can hold VP9 video and Opus
+      audio. libavformat knows how to parse and write all of them.
+
+      libavcodec handles the actual encoding and decoding of compressed audio and
+      video. H.264 is the codec we use — it's supported by essentially every device
+      and browser on the planet. AAC is our audio codec.
+
+      libavfilter is the filter graph engine — the part we'll focus on most. It's
+      responsible for transforming, combining, and routing media between operations
+      like scaling, overlaying, cropping, and concatenating.
+
+      The ffmpeg command-line tool is a thin wrapper around these three libraries.
+      When you call subprocess.run with ffmpeg in Python, you're using the same
+      code that runs inside YouTube's upload pipeline, Netflix's encoding farm,
+      Chrome's HTML5 video player, and VLC. It's genuinely one of the most
+      important open-source projects in existence.
+
+  - type: how_it_works
+    label: "The Filter Graph"
+    heading: "Inputs → Filters → Outputs"
+    body: >
+      FFmpeg processes media through a directed graph of filters. Each filter takes
+      one or more labelled streams as input and produces one or more labelled streams
+      as output. Labels are written in square brackets: [0:v], [pip], [out].
+
+      [0:v]  — video stream from the first input file
+      [0:a]  — audio stream from the first input file
+      [1:v]  — video stream from the second input file
+
+      Filters are chained with semicolons. The -filter_complex flag passes the
+      entire graph to FFmpeg as a single string. -map selects which streams go
+      into the output file.
+    narration: >
+      The filter graph is the most powerful and most confusing part of FFmpeg.
+      Once you understand the model, the commands stop looking like line noise.
+
+      FFmpeg represents every stream — every piece of audio or video — as a labelled
+      node in a graph. When you have three input files, their streams are automatically
+      labelled zero-colon-v for the first file's video, zero-colon-a for its audio,
+      one-colon-v for the second file's video, and so on.
+
+      Filters sit between these labelled streams. A filter takes one or more streams
+      as input, processes them, and produces one or more output streams — each of
+      which you can label whatever you like. [pip] is just a name I chose. [out]
+      is just a name I chose. You could call them [face] and [result] — the labels
+      are arbitrary as long as they're consistent within the filter string.
+
+      Filters within a -filter_complex string are separated by semicolons. Each
+      filter reads from labelled inputs and writes to labelled outputs. The final
+      output streams are selected with -map to tell FFmpeg what to include in the
+      output file.
+
+      This graph model is what makes FFmpeg so powerful. You can route any stream
+      to any filter in any order, branch streams to multiple destinations, and merge
+      multiple inputs into a single output — all in one command.
+
+  - type: code
+    label: "Concat Demuxer"
+    heading: "Slide Timing: The Concat Format"
+    body: >
+      The concat demuxer reads a text file that lists media segments and their
+      durations. FFmpeg plays each one for exactly the specified time, then moves
+      to the next. This is how we make each slide stay on screen for exactly as
+      long as its narration audio lasts.
+
+      Note the termination frame — the last file is listed again with no duration.
+      This is required by the concat demuxer to flush the final frame correctly.
+    code: |
+      # slides_concat.txt (generated by lesson_build.py)
+      file '/path/to/slide_001.png'
+      duration 52.3
+      file '/path/to/slide_002.png'
+      duration 38.7
+      file '/path/to/slide_003.png'
+      duration 45.1
+      # ... one entry per slide ...
+      file '/path/to/slide_009.png'   # termination frame — no duration
+    narration: >
+      The concat demuxer is the answer to a specific problem: how do you make a
+      video where each image or clip plays for a different, precise duration?
+
+      The naive approach would be to calculate how many frames each slide needs at
+      your target frame rate and loop the image that many times. That's fragile and
+      complicated. The concat demuxer is cleaner — you write a text file that lists
+      each input and how long it should last, and FFmpeg handles the rest.
+
+      The format is simple. Each segment starts with a file line giving the path,
+      followed by a duration line giving the length in seconds — fractions of a
+      second are fine. FFmpeg reads the list top to bottom and stitches them together.
+
+      There's one quirk worth remembering: the last file in the list must be repeated
+      without a duration line. This is called the termination frame. Without it, the
+      concat demuxer can cut the last segment slightly short. lesson_build.py handles
+      this automatically — you can see it in the finalize function where it writes
+      the last slide path a second time.
+
+      This is the mechanism behind precisely timed lesson videos. Each slide's audio
+      is generated first, its duration is measured with ffprobe, and that duration
+      is written into the concat file. The slides and audio are perfectly in sync
+      because the video is built to match the audio timing, not the other way around.
+
+  - type: code
+    label: "Slide Video Build"
+    heading: "From Images to Video: The Build Command"
+    body: >
+      The slide video step reads the concat file and encodes a proper MP4. The -vf
+      filter chain scales the images to 1280x720 and enforces a consistent frame rate.
+    code: |
+      ffmpeg
+        -f concat -safe 0 -i slides_concat.txt
+        -vf "scale=1280:720:flags=lanczos,fps=25"
+        -c:v libx264 -crf 18 -preset fast
+        -pix_fmt yuv420p
+        slides.mp4
+
+      # -f concat        use the concat demuxer (not the concat filter)
+      # -safe 0          allow absolute paths in the concat file
+      # scale=...lanczos high-quality image resize algorithm
+      # fps=25           force a consistent frame rate for the output
+      # -crf 18          quality level: 0=lossless, 51=worst, 18=near-lossless
+      # -preset fast     encoding speed vs. compression trade-off
+      # -pix_fmt yuv420p broadest device compatibility (required by H.264)
+    narration: >
+      Let's walk through the slide video build command line by line.
+
+      The -f concat flag tells FFmpeg to use the concat demuxer for reading the
+      input — this is different from the concat video filter. The -safe 0 flag
+      allows the concat file to contain absolute paths. Without it, FFmpeg rejects
+      paths that don't start with a relative reference for security reasons.
+
+      The -vf flag specifies a video filter chain. Scale resizes each slide image
+      to 1280 by 720 pixels using the Lanczos algorithm, which produces sharper
+      results than the default bilinear resampling. fps=25 enforces a consistent
+      frame rate — without this, the output frame rate might vary depending on
+      how ffmpeg interprets the still images.
+
+      -c:v libx264 selects the H.264 encoder. -crf 18 sets the quality level.
+      CRF stands for Constant Rate Factor — zero is lossless and 51 is the worst
+      possible quality. 18 is near-lossless for slide content, which has flat
+      colour fields and sharp text. -preset fast trades a slightly larger file for
+      faster encoding. For slides this is the right trade-off.
+
+      -pix_fmt yuv420p sets the pixel format. H.264 technically supports other
+      pixel formats, but yuv420p is the only one with universal device support.
+      Skipping this flag can produce videos that play on desktop but fail on
+      certain mobile devices or older browsers.
+
+  - type: code
+    label: "PiP Composite"
+    heading: "Overlaying the Talking Head"
+    body: >
+      The finalize step takes three inputs and composites them. The filter_complex
+      string does two things in sequence: scale the talking head to 200×200, then
+      overlay it at position x=1060, y=500 on the slide video.
+    code: |
+      ffmpeg
+        -i slides.mp4          # [0:v] slide video
+        -i talking_head.mp4    # [1:v] talking head (PiP)
+        -i full_audio.mp3      # [2:a] master audio
+        -filter_complex
+          "[1:v]scale=200:200:flags=lanczos[pip];
+           [0:v][pip]overlay=x=1060:y=500[out]"
+        -map [out]   -map 2:a
+        -c:v libx264 -crf 18 -preset slow
+        -c:a aac -b:a 192k
+        -t {total_duration}
+        -movflags +faststart
+        final.mp4
+    narration: >
+      The final composite step has three inputs. Input zero is the slide video we
+      just built. Input one is the talking head from SadTalker. Input two is the
+      full lesson audio that was concatenated during the prep step.
+
+      The filter_complex string does two things. First: [1:v] — the talking head
+      video — is scaled to 200 by 200 pixels using Lanczos. The output is labelled
+      [pip]. Second: [0:v] — the slide video — and [pip] are passed to the overlay
+      filter, which places pip at x equals 1060, y equals 500. That's 20 pixels
+      from the bottom-right corner of a 1280 by 720 canvas. The result is labelled
+      [out].
+
+      The -map flags select which streams go into the output. -map [out] takes the
+      composited video. -map 2:a takes the audio from input two — the master audio
+      file — not the audio from the talking head, which we discard.
+
+      -preset slow on the final encode is intentional. We use fast for the intermediate
+      slide video because it gets re-encoded anyway. But the final output is what
+      the student sees, so we spend more CPU time for better compression.
+
+      -t total_duration clamps the output to the exact lesson length. This prevents
+      the video from running longer than the audio if the talking head is slightly
+      longer. -movflags +faststart moves the MP4 index to the beginning of the file,
+      which lets web players start playback before the file is fully downloaded.
+
+  - type: exercise
+    heading: "Exercise 4: Still Image to Video"
+    prompt: >
+      Open exercise_04.ipynb in 00_warmup/day_001/exercises/.
+
+      Write image_to_video(image_path, duration, output_path, fps=25) that converts
+      a still PNG image into a video clip of exactly the specified duration.
+
+      This is the single-slide version of what lesson_build.py does across an entire
+      lesson. The FFmpeg flag that loops a single image is -loop 1.
+
+      Requirements:
+      · Use -loop 1 to tell FFmpeg to repeat the image
+      · Use -t duration to set the clip length
+      · Encode as H.264 with -pix_fmt yuv420p
+      · The output resolution must match the input image
+    hint: "ffmpeg -loop 1 -i image.png -t 3 -c:v libx264 -pix_fmt yuv420p -r 25 out.mp4"
+    narration: >
+      The exercise for this lesson is the building block of the entire slide video
+      pipeline: converting a still image to a video clip of a specific duration.
+
+      When the concat demuxer reads a PNG file, it needs FFmpeg to know how to
+      handle a still image as a video source. The -loop 1 flag tells FFmpeg to
+      loop the image indefinitely as a video stream. The -t flag then cuts it at
+      exactly the duration you specify. The result is a valid video file that
+      displays your image for precisely that many seconds.
+
+      Your function takes an image path, a duration in seconds, an output path,
+      and an optional fps argument that defaults to 25. The auto-grader generates
+      a test image with Pillow, calls your function, and then uses ffprobe to verify
+      that the output has the correct duration, resolution, and frame rate.
+
+      Pay attention to the -pix_fmt yuv420p flag — without it, the output may play
+      fine on your machine but fail on other devices. This is one of those flags
+      you always include for H.264 output.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "FFmpeg is a media processing framework — libavformat, libavcodec, libavfilter"
+      - "Filter graph: labelled streams routed through filters with -filter_complex"
+      - "Concat demuxer: text file maps each image/clip to an exact duration"
+      - "Termination frame: repeat the last file without a duration to flush correctly"
+      - "CRF 18 = near-lossless quality; preset slow = better compression for finals"
+      - "-pix_fmt yuv420p + -movflags +faststart = broadest compatibility"
+      - "Next lesson: lesson_build.py — the orchestrator that ties it all together"
+    narration: >
+      Let's lock in what you've learned. FFmpeg is not just a command-line tool —
+      it's a framework of C libraries embedded in most media software on the planet.
+      The filter graph model lets you route any stream through any filter in any
+      order, which is what makes it powerful enough to build a complete video
+      production pipeline in a single command.
+
+      The concat demuxer is the key to slide-timed video. You write a text file
+      mapping each image or clip to a duration, FFmpeg reads it and stitches them
+      together. The termination frame — repeating the last file without a duration —
+      is a quirk of the format that's easy to forget and causes subtle bugs when
+      you do.
+
+      For encoding, CRF 18 gives near-lossless quality for slide content. Use preset
+      fast for intermediates, preset slow for finals. Always set -pix_fmt yuv420p
+      for H.264 — it's the only pixel format with universal device support. And add
+      -movflags +faststart for anything you'll serve over the web.
+
+      In the final lesson for Day 1 we look at lesson_build.py as a whole —
+      how it orchestrates slide generation, audio generation, timing manifest,
+      slide video build, and PiP composite into a single two-command workflow.
+      See you there.
