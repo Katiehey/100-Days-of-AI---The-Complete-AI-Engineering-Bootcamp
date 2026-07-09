@@ -22,6 +22,7 @@ Usage:
 """
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -73,6 +74,77 @@ def _exec_nb(path: Path, label: str, lines: list[str]) -> bool:
     return good
 
 
+_SOLUTION_RE = re.compile(r"```python\n(.*?)```", re.S)
+
+
+def _verify_solutions(day: int, lines: list[str]) -> bool:
+    """For each exercise, inject its EMBEDDED solution into the notebook and run
+    it through the real kernel against the exercise's own checks — requiring all
+    checks pass. The stub-execution gate only proves the harness doesn't crash;
+    this proves the exercise is actually solvable and the provided answer reaches
+    all-green. Runs via the kernel (so async / top-level await work) in an
+    isolated temp dir (so file-based checks don't leak)."""
+    import nbformat
+    from nbformat.v4 import new_code_cell
+
+    ok = True
+    section = section_for(day)
+    ex_dir = ROOT / section / f"day_{day:03d}" / "exercises"
+    exercises = sorted(ex_dir.glob("exercise_*.ipynb"))
+    if not exercises:
+        lines.append(f"  {FAIL} no exercises found to verify")
+        return False
+
+    for ef in exercises:
+        nb = nbformat.read(str(ef), as_version=4)
+        solution, impl_idx = None, None
+        want_impl = False
+        for i, c in enumerate(nb.cells):
+            if c.cell_type == "markdown" and "## Your Implementation" in c.source:
+                want_impl = True
+                continue
+            if want_impl and c.cell_type == "code":
+                impl_idx = i
+                want_impl = False
+            if c.cell_type == "markdown" and ("<details>" in c.source or "## Solution" in c.source):
+                m = _SOLUTION_RE.search(c.source)
+                if m:
+                    solution = m.group(1)
+        if solution is None or impl_idx is None:
+            lines.append(f"  {FAIL} {ef.name}: could not locate the implementation cell and/or solution block")
+            ok = False
+            continue
+
+        # Insert the solution just after the stub so it overrides it while keeping
+        # the stub cell's imports intact.
+        nb.cells.insert(impl_idx + 1, new_code_cell(solution))
+        with tempfile.TemporaryDirectory() as td:
+            src_nb = Path(td) / "verify.ipynb"
+            nbformat.write(nb, str(src_nb))
+            r = subprocess.run(
+                ["jupyter", "nbconvert", "--to", "notebook", "--execute",
+                 "--ExecutePreprocessor.timeout=300",
+                 "--ExecutePreprocessor.kernel_name=ai-course",
+                 "--output", "out.ipynb", "--output-dir", td, str(src_nb)],
+                capture_output=True, text=True, cwd=td)
+            out_nb = Path(td) / "out.ipynb"
+            if r.returncode == 0 and out_nb.exists():
+                executed = nbformat.read(str(out_nb), as_version=4)
+                text = "".join(
+                    (o.get("text", "") or "")
+                    for c in executed.cells for o in getattr(c, "outputs", [])
+                )
+                passed = ("complete!" in text) and ("❌" not in text)
+                detail = text.strip()[-400:]
+            else:
+                passed = False
+                detail = (r.stderr or "").strip()[-400:]
+        ok = ok and passed
+        lines.append(f"  {PASS if passed else FAIL} {ef.name}: embedded solution passes its own checks"
+                     + ("" if passed else f"\n      {detail}"))
+    return ok
+
+
 def run(day: int, fast: bool = False, no_exec: bool = False) -> tuple[bool, list[str]]:
     lines: list[str] = []
     ok = True
@@ -97,6 +169,9 @@ def run(day: int, fast: bool = False, no_exec: bool = False) -> tuple[bool, list
             ok = False
         for ef in sorted((day_dir / "exercises").glob("exercise_*.ipynb")):
             ok &= _exec_nb(ef, f"{ef.name} (harness must not crash)", lines)
+
+        lines.append("Verify solutions (each embedded answer passes its own checks):")
+        ok &= _verify_solutions(day, lines)
 
     lines.append(f"\n{'PASS' if ok else 'FAIL'} — Day {nnn} run")
     return ok, lines

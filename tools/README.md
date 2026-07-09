@@ -10,7 +10,7 @@ compound across the 100 days. See `../AUTHORING_TEMPLATE.md` for the day shape a
 | Tool | Precaution | What it checks |
 |------|-----------|----------------|
 | `validate_day.py` | #2 structure | Deterministic: lesson count, YAML keys, narration, slide arc, exercise/project/solution presence, naming. Hard-fails on any violation. |
-| `run_day.py` | #1 execute + render | Runs slides+audio through the pipeline; executes the project solution (must be clean) and every exercise (harness must not crash) in `ai-course`. |
+| `run_day.py` | #1 execute + render | Runs slides+audio through the pipeline; executes the project solution (must be clean) and every exercise (harness must not crash); and **verifies each exercise's embedded solution passes its own checks** (proves it's solvable, not just non-crashing). |
 | `check_day.py` | #1 + #2 | Orchestrator — the single gate. Runs validate then run, one report. |
 | `REVIEW_CHECKLIST.md` | #3 adversarial review | Mandate for the fresh-eyes critic pass (correctness, coherence, pedagogy). |
 | `../CONCEPTS.md` | #5 concepts ledger | Record of what each day introduces, so nothing is used before it's taught. |
