@@ -1,0 +1,149 @@
+day: "002"
+lesson: "03"
+title: "Lists, Dicts & Comprehensions: Shaping Data"
+
+slides:
+
+  - type: title
+    heading: "Lists, Dicts & Comprehensions"
+    subheading: "Shaping whole collections of data at once"
+    narration: >
+      Welcome back. So far we've worked with single values and single strings. But
+      real data comes in collections — many records, many rows, many items. In this
+      lesson we cover the two collection types you'll use most, lists and
+      dictionaries, and then the single most Pythonic tool for transforming them:
+      the comprehension. This is where your code starts to look genuinely
+      professional.
+
+  - type: concept
+    label: "Lists & Dicts"
+    heading: "The Two Workhorses"
+    body: >
+      A list is an ordered sequence of items — great for "many of the same thing".
+      A dictionary maps keys to values — great for "a labelled record". Most data
+      you handle is some combination: a list of dictionaries.
+    code: |
+      names = ["Ann", "Bo", "Cy"]      # a list
+      person = {"name": "Ann",          # a dict
+                "age": 30}
+      person["name"]                    # "Ann"
+    narration: >
+      Two collection types do most of the work in Python. A list is an ordered
+      sequence of items, written with square brackets — perfect when you have many
+      of the same kind of thing, like a list of names. A dictionary, written with
+      curly braces, maps keys to values — perfect for a single labelled record, like
+      a person with a name and an age. You read a value out of a dict by its key, in
+      square brackets. And here's the pattern you'll see everywhere in data work: a
+      list of dictionaries — many records, each one a labelled dict. Hold that shape
+      in your head.
+
+  - type: how_it_works
+    label: "Working With Them"
+    heading: "Access & Iterate"
+    body: >
+      You reach items in a list by index (starting at 0) and loop over them with
+      for. You reach dict values by key, and .get(key, default) safely returns a
+      fallback when a key is missing.
+    code: |
+      names = ["Ann", "Bo", "Cy"]
+      names[0]                 # "Ann"
+      for n in names:
+          print(n)
+
+      person = {"name": "Ann"}
+      person.get("age", 0)     # 0  (key missing → default)
+    narration: >
+      Here's how you work with them. You reach an item in a list by its index, and
+      Python counts from zero, so names index zero is the first name. You loop over a
+      list with a for statement, handling each item in turn. For dictionaries, you
+      reach a value by its key. But watch this method — get. Instead of person square
+      bracket age, which would crash if age is missing, person dot get age comma zero
+      safely returns zero when the key isn't there. That get-with-a-default habit
+      will save you from countless crashes when real data is incomplete, which it
+      always is.
+
+  - type: code
+    label: "List Comprehensions"
+    heading: "Transform a List in One Line"
+    code: |
+      names = ["ann", "bo", "cy"]
+
+      # The long way
+      caps = []
+      for n in names:
+          caps.append(n.title())
+
+      # The comprehension
+      caps = [n.title() for n in names]   # ["Ann", "Bo", "Cy"]
+    body: >
+      A list comprehension builds a new list by transforming each item of an
+      existing one. Read it as: "give me n.title() for each n in names." It replaces
+      the create-empty-list-then-append loop with a single clear line.
+    narration: >
+      Now the tool that will change how you write Python: the list comprehension.
+      Look at the long way first — create an empty list, loop over names, append the
+      title-cased version of each. That's fine, but it's four lines for a simple
+      idea. The comprehension does the same thing in one line. Read it out loud:
+      give me n dot title, for each n in names. The brackets say we're building a
+      list. The result is a new list of title-cased names. Once this clicks, you'll
+      see it everywhere — it's the standard Pythonic way to transform a collection.
+
+  - type: code
+    label: "Filtering & Dicts"
+    heading: "Filter, and Comprehend Dicts"
+    code: |
+      nums = [1, 2, 3, 4, 5, 6]
+      evens = [n for n in nums if n % 2 == 0]   # [2, 4, 6]
+
+      people = [{"name": "Ann", "age": 30},
+                {"name": "Bo",  "age": 15}]
+      adults = [p["name"] for p in people if p["age"] >= 18]  # ["Ann"]
+    body: >
+      Add an `if` to a comprehension to keep only items that match — that's
+      filtering. Comprehensions work over lists of dicts too, letting you pull and
+      filter records in one expressive line.
+    narration: >
+      Comprehensions do more than transform — they filter. Add an if at the end and
+      you keep only the items that match the condition. Here, n for n in nums if n
+      remainder two equals zero gives us just the even numbers. And this composes
+      beautifully with our list-of-dicts shape. Look at the second example: for each
+      person p in people, take their name, but only if their age is eighteen or more.
+      In one readable line we've both filtered to adults and pulled out just their
+      names. This is the kind of expressive, intention-revealing code that makes data
+      work a pleasure instead of a chore.
+
+  - type: exercise
+    heading: "Exercise 3: Transform Records"
+    prompt: >
+      Open exercise_03.ipynb. Write active_emails(users: list) -> list where users
+      is a list of dicts like {"email": "A@X.com", "active": True}. Return a list of
+      the lowercased emails of only the active users. Use a comprehension.
+      Automated checks will verify it.
+    hint: "One comprehension: [u['email'].lower() for u in users if u['active']]."
+    narration: >
+      Your turn, and this one brings the lesson together. Open exercise three. You're
+      given a list of user dictionaries, each with an email and an active flag. Write
+      active_emails to return a list containing the lowercased emails of only the
+      users whose active flag is true. This is a transform and a filter at once —
+      exactly what a comprehension is for. Try to write it as a single comprehension.
+      The checks will confirm it. If you're stuck, think: for each user, take their
+      lowercased email, but only if they're active.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "List = ordered sequence; dict = key→value record; data is often a list of dicts"
+      - "Index lists from 0; loop with for; read dicts by key"
+      - ".get(key, default) avoids crashes on missing keys — vital for messy data"
+      - "List comprehension: [f(x) for x in items] transforms a collection in one line"
+      - "Add if to filter: [x for x in items if condition]"
+      - "Next: files and JSON — getting data in and out of your programs"
+    narration: >
+      Let's lock it in. Lists are ordered sequences; dictionaries map keys to values;
+      and most real data is a list of dictionaries. You index lists from zero, loop
+      with for, and read dict values by key — using get with a default to stay safe
+      when keys are missing, which matters constantly with messy data. The star of
+      the lesson is the comprehension: square brackets, f of x, for x in items —
+      transforming a whole collection in one clear line, with an optional if to
+      filter. Practise these until they're automatic. Next lesson, we handle files
+      and JSON, so you can get data into and out of your programs.

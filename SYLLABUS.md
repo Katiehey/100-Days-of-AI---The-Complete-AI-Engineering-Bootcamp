@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Day 1 authored (lessons + exercises + project). Days 2–100 pending.
+**Authoring status:** Days 1–2 authored (lessons + exercises + project, gate-green). Days 3–100 pending.
 Update this line as days are completed.
 
 ---
@@ -18,7 +18,7 @@ Update this line as days are completed.
 | Day | Title | Objective | Key concepts | Deliverable |
 |-----|-------|-----------|--------------|-------------|
 | 1 | The AI Pipeline & Text-to-Speech | See a full AI system end-to-end on day one | pipelines, Edge TTS, subprocess, FFmpeg, black-box models | Personal AI Briefing Generator (headlines → spoken MP3) |
-| 2 | Python for AI Engineering | Refresh the exact Python you'll use daily | functions, typing, f-strings, comprehensions, files, JSON, venv/conda | Data-cleaning utility script |
+| 2 | Python for AI Engineering | Refresh the exact Python you'll use daily | functions, typing, f-strings, comprehensions, files, JSON | Data-cleaning utility script |
 | 3 | Your First Claude API Call | Talk to an LLM from code | Anthropic SDK, messages API, system/user roles, params | CLI Q&A assistant |
 | 4 | Structured Output & Schemas | Get reliable, typed data out of an LLM | JSON output, Pydantic schemas, validation, retries | Text → structured JSON extractor |
 | 5 | Engineering Hygiene | Stop vibecoding: make code you can trust | logging, error handling, pytest, git basics | Harden Day 3's app with tests + logging |

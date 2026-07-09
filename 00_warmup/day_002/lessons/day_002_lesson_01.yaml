@@ -1,0 +1,188 @@
+day: "002"
+lesson: "01"
+title: "Functions & Type Hints: Code You Can Trust"
+
+slides:
+
+  - type: title
+    heading: "Functions & Type Hints"
+    subheading: "The first step from vibecoding to engineering"
+    narration: >
+      Welcome to Day 2. Today we refresh the Python you'll actually use as an AI
+      engineer — and we start with functions and type hints. This isn't busywork.
+      The difference between someone who prompts an AI for code and someone who
+      engineers systems often comes down to whether they write small, well-defined,
+      typed functions. By the end of this lesson you'll understand not just how to
+      write a function, but why the way you write it matters.
+
+  - type: concept
+    label: "Why Functions"
+    heading: "One Job, Done Well"
+    body: >
+      A function is a named block of code that does one job and can be reused.
+      Instead of copying the same ten lines everywhere, you write them once, give
+      them a name, and call that name.
+
+      This matters more in AI engineering than almost anywhere else, because you
+      repeat the same operations constantly — clean this text, call that model,
+      parse this response. A function turns a repeated action into a single,
+      testable, fixable unit.
+    bullets:
+      - "Reuse — write once, call many times"
+      - "Testable — you can check one function in isolation"
+      - "Readable — a good name explains what the code does"
+    narration: >
+      Let's start with the why. A function is just a named block of code that does
+      one job and can be reused. Why does that matter? Three reasons. First, reuse —
+      you write the logic once and call it by name wherever you need it. Second,
+      testability — a small function with clear inputs and outputs can be tested on
+      its own, which is exactly how you stop guessing whether your code works.
+      Third, readability — a well-named function like clean_text tells the reader
+      what's happening without them reading every line. This is the core habit that
+      separates engineering from copy-pasting.
+
+  - type: code
+    label: "Anatomy"
+    heading: "Defining a Function"
+    code: |
+      def greet(name):
+          message = f"Hello, {name}!"
+          return message
+
+      # Call it
+      result = greet("Kutlwano")
+      print(result)   # Hello, Kutlwano!
+    body: >
+      `def` names the function, the parentheses hold its parameters (inputs), and
+      `return` hands a value back to whoever called it. A function that doesn't
+      return anything gives back None.
+    narration: >
+      Here's the anatomy. The keyword def starts the definition, followed by the
+      function's name — greet. Inside the parentheses are the parameters, the inputs
+      the function accepts — here, name. The indented block is the body, the work
+      the function does. And return hands a value back to whoever called the
+      function. When we call greet with the string Kutlwano, it builds the message
+      and returns it, which we store in result and print. One important detail: if a
+      function has no return statement, it hands back a special value called None.
+
+  - type: how_it_works
+    label: "Parameters"
+    heading: "Arguments & Defaults"
+    body: >
+      Parameters can have default values, making them optional. Callers can also
+      pass arguments by name for clarity.
+    code: |
+      def clean(text, lowercase=True):
+          text = text.strip()
+          if lowercase:
+              text = text.lower()
+          return text
+
+      clean("  Hello ")                 # "hello"
+      clean("  Hello ", lowercase=False) # "Hello"
+    narration: >
+      Parameters can have default values, which makes them optional. Look at clean:
+      it takes text, and a second parameter lowercase that defaults to True. If the
+      caller doesn't mention lowercase, it's True automatically. When we call clean
+      with just a string, it strips the whitespace and lowercases it. When we pass
+      lowercase equals False by name, we override the default. Passing arguments by
+      name like this — lowercase equals False — also makes your calls far easier to
+      read, because the reader can see what each value means.
+
+  - type: code
+    label: "Type Hints"
+    heading: "Say What You Mean"
+    code: |
+      def clean(text: str, lowercase: bool = True) -> str:
+          text = text.strip()
+          if lowercase:
+              text = text.lower()
+          return text
+    body: >
+      Type hints declare what a function expects and returns: `text: str` says text
+      should be a string; `-> str` says the function returns a string. Python
+      doesn't enforce them at runtime, but they document your intent, power editor
+      autocomplete, and let tools catch mistakes before you run anything.
+    narration: >
+      Now the upgrade that matters most: type hints. Look at the same function, but
+      now each parameter has a type. text colon str says text should be a string.
+      lowercase colon bool says it's a boolean. And the arrow str after the
+      parentheses says the function returns a string. Here's the key thing to
+      understand: Python does not enforce these at runtime — you can technically
+      pass the wrong type and Python won't stop you. So why bother? Because type
+      hints document your intent for the next human, they make your editor's
+      autocomplete smarter, and they let tools scan your code and catch type
+      mistakes before you ever run it. For an AI engineer moving away from
+      guess-and-check, that's a big deal.
+
+  - type: concept
+    label: "Docstrings"
+    heading: "Documenting the Contract"
+    body: >
+      A docstring is a triple-quoted string at the top of a function that explains
+      what it does, its arguments, and what it returns. Together, type hints and a
+      docstring form a clear contract: anyone (including future you) knows how to
+      use the function without reading its internals.
+    code: |
+      def clean(text: str, lowercase: bool = True) -> str:
+          """Strip whitespace and optionally lowercase text.
+
+          Args:
+              text: The raw text to clean.
+              lowercase: If True, convert to lowercase.
+
+          Returns:
+              The cleaned text.
+          """
+          ...
+    narration: >
+      The final piece is the docstring — a triple-quoted string right at the top of
+      the function that describes what it does, what arguments it takes, and what it
+      returns. Notice how the type hints and the docstring work together. The hints
+      tell you the shape of the data — strings, booleans. The docstring tells you
+      the meaning and behaviour. Together they form a contract: anyone using this
+      function knows exactly how to call it and what they'll get back, without
+      having to read a single line of the implementation. This is what
+      professional, maintainable code looks like.
+
+  - type: exercise
+    heading: "Exercise 1: Write a Typed Function"
+    prompt: >
+      Open exercise_01.ipynb in 00_warmup/day_002/exercises/.
+
+      Write normalize_name(name: str) -> str: it should strip surrounding
+      whitespace and convert the name to title case (e.g. "  kutlwano MELAMU " →
+      "Kutlwano Melamu"). Include type hints and a docstring. The notebook has
+      automated checks that tell you when it's right.
+    hint: "Python strings have .strip() and .title() methods — chain them."
+    narration: >
+      Time to write your first function of the day. Open exercise one in the day two
+      exercises folder. Your job is to write a function called normalize_name that
+      takes a name as a string and returns it cleaned up: whitespace stripped from
+      the ends, and converted to title case, so that messy input like lowercase
+      kutlwano with extra spaces becomes a properly capitalised Kutlwano Melamu.
+      Include your type hints and a docstring, just like we practised. The notebook
+      has automated checks at the bottom that will tell you exactly when you've got
+      it right. If you get stuck, remember that Python strings have a strip method
+      and a title method — you can chain them together.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Functions do one job, are reusable, and are testable — the engineering habit"
+      - "def names it, parameters are inputs, return hands a value back (else None)"
+      - "Parameters can have defaults; pass arguments by name for readability"
+      - "Type hints (text: str -> str) document intent and enable tooling"
+      - "Docstrings + type hints form a contract: how to use the function without reading it"
+      - "Next: strings and f-strings — the data type you'll touch most"
+    narration: >
+      Let's lock it in. Functions do one job, are reusable, and are testable — that
+      last one is the habit that moves you from vibecoding to engineering. You define
+      one with def, its parameters are the inputs, and return hands a value back;
+      with no return, you get None. Parameters can have defaults to make them
+      optional, and passing arguments by name makes your code readable. Type hints
+      declare the expected types, documenting intent and powering your tools even
+      though Python doesn't enforce them. And a docstring plus type hints form a
+      contract that tells anyone how to use your function. Next lesson, we go deep on
+      strings and f-strings — the data type you will touch more than any other as an
+      AI engineer.

@@ -1,0 +1,147 @@
+day: "002"
+lesson: "05"
+title: "Build a Data-Cleaning Utility"
+
+slides:
+
+  - type: title
+    heading: "Build a Data-Cleaning Utility"
+    subheading: "Where everything from today comes together"
+    narration: >
+      Welcome to the final lesson of Day 2. Today you've learned functions and type
+      hints, string wrangling, lists and dicts and comprehensions, and files and
+      JSON. Now we combine all of it into one genuinely useful tool: a data-cleaning
+      utility. This is the exact kind of unglamorous, essential work AI engineers do
+      constantly, because models are only as good as the data you feed them.
+
+  - type: concept
+    label: "Why It Matters"
+    heading: "Garbage In, Garbage Out"
+    body: >
+      AI systems are only as good as their data. Real-world data is messy:
+      inconsistent casing, stray whitespace, missing fields, duplicates. Cleaning it
+      into a consistent, validated form is one of the most common — and most
+      valuable — jobs in the field.
+    narration: >
+      Let's start with why this is worth a whole project. There's an old saying in
+      computing: garbage in, garbage out. It's doubly true for AI. A model trained or
+      prompted on messy, inconsistent data gives messy, unreliable results. And
+      real-world data is always messy — names in random casing, stray whitespace,
+      missing fields, duplicate entries. Turning that chaos into clean, consistent,
+      validated data is one of the most common and most valuable things an AI
+      engineer does. It's not glamorous, but it's foundational.
+
+  - type: how_it_works
+    label: "The Pattern"
+    heading: "Load → Clean → Validate → Save"
+    body: >
+      Almost every data utility follows the same four-step shape:
+    bullets:
+      - "Load — read the raw data from a file (JSON)"
+      - "Clean — normalise each record (strip, lowercase, standardise)"
+      - "Validate — drop or flag records missing required fields"
+      - "Save — write the clean data back out, plus a small report"
+    narration: >
+      Almost every data utility, no matter how big, follows the same four-step shape.
+      First, load — read the raw data in from a file. Second, clean — normalise each
+      record using the string tools we learned, stripping whitespace and
+      standardising case. Third, validate — check each record has what it needs, and
+      drop or flag the ones that don't. Fourth, save — write the clean data back out,
+      often with a small report of what happened. Load, clean, validate, save. Once
+      you see this pattern, you'll recognise it in data pipelines everywhere.
+
+  - type: code
+    label: "Cleaning One Record"
+    heading: "clean_record()"
+    code: |
+      def clean_record(record: dict) -> dict:
+          """Normalise one contact record."""
+          name = " ".join(record.get("name", "").split()).title()
+          email = record.get("email", "").strip().lower()
+          return {"name": name, "email": email}
+    body: >
+      The heart of the utility is a function that cleans one record. It uses
+      .get() with defaults so missing fields don't crash it, then applies the string
+      methods from Lesson 2. Everything you learned today shows up in these few lines.
+    narration: >
+      Here's the heart of the utility: a function that cleans a single record. Look
+      at how much of today shows up in five lines. It's a function with a type hint
+      and a docstring, from lesson one. It uses get with a default, from lesson three,
+      so a missing name or email gives an empty string instead of a crash. It reuses the
+      collapse-whitespace idiom and title-cases the name, then strips and lowercases the
+      email — all string tools from lesson two. And it returns a clean dict. One honest
+      caveat: title-case is a simple heuristic that mishandles names like O'Brien or
+      McDonald, so a real system would refine it — but it's fine for our purposes here.
+      This one small, well-named, testable function is exactly the engineering habit
+      we've been building. The whole utility is just this, applied to every record.
+
+  - type: code
+    label: "The Whole Utility"
+    heading: "Putting It Together"
+    code: |
+      import json
+
+      def clean_file(in_path: str, out_path: str) -> dict:
+          with open(in_path) as f:
+              raw = json.load(f)
+
+          cleaned = [clean_record(r) for r in raw]
+          valid = [r for r in cleaned if r["name"] and r["email"]]
+
+          with open(out_path, "w") as f:
+              json.dump(valid, f, indent=2)
+
+          return {"total": len(raw), "kept": len(valid)}
+    body: >
+      Load with json, clean every record with a comprehension, validate by filtering
+      out records missing a name or email, save the result, and return a report.
+      That's the full Load → Clean → Validate → Save pattern in one function.
+    narration: >
+      And here's the whole thing assembled. clean_file loads the raw list of records
+      with json dot load. Then one comprehension cleans every record by calling
+      clean_record on each. A second comprehension validates, keeping only records
+      that have both a name and an email — that's our filter. It saves the valid
+      records back out as nicely-indented JSON. And it returns a small report: how
+      many records came in, and how many we kept. That's the complete load, clean,
+      validate, save pattern, built entirely from the pieces you learned today. In the
+      project, you'll build exactly this.
+
+  - type: exercise
+    heading: "Exercise 5 & Project"
+    prompt: >
+      Exercise 5 (exercise_05.ipynb) has you write clean_record() on its own with
+      checks. Then open the project (project/project.ipynb): build the full
+      data-cleaning utility that loads a messy contacts file, cleans and validates
+      the records, saves the clean file, and prints a report. The solution is
+      provided once you've tried it.
+    hint: "Reuse clean_record from Exercise 5 inside your clean_file function."
+    narration: >
+      Your turn, in two parts. First, exercise five has you write the clean_record
+      function on its own, with automated checks to confirm it normalises a record
+      correctly. Once that passes, open the project notebook for Day 2. There you'll
+      build the complete data-cleaning utility: load a messy contacts file, clean and
+      validate every record, save the clean version, and print a report of what
+      happened. Reuse the clean_record function you just wrote. Take your time and
+      build it yourself — the solution is there once you've given it a genuine try.
+      This is your first real utility, assembled from everything Day 2 taught you.
+
+  - type: summary
+    heading: "Day 2 Complete"
+    bullets:
+      - "Real data is messy; cleaning it is core, high-value AI-engineering work"
+      - "Every data utility follows Load → Clean → Validate → Save"
+      - "clean_record() shows the whole day: typed function, .get(), string methods"
+      - "clean_file() uses comprehensions to clean + validate, and json for I/O"
+      - "You combined functions, strings, collections, and files into a real tool"
+      - "Next (Day 3): your first call to a language model — AI enters the picture"
+    narration: >
+      Congratulations — that's Day 2 complete. Let's zoom out on what you built. You
+      learned that real data is messy and that cleaning it is core, high-value work.
+      You learned the load, clean, validate, save pattern that underlies every data
+      utility. You saw how one small function, clean_record, weaves together
+      everything from the day — a typed, documented function that uses get for safety
+      and string methods for normalisation. And you assembled the full tool with
+      comprehensions and JSON. Most importantly, you combined four separate skills
+      into one working program — that's engineering. Tomorrow, on Day 3, things get
+      exciting: you'll make your very first call to a language model, and AI itself
+      enters the picture. See you there.

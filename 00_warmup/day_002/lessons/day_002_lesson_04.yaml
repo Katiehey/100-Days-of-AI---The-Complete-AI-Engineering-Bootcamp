@@ -1,0 +1,153 @@
+day: "002"
+lesson: "04"
+title: "Files & JSON: Getting Data In and Out"
+
+slides:
+
+  - type: title
+    heading: "Files & JSON"
+    subheading: "Reading and writing the data your programs work on"
+    narration: >
+      Welcome back. Your programs so far have worked with data written directly in
+      the code. But real data lives in files — on disk, downloaded from the web,
+      exported from other systems. In this lesson you'll learn to read and write
+      files, and to work with JSON, the format that has become the universal language
+      for structured data in modern software and AI.
+
+  - type: concept
+    label: "Why Files & JSON"
+    heading: "Where Data Lives"
+    body: >
+      Programs need to persist data beyond a single run and exchange it with other
+      systems. Files do that. JSON — JavaScript Object Notation — is the dominant
+      format for structured data: it maps almost perfectly onto Python's dicts and
+      lists, and nearly every API and model speaks it.
+    narration: >
+      Let's start with why this matters. A program that forgets everything when it
+      stops isn't very useful. Files let your data persist beyond a single run, and
+      let you exchange data with other systems. And JSON — JavaScript Object Notation
+      — has become the universal format for structured data. Here's the beautiful
+      part: JSON maps almost perfectly onto the Python you already know. A JSON object
+      is a Python dict. A JSON array is a Python list. Nearly every web API and AI
+      model sends and receives JSON, so getting comfortable with it now pays off for
+      the rest of the course.
+
+  - type: how_it_works
+    label: "Reading & Writing"
+    heading: "open() with a with-block"
+    body: >
+      open() gives you a file handle; the `with` statement guarantees the file is
+      closed even if something goes wrong. Use mode "r" to read and "w" to write.
+    code: |
+      # Write text
+      with open("notes.txt", "w") as f:
+          f.write("Hello\n")
+
+      # Read text
+      with open("notes.txt", "r") as f:
+          content = f.read()
+    narration: >
+      Here's how you touch a file. The open function gives you a file handle, and you
+      almost always wrap it in a with statement. Why with? Because it guarantees the
+      file is properly closed when the block finishes — even if an error happens in
+      the middle. Forgetting to close files is a classic bug, and with makes it
+      impossible. You pass a mode: the string w means write, and r means read. Inside
+      the block, f dot write puts text in, and f dot read pulls it back out. Notice
+      we open once to write, then open again to read — the with block ends after each.
+
+  - type: code
+    label: "JSON"
+    heading: "json.dump & json.load"
+    code: |
+      import json
+
+      data = {"name": "Ann", "tags": ["ai", "python"]}
+
+      # Python object → JSON file
+      with open("data.json", "w") as f:
+          json.dump(data, f, indent=2)
+
+      # JSON file → Python object
+      with open("data.json", "r") as f:
+          loaded = json.load(f)   # back to a dict
+    body: >
+      The json module converts between Python objects and JSON text. dump writes a
+      Python object to a file; load reads a file back into a Python object.
+      (dumps/loads do the same to and from a string.) indent=2 makes the file
+      human-readable.
+    narration: >
+      Now JSON, using Python's built-in json module. It's a translator between Python
+      objects and JSON text. To save, json dot dump takes your Python object — here a
+      dict with a list inside — and a file handle, and writes it out as JSON. The
+      indent equals two argument pretty-prints it so a human can read it. To load it
+      back, json dot load reads the file and hands you a real Python dict again, ready
+      to use. A quick note on names: dump and load work with files, while dumps and
+      loads, with an s, do the same thing to and from a plain string. You'll use both
+      — files for storage, the string versions when talking to APIs.
+
+  - type: concept
+    label: "Being Careful"
+    heading: "Files Fail — Handle It"
+    body: >
+      Real file operations fail: the file is missing, the JSON is malformed, you lack
+      permission. A try/except block lets your program respond gracefully instead of
+      crashing.
+    code: |
+      import json
+
+      try:
+          with open("data.json") as f:
+              data = json.load(f)
+      except FileNotFoundError:
+          data = {}          # sensible fallback
+      except json.JSONDecodeError:
+          print("File is not valid JSON")
+          data = {}
+    narration: >
+      One more habit that separates engineers from vibecoders: expecting failure.
+      Real file operations go wrong all the time — the file doesn't exist, the JSON
+      is malformed, you don't have permission. Rather than let your program crash, you
+      wrap the risky part in a try block and catch specific problems in except blocks.
+      Here, if the file is missing we catch FileNotFoundError and fall back to an empty
+      dict. If the file exists but isn't valid JSON, we catch JSONDecodeError and
+      report it clearly. Catching specific exceptions like this — rather than a bare
+      catch-all — means you handle each real problem deliberately. This is defensive
+      programming, and it's a core professional habit.
+
+  - type: exercise
+    heading: "Exercise 4: JSON Round-Trip"
+    prompt: >
+      Open exercise_04.ipynb. Write save_json(data, path) and load_json(path) using
+      the json module and with-blocks. load_json should return {} if the file does
+      not exist (catch FileNotFoundError). The checks write, read back, and verify
+      the data survives the round-trip.
+    hint: "json.dump(data, f) to save; wrap json.load in try/except FileNotFoundError."
+    narration: >
+      Your turn. Open exercise four. You'll write two functions: save_json, which
+      writes a Python object to a file as JSON, and load_json, which reads it back.
+      Use the json module and with-blocks like we practised. Here's the important
+      part: load_json should be robust — if the file doesn't exist, catch the
+      FileNotFoundError and return an empty dict instead of crashing. The automated
+      checks will save some data, load it back, and confirm it survived the trip
+      unchanged, and they'll also check that loading a missing file returns an empty
+      dict. This round-trip skill underpins the whole Day 2 project.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Files persist data and exchange it between systems"
+      - "open() in a with-block auto-closes the file; modes: 'r' read, 'w' write"
+      - "JSON maps onto Python dicts/lists — the universal structured-data format"
+      - "json.dump/load work with files; json.dumps/loads work with strings"
+      - "Wrap file/JSON operations in try/except (FileNotFoundError, JSONDecodeError)"
+      - "Next: combine everything into a real data-cleaning utility"
+    narration: >
+      Let's lock it in. Files let your data persist and move between systems. You open
+      them inside a with-block so they always close cleanly, using mode r to read and
+      w to write. JSON is the universal format for structured data, and it maps
+      directly onto Python's dicts and lists. The json module translates both ways:
+      dump and load for files, dumps and loads for strings. And because file
+      operations fail in the real world, you wrap them in try and except, catching
+      specific errors like FileNotFoundError and JSONDecodeError. In the final lesson,
+      we combine functions, strings, comprehensions, and files into a real
+      data-cleaning utility — the skill this whole day has been building toward.

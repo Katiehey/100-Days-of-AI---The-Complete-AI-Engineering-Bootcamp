@@ -1,0 +1,162 @@
+day: "002"
+lesson: "02"
+title: "Strings & f-strings: Wrangling Text"
+
+slides:
+
+  - type: title
+    heading: "Strings & f-strings"
+    subheading: "The data type you'll touch most as an AI engineer"
+    narration: >
+      Welcome back. In this lesson we focus on strings — text. Here's a truth about
+      AI engineering that surprises people: most of your work is manipulating text.
+      The prompts you send to a model are strings. The responses you get back are
+      strings. The messy data you clean is full of strings. Master text handling and
+      you've mastered a huge part of the job. Let's get comfortable with it.
+
+  - type: concept
+    label: "Why Strings"
+    heading: "Text Is Everywhere"
+    body: >
+      In AI systems, almost everything is text at some point: prompts, model
+      responses, file contents, user input, log messages. Being fluent with strings
+      means you can reshape any of it — trim it, normalise it, search it, or build
+      new text from parts.
+    narration: >
+      Let's set the scene. In an AI system, almost everything is text at some point.
+      The instructions you give a model — text. What it returns — text. The contents
+      of a file you're processing — text. A user's question — text. If you're fluent
+      with strings, you can reshape any of that: trim it, clean it up, search inside
+      it, or assemble brand new text from pieces. That fluency is what this lesson
+      builds.
+
+  - type: how_it_works
+    label: "String Methods"
+    heading: "The Essential Toolkit"
+    body: >
+      Strings come with built-in methods. The ones you'll use constantly:
+    bullets:
+      - ".strip() — remove whitespace from the ends"
+      - ".lower() / .upper() — change case"
+      - ".replace(a, b) — swap text"
+      - ".split(sep) — break into a list"
+      - ".join(list) — glue a list into one string"
+    code: |
+      "  Hello World  ".strip()          # "Hello World"
+      "Hello".lower()                     # "hello"
+      "a,b,c".split(",")                  # ["a", "b", "c"]
+      ", ".join(["a", "b", "c"])          # "a, b, c"
+    narration: >
+      Strings come with built-in methods — functions attached to the string itself.
+      Here are the ones you'll reach for constantly. Strip removes whitespace from
+      both ends, which you'll use on almost every piece of raw data. Lower and upper
+      change the case. Replace swaps one piece of text for another. Split breaks a
+      string into a list wherever it finds a separator — so a comma-separated string
+      becomes a list of items. And join is the reverse: it glues a list of strings
+      back together with a separator between them. Split and join together are how
+      you take text apart and put it back the way you want.
+
+  - type: code
+    label: "Chaining"
+    heading: "Methods Combine"
+    code: |
+      raw = "   Data-Science   "
+      clean = raw.strip().lower().replace("-", " ")
+      print(clean)   # "data science"
+    body: >
+      Each string method returns a new string, so you can chain them: the result of
+      one becomes the input to the next. Strings are immutable — methods never change
+      the original, they return a modified copy.
+    narration: >
+      Here's something powerful. Each string method returns a brand new string. That
+      means you can chain them together, reading left to right. Take this raw value:
+      messy spacing, mixed case, a hyphen. We strip the whitespace, then lowercase
+      the result, then replace the hyphen with a space — all in one readable line —
+      and get clean data science text. One concept to internalise: strings are
+      immutable, meaning these methods never change the original string. They always
+      return a modified copy. That's why we assign the result to a new variable.
+
+  - type: code
+    label: "f-strings"
+    heading: "Building Text with f-strings"
+    code: |
+      name = "Kutlwano"
+      count = 5
+      msg = f"{name} has {count} tasks."
+      print(msg)   # Kutlwano has 5 tasks.
+
+      price = 19.5
+      print(f"Total: ${price:.2f}")   # Total: $19.50
+    body: >
+      An f-string (the f before the quote) lets you drop variables and expressions
+      directly inside a string using curly braces. Format specifiers like :.2f
+      control how numbers appear — here, two decimal places.
+    narration: >
+      Now the tool you'll use to build text: the f-string. Put the letter f right
+      before the opening quote, and suddenly you can drop variables straight into the
+      string using curly braces. f, quote, name in braces, has, count in braces,
+      tasks. Python fills in the values. You can put whole expressions in the braces
+      too, not just variables. And you can control formatting with a format
+      specifier after a colon — here, colon point two f means show this number with
+      exactly two decimal places, turning 19.5 into a clean 19.50. f-strings are how
+      you'll assemble prompts, reports, and messages throughout this course.
+
+  - type: concept
+    label: "Cleaning Text"
+    heading: "A Real Normalisation"
+    body: >
+      Combining these tools, a common task is normalising messy text into a
+      consistent form — for example, collapsing repeated spaces and standardising
+      case so that "  John   SMITH " and "john smith" become the same value.
+    code: |
+      def normalize(text: str) -> str:
+          text = text.strip().lower()
+          text = " ".join(text.split())   # collapse repeated spaces
+          return text
+
+      normalize("  John   SMITH ")   # "john smith"
+    narration: >
+      Let's put it together in a real task you'll do constantly: normalising messy
+      text so that values which mean the same thing look the same. Watch this trick
+      in normalize. We strip and lowercase as expected. Then this line — space dot
+      join of text dot split — is a classic Python idiom. Split with no argument
+      breaks the text on any run of whitespace and throws the empty pieces away, and
+      join reconnects them with single spaces. The result: repeated spaces collapse
+      to one. So messy John with extra spaces and uppercase becomes a clean, standard
+      john smith. This is exactly the kind of cleaning our Day 2 project will do.
+
+  - type: exercise
+    heading: "Exercise 2: Clean a Messy String"
+    prompt: >
+      Open exercise_02.ipynb. Write clean_text(text: str) -> str that strips
+      surrounding whitespace, collapses any internal repeated whitespace to single
+      spaces, and lowercases the result. Example: "  Hello   WORLD " → "hello world".
+      Automated checks will verify your work.
+    hint: "Combine .strip(), .lower(), and the ' '.join(text.split()) idiom."
+    narration: >
+      Your turn. Open exercise two. Write a function called clean_text that takes a
+      string and returns it cleaned: surrounding whitespace stripped, any repeated
+      internal whitespace collapsed to single spaces, and everything lowercased. So
+      Hello with extra spaces and capitals becomes a tidy hello world. Use the tools
+      from this lesson — strip, lower, and that space join split idiom we just saw.
+      The automated checks will confirm when it's correct. Give it a real try before
+      peeking at the solution.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Most AI-engineering work is text manipulation — strings are everywhere"
+      - "Core methods: .strip(), .lower()/.upper(), .replace(), .split(), .join()"
+      - "Strings are immutable; methods return a new string, so you can chain them"
+      - "f-strings drop variables/expressions into text with {} and format with :spec"
+      - "' '.join(text.split()) collapses repeated whitespace — a key cleaning idiom"
+      - "Next: lists, dicts, and comprehensions — shaping collections of data"
+    narration: >
+      Let's lock it in. Most of what you do as an AI engineer is manipulating text,
+      so string fluency pays off everywhere. The core methods are strip, lower and
+      upper, replace, split, and join. Strings are immutable, so every method returns
+      a new string — which is exactly why you can chain them into one readable line.
+      f-strings let you build text by dropping variables and expressions into curly
+      braces, with format specifiers for numbers. And the space join split idiom
+      collapses messy whitespace into single spaces. Next up: lists, dictionaries,
+      and comprehensions — the tools for shaping whole collections of data at once.
