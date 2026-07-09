@@ -1,0 +1,180 @@
+day: "003"
+lesson: "04"
+title: "System Prompts & Multi-Turn History"
+
+slides:
+
+  - type: title
+    heading: "System Prompts & Multi-Turn History"
+    subheading: "Giving the model instructions — and memory across turns"
+    narration: >
+      Lesson 4. You can now call your local model three different ways. This
+      lesson is about what you put inside the call. Two concepts make the
+      difference between a model that answers generically and one that
+      behaves exactly how your product needs: the system prompt, which gives
+      the model its instructions, and multi-turn history, which gives it
+      memory across a conversation. Both are built from the same messages
+      list you've been using since Lesson 1.
+
+  - type: concept
+    label: "System Prompt"
+    heading: "The System Role: Persistent Instructions"
+    body: >
+      A system prompt is a message with `"role": "system"` placed at the
+      start of the messages list. The model reads it before the user's
+      message and uses it as its standing instructions — persona, constraints,
+      context. It applies to every response in the conversation.
+    bullets:
+      - "role 'system' — the model's instructions, set by the developer"
+      - "role 'user'  — the human's message"
+      - "role 'assistant' — the model's reply (for history)"
+      - "Order matters: system first, then alternating user / assistant"
+    narration: >
+      The system prompt is how you specialise a general-purpose model for a
+      specific job. You add a dictionary with role "system" as the first entry
+      in the messages list, before any user messages. The model reads it first
+      and uses it as persistent standing instructions for the rest of the
+      conversation. You can give Claude a persona — "You are a Python tutor."
+      You can add constraints — "Respond in exactly one sentence." You can
+      provide background — "The user is a beginner with no prior experience."
+      Whatever you put there, the model applies it to every response. Note that
+      in the ollama and openai-compatible APIs, the system prompt is a message
+      in the list — unlike some other APIs where it's a separate parameter.
+
+  - type: code
+    label: "System prompt"
+    heading: "Adding a System Prompt"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      messages = [
+          {"role": "system", "content": "You are a pirate. Speak only in pirate dialect."},
+          {"role": "user",   "content": "What is the weather like today?"},
+      ]
+
+      response = ollama.chat(model=MODEL, messages=messages)
+      print(response["message"]["content"])
+      # "Arr, the skies be fair today, matey! ..."
+    body: >
+      The system message is the first entry in messages. It is not a user
+      turn and not an assistant turn — it sets the context the model
+      operates in for the entire conversation.
+    narration: >
+      Here's the system prompt in practice. The messages list now starts with
+      a system entry, followed by the user message. The model reads the system
+      prompt first, then the user message, and generates a reply that obeys
+      both. Try changing the system content to "Respond only in bullet points"
+      or "You are a sceptical scientist who always asks for evidence" and see
+      how completely the model's responses change. The system prompt is the
+      primary tool for building specialised AI products from a general-purpose
+      model. It's also the first entry in the messages list for a reason: the
+      model processes messages in order, so instructions before the user's
+      question apply to the whole conversation.
+
+  - type: concept
+    label: "Roles"
+    heading: "Three Roles: system, user, assistant"
+    body: >
+      The messages list is a conversation log. Three roles are valid:
+      `"system"` (your instructions, appears once at the start), `"user"`
+      (the human's messages), and `"assistant"` (the model's prior replies,
+      used for history). After the system message, user and assistant must
+      alternate, ending on user.
+    bullets:
+      - "system — appears once, at index 0"
+      - "user — the person's message"
+      - "assistant — the model's prior reply (to provide context)"
+      - "Final message must always be user — that's what the model responds to"
+    narration: >
+      Now you've seen all three roles. System is the developer's instructions
+      — it appears once at the start and is never repeated. User is the
+      human's message. Assistant is the model's prior reply — you include
+      this when building multi-turn conversations so the model can see what
+      it said before. After the system message, user and assistant must
+      alternate: user, assistant, user, assistant, user. The final message
+      must always be a user turn, because that's the one the model is being
+      asked to respond to. If you accidentally send two consecutive user
+      messages without an assistant reply in between, most models will handle
+      it gracefully, but it's not the intended format.
+
+  - type: how_it_works
+    label: "Multi-turn"
+    heading: "Building Conversation History"
+    body: >
+      To give the model memory across turns, include prior exchanges in the
+      messages list. Each turn adds one user message and one assistant reply.
+      The model reads the full list and responds with the whole context.
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+      SYSTEM = "You are a helpful assistant. Be concise."
+
+      # Turn 1
+      messages = [
+          {"role": "system",    "content": SYSTEM},
+          {"role": "user",      "content": "My name is Lerato."},
+      ]
+      r1 = ollama.chat(model=MODEL, messages=messages)
+      reply1 = r1["message"]["content"]
+
+      # Turn 2 — append assistant reply, then next user message
+      messages.append({"role": "assistant", "content": reply1})
+      messages.append({"role": "user",      "content": "What is my name?"})
+
+      r2 = ollama.chat(model=MODEL, messages=messages)
+      print(r2["message"]["content"])
+      # "Your name is Lerato."
+    narration: >
+      Here's how conversation memory works. After turn one, you take the
+      assistant's reply and append it to the messages list with role
+      "assistant". Then append the next user message. When you call
+      ollama.chat again, the full list — system, user, assistant, user — is
+      sent, so the model has the complete conversation context and can
+      answer "What is my name?" correctly even though the name only appeared
+      in an earlier turn. This approach puts you in complete control of the
+      conversation history: you can add to it, trim it, or save it to a file.
+      The model itself is stateless — it sees only what you send.
+
+  - type: exercise
+    heading: "Exercise 4: Ask With a System Prompt"
+    prompt: >
+      Open exercise_04.ipynb. Write ask_with_system(system_prompt: str,
+      question: str) -> str that builds a messages list with a "system" entry
+      first, then a "user" entry, and calls ollama.chat(). Return the reply
+      text. The checks verify the function works and returns non-empty output.
+    hint: "Put the system dict first in the messages list: [{\"role\": \"system\", \"content\": system_prompt}, {\"role\": \"user\", \"content\": question}]"
+    narration: >
+      Exercise four puts the system prompt to work. Open exercise four and
+      write ask_with_system — a function that takes a system prompt string and
+      a question, builds the messages list with both, calls ollama.chat, and
+      returns the reply. The automated checks verify your function works with
+      a concrete system prompt. After the checks pass, experiment: try passing
+      "You are an expert on Python programming. Be concise." as the system
+      prompt and ask a Python question. Then try "Respond only in Spanish."
+      The system prompt is one of the most powerful concepts in AI engineering —
+      getting comfortable with it now is worth the practice.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "System prompt = {\"role\": \"system\", \"content\": \"...\"} as the first message"
+      - "Three roles: system (once, first), user (human), assistant (model's history)"
+      - "User and assistant must alternate after system; final message must be user"
+      - "Multi-turn: append assistant reply + next user message between calls"
+      - "The model is stateless — it only knows what you include in messages"
+      - "Next: assemble everything into a real CLI assistant"
+    narration: >
+      Let's consolidate. The system prompt is a message with role "system"
+      placed first in the messages list — it sets the model's persistent
+      instructions for the conversation. Three roles: system appears once at
+      the start, user and assistant alternate after that, and the final
+      message must always be a user turn. For multi-turn conversations you
+      build the history manually: after each call, append the assistant reply
+      and the next user message to the list, then call the model again with
+      the full list. The model is stateless — it has no memory of prior calls
+      unless you include those turns in the messages list you send. In the
+      final lesson today, we assemble all of this into a real running
+      command-line assistant.

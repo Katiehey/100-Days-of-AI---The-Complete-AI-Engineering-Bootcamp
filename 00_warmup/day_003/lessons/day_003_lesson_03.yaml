@@ -1,0 +1,221 @@
+day: "003"
+lesson: "03"
+title: "Raw REST — The HTTP Layer"
+
+slides:
+
+  - type: title
+    heading: "Raw REST — The HTTP Layer"
+    subheading: "See exactly what's happening under every LLM library"
+    narration: >
+      Lesson 3. You've now called your local model with two different
+      libraries. In this lesson you throw both libraries away and make the
+      same call using only Python's requests package and raw HTTP. This isn't
+      a practical recommendation for everyday use — it's an X-ray. Once you
+      see the actual HTTP request both libraries were sending, the whole
+      "calling an LLM" abstraction becomes concrete and demystified forever.
+
+  - type: concept
+    label: "REST APIs"
+    heading: "What a REST API Actually Is"
+    body: >
+      A REST API is just HTTP with JSON. You send a POST request to a URL
+      with a JSON body, and you receive a JSON response. Every LLM API —
+      Ollama, OpenAI, Anthropic, Groq — is this pattern. The libraries you
+      used in Lessons 1 and 2 are Python wrappers that assemble this request
+      for you.
+    bullets:
+      - "POST — send data to the server to trigger an action"
+      - "JSON body — the input (model name, messages, parameters)"
+      - "JSON response — the output (reply text, metadata)"
+    narration: >
+      Here's the truth under every LLM library: it's a POST request to a URL
+      with a JSON body, and you get a JSON response back. That's all. When
+      you called ollama.chat() in Lesson 1, the library built a POST request
+      to localhost:11434/api/chat with a JSON body containing your model name
+      and messages, sent it over the local network, and parsed the JSON
+      response to give you that response dict. When you called
+      client.chat.completions.create() in Lesson 2, the openai package did
+      exactly the same thing to a different URL. The abstraction is useful,
+      but it's important to know that you could build it yourself — and
+      today you will.
+
+  - type: how_it_works
+    label: "Ollama REST API"
+    heading: "Ollama's /api/chat Endpoint"
+    body: >
+      Ollama exposes a chat endpoint at `http://localhost:11434/api/chat`.
+      Send a POST with a JSON body containing `model`, `messages`, and
+      `"stream": false`. The response is a JSON object with the reply under
+      `message.content`.
+    code: |
+      # The HTTP request you're about to make:
+      # POST http://localhost:11434/api/chat
+      # Content-Type: application/json
+      #
+      # {
+      #   "model": "llama3.2",
+      #   "messages": [{"role": "user", "content": "Hello!"}],
+      #   "stream": false
+      # }
+      #
+      # Response:
+      # {
+      #   "message": {"role": "assistant", "content": "Hello! How can I help?"},
+      #   "done": true,
+      #   ...
+      # }
+    narration: >
+      Here's the raw interface. Ollama exposes its chat API at
+      localhost:11434/api/chat. You POST a JSON body with three fields: model
+      is the model name, messages is the same list of role/content dicts
+      you've used in both previous lessons, and stream is false. That last
+      field is critical: Ollama defaults to streaming, which means it sends
+      tokens one at a time as separate JSON lines — useful for real-time
+      output but hard to work with for simple question-and-answer use. Setting
+      stream to false tells it to collect the full response and return a single
+      JSON object instead. The response has a message field with the assistant's
+      reply, mirroring the request format.
+
+  - type: code
+    label: "The Call"
+    heading: "Making the Request with requests"
+    code: |
+      import requests
+
+      MODEL = "llama3.2"
+
+      def ask_rest(question: str) -> str:
+          response = requests.post(
+              "http://localhost:11434/api/chat",
+              json={
+                  "model": MODEL,
+                  "messages": [{"role": "user", "content": question}],
+                  "stream": False,   # get one JSON object, not a stream
+              }
+          )
+          response.raise_for_status()   # raises an exception if status != 200
+          return response.json()["message"]["content"]
+
+      print(ask_rest("What is the capital of Japan?"))
+      # "The capital of Japan is Tokyo."
+    body: >
+      `requests.post()` sends the HTTP request. The `json=` parameter
+      automatically serialises the dict to JSON and sets the Content-Type
+      header. `response.raise_for_status()` is a safety check — it raises an
+      exception if the server returned an error code.
+    narration: >
+      Here's the full raw call. requests.post takes the URL and a json
+      keyword argument — passing a dict there automatically converts it to
+      JSON, sets the Content-Type header to application/json, and sends it in
+      the request body. response.raise_for_status is a useful habit: it raises
+      an HTTPError exception if the server returned a 4xx or 5xx status code,
+      rather than silently returning an error response as if it were a success.
+      Then response.json() parses the JSON response body into a Python dict,
+      and we read message then content to get the text. Compare this line by
+      line to the ollama and openai calls — same data, different packaging.
+
+  - type: concept
+    label: "stream flag"
+    heading: "The stream Flag — Why It Matters"
+    body: >
+      By default Ollama streams its response: it sends tokens one at a time
+      as separate JSON lines (NDJSON). Setting `"stream": False` returns a
+      single complete JSON object instead. Always set it explicitly — the
+      default will produce garbled output if you try to parse it as regular
+      JSON.
+    code: |
+      # stream: True (Ollama default) — response body looks like this:
+      # {"message":{"content":"The "},"done":false}
+      # {"message":{"content":"capital "},"done":false}
+      # {"message":{"content":"is Tokyo."},"done":false}
+      # {"message":{"content":""},"done":true}
+
+      # stream: False — response body looks like this:
+      # {"message":{"role":"assistant","content":"The capital is Tokyo."},"done":true}
+    narration: >
+      The stream flag is one of those things that trips up beginners when they
+      hit the raw REST API for the first time. Ollama defaults to streaming —
+      sending each token as it generates rather than waiting until the reply
+      is complete. The response body in streaming mode is NDJSON: newline-
+      delimited JSON, with one JSON object per line. If you call response.json()
+      on a streaming response it'll fail because the body isn't a single valid
+      JSON object. The fix is always to set stream to false explicitly, which
+      tells Ollama to buffer the full response and return it as one clean JSON
+      object. You'll revisit streaming in Day 16 when you build real-time
+      streaming responses in the terminal.
+
+  - type: how_it_works
+    label: "Reading the response"
+    heading: "Navigating the Response Dict"
+    body: >
+      The raw JSON response from `http://localhost:11434/api/chat` is a dict.
+      The structure mirrors the request: your `messages` list shape comes back
+      as a single `message` object. The model's reply text is always at
+      `response.json()["message"]["content"]`.
+    code: |
+      raw = response.json()
+
+      # The full response dict (simplified):
+      # {
+      #   "model":   "llama3.2",
+      #   "message": {"role": "assistant", "content": "Tokyo"},
+      #   "done":    True,
+      #   "prompt_eval_count":  12,    # input tokens
+      #   "eval_count":          1,    # output tokens
+      # }
+
+      text  = raw["message"]["content"]
+      done  = raw["done"]                    # True = completed normally
+      n_in  = raw.get("prompt_eval_count")   # input token count
+      n_out = raw.get("eval_count")          # output token count
+    narration: >
+      Here's what the full response dict looks like. You've already seen that
+      the reply text is at message then content. But notice the other fields:
+      done is True when the model finished naturally — the equivalent of
+      stop_reason end_turn from cloud APIs. prompt_eval_count and eval_count
+      give you input and output token counts, which map directly to what we'd
+      call usage in cloud API responses. The structure is slightly different
+      from both the native ollama package and the openai-compat response, but
+      the data is identical. When you look at it this way — raw JSON in, raw
+      JSON out — you can see exactly what both libraries were doing for you.
+
+  - type: exercise
+    heading: "Exercise 3: Call Ollama Over Raw HTTP"
+    prompt: >
+      Open exercise_03.ipynb. Write ask_rest(question: str) -> str that uses
+      requests.post() to POST to http://localhost:11434/api/chat with the
+      correct JSON body (model, messages, stream=False). Return the reply
+      text from the response JSON. Remember to call raise_for_status().
+    hint: "The reply is at response.json()[\"message\"][\"content\"]."
+    narration: >
+      Exercise three is the most foundational exercise of the day. Open
+      exercise three and write ask_rest using requests.post. You need the
+      correct URL, the json= keyword argument with all three required fields,
+      a raise_for_status call, and the right path into the response dict.
+      The automated checks verify Ollama is running and that your function
+      returns a non-empty string. Notice that when you complete this exercise,
+      you've built the same thing that both the ollama package and the openai
+      package do internally. You now understand every layer of the call, from
+      the Python function down to the HTTP request.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Every LLM API is just HTTP POST with a JSON body and a JSON response"
+      - "Ollama's raw endpoint: POST http://localhost:11434/api/chat"
+      - "Required body fields: model, messages, stream (always False for now)"
+      - "Reply text: response.json()[\"message\"][\"content\"]"
+      - "raise_for_status() is a good habit after any requests call"
+      - "Next: system prompts and multi-turn history — the concepts behind the calls"
+    narration: >
+      Here's what this lesson taught you. Every LLM API — local or cloud — is
+      an HTTP POST request with a JSON body and a JSON response. Ollama's raw
+      endpoint is localhost port 11434 slash api slash chat. You must set
+      stream to false for a single clean JSON response. The reply lives at
+      message then content. And raise_for_status is a good habit that turns
+      silent error responses into explicit exceptions. You've now seen all
+      three layers: a native library wrapper, an industry-standard compatible
+      library, and the raw HTTP request underneath them. In the next lesson we
+      step back from implementation and focus on what you put in the calls —
+      system prompts and multi-turn conversation history.

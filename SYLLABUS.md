@@ -8,8 +8,14 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–2 authored (lessons + exercises + project, gate-green). Days 3–100 pending.
+**Authoring status:** Days 1–3 authored (lessons + exercises + project, gate-green). Days 4–100 pending.
 Update this line as days are completed.
+
+**Day 3 prereq:** Ollama must be installed and running before starting Day 3.
+- Install: macOS → `brew install ollama` (or download from ollama.com) · Linux → `curl -fsSL https://ollama.com/install.sh | sh` · Windows → installer at ollama.com
+- Pull the model: `ollama pull llama3.2`
+- Start the server: macOS → open the Ollama app (menu bar) · Linux/Windows → `ollama serve` in a terminal
+- Install packages: `pip install ollama openai requests`
 
 ---
 
@@ -19,7 +25,7 @@ Update this line as days are completed.
 |-----|-------|-----------|--------------|-------------|
 | 1 | The AI Pipeline & Text-to-Speech | See a full AI system end-to-end on day one | pipelines, Edge TTS, subprocess, FFmpeg, black-box models | Personal AI Briefing Generator (headlines → spoken MP3) |
 | 2 | Python for AI Engineering | Refresh the exact Python you'll use daily | functions, typing, f-strings, comprehensions, files, JSON | Data-cleaning utility script |
-| 3 | Your First Claude API Call | Talk to an LLM from code | Anthropic SDK, messages API, system/user roles, params | CLI Q&A assistant |
+| 3 | Your First LLM API Call | Call an open-source model from code — three ways | Ollama (prereq: `ollama pull llama3.2`), `ollama` Python package, OpenAI-compat endpoint, raw REST via `requests`, system prompts, roles, multi-turn history | CLI Q&A assistant (free + local) |
 | 4 | Structured Output & Schemas | Get reliable, typed data out of an LLM | JSON output, Pydantic schemas, validation, retries | Text → structured JSON extractor |
 | 5 | Engineering Hygiene | Stop vibecoding: make code you can trust | logging, error handling, pytest, git basics | Harden Day 3's app with tests + logging |
 

@@ -1,0 +1,185 @@
+day: "003"
+lesson: "05"
+title: "Build the CLI Q&A Assistant"
+
+slides:
+
+  - type: title
+    heading: "Build the CLI Q&A Assistant"
+    subheading: "Where everything from today comes together"
+    narration: >
+      Welcome to the final lesson of Day 3. You've learned three ways to call
+      a local model, how to add system prompts, and how to build multi-turn
+      history. Now we assemble all of it into a real program: a command-line
+      assistant that reads your questions from the keyboard, sends them to
+      your local model, and prints the replies. It runs entirely offline, costs
+      nothing, and it's yours to customise. Let's build it.
+
+  - type: concept
+    label: "CLI Pattern"
+    heading: "The Read–Eval–Print Loop"
+    body: >
+      A CLI assistant runs in a loop: read input, send to the model, print
+      the reply, repeat. This pattern — read, evaluate, print, loop — is
+      called a REPL and is the foundation of every interactive program, from
+      Python's own interactive shell to database clients to AI assistants.
+    bullets:
+      - "Read — get user input with input()"
+      - "Evaluate — send to the model"
+      - "Print — display the reply"
+      - "Loop — repeat until the user quits"
+    narration: >
+      Interactive programs that run in a loop are called REPLs — Read-Eval-
+      Print Loops. Python's own interactive shell is a REPL. SQL clients are
+      REPLs. Your CLI assistant is the same pattern applied to AI. On each
+      iteration you read a line of user input, evaluate it by calling the
+      model, print the reply, and loop back. The loop runs indefinitely until
+      the user types a quit command. Once you recognise this pattern you'll
+      see it everywhere — it's one of the most fundamental structures in
+      interactive software, and today you're building it from scratch.
+
+  - type: how_it_works
+    label: "while + input"
+    heading: "Two New Tools: while and input()"
+    body: >
+      `while True:` creates an infinite loop that only ends with `break`.
+      `input(prompt)` prints a prompt, waits for the user to press Enter,
+      and returns the typed string. `continue` skips the rest of the current
+      loop iteration and jumps back to the top. Together these three are the
+      backbone of any CLI program.
+    code: |
+      while True:
+          line = input("You: ")        # blocks until the user presses Enter
+          if not line.strip():
+              continue                 # skip empty lines — go back to input()
+          if line.strip().lower() in ("exit", "quit", "q"):
+              print("Goodbye!")
+              break                   # exit the loop entirely
+          # ... process line ...
+    narration: >
+      Three new Python constructs appear together in the CLI assistant. While
+      True creates an infinite loop — the indented body repeats forever. The
+      only way out is the break keyword, which exits the loop immediately.
+      Input is a built-in function that prints the string you pass it, then
+      waits for the user to type something and press Enter, returning what
+      they typed as a string. Continue is the third piece: it skips the rest
+      of the current loop body and jumps back to the top, so if the user just
+      presses Enter without typing anything, we skip the model call and go
+      straight back to asking for input. While, break, and continue work
+      together on every interactive program you'll ever build.
+
+  - type: code
+    label: "Full CLI"
+    heading: "The Complete CLI Assistant — With History"
+    code: |
+      import ollama
+
+      MODEL  = "llama3.2"
+      SYSTEM = "You are a helpful assistant. Be concise and clear."
+
+      # Initialise once — grows across turns (multi-turn from Lesson 4)
+      messages = [{"role": "system", "content": SYSTEM}]
+
+      print("Local AI CLI — type 'exit' to quit\n")
+
+      while True:
+          question = input("You: ").strip()
+          if not question:
+              continue
+          if question.lower() in ("exit", "quit", "q"):
+              print("Goodbye!")
+              break
+          messages.append({"role": "user", "content": question})
+          try:
+              response = ollama.chat(model=MODEL, messages=messages)
+              reply    = response["message"]["content"]
+              messages.append({"role": "assistant", "content": reply})
+              print(f"AI: {reply}\n")
+          except Exception as e:
+              print(f"Error: {e}\n")
+    body: >
+      Key difference from a single-turn version: `messages` is initialised
+      once before the loop (with the system prompt) and both the user message
+      and assistant reply are appended after each turn. The model receives the
+      full conversation history on every call — this is the pattern from
+      Lesson 4 applied to the live loop.
+    narration: >
+      Here's the complete program — and notice what's different from the
+      simple single-turn version you might have written first. The messages
+      list is created once before the loop, starting with the system prompt.
+      Inside the loop, we append the user's question before calling the model,
+      and after we get the reply we append that too. On the next iteration the
+      messages list is one turn longer, so the model sees the full conversation
+      history. Tell it your name on turn one and ask it on turn three — it
+      will remember, because all three turns are in the list. This is exactly
+      the pattern from Lesson 4, now wired into the loop. The try/except means
+      a connection error prints a message and keeps the loop running rather
+      than crashing. The full program is under 25 lines.
+
+  - type: concept
+    label: "Which library?"
+    heading: "Choosing Between the Three Approaches"
+    body: >
+      All three approaches call the same local model. Choose based on what
+      you need from the calling code.
+    bullets:
+      - "ollama package — simplest, clearest for pure local use"
+      - "openai-compat — most transferable; swap to cloud providers with one line"
+      - "requests (raw REST) — most control; no extra dependencies"
+    narration: >
+      Now that you've used all three, which should you default to? For
+      pure local development, the native ollama package is the clearest and
+      simplest — it's designed for exactly this use case. For anything where
+      you might later want to swap to a cloud provider — Groq, Together AI,
+      or real OpenAI — the openai-compatible approach is better, because
+      swapping is literally one line change. For scripts where you want to
+      minimise dependencies or need maximum control over the HTTP layer —
+      perhaps building your own retry logic or custom headers — requests gives
+      you that control directly. There is no wrong answer. Knowing all three
+      means you choose the right tool for each situation rather than
+      defaulting to whatever you learned first.
+
+  - type: exercise
+    heading: "Exercise 5 & Project"
+    prompt: >
+      Exercise 5 (exercise_05.ipynb): Write send_in_conversation(history,
+      new_message) that appends the new user message to history, calls
+      ollama.chat() with the full list, and returns (reply_text,
+      updated_history) with both the user message and assistant reply appended.
+
+      Then open the project (project/project.ipynb): build the full CLI
+      assistant from scratch. The solution is in project/solution/.
+    hint: "Append {\"role\": \"user\", \"content\": new_message} before calling. Append {\"role\": \"assistant\", \"content\": reply} after."
+    narration: >
+      Two deliverables to close out Day 3. First, exercise five: write
+      send_in_conversation, a function that takes an existing history list
+      and a new message, appends the user message, calls ollama.chat with
+      the full list, and returns a tuple of the reply and the updated history
+      with the assistant reply also appended. This is the core function for
+      any multi-turn chatbot — you'll build the full thing on Day 15. Then
+      open the project and build your CLI assistant from scratch. Give it a
+      system prompt, the while loop, and the ask function. Run it, type some
+      questions, customise the system prompt. The solution is there once
+      you've built your own version first.
+
+  - type: summary
+    heading: "Day 3 Complete"
+    bullets:
+      - "Three ways to call a local model: ollama package, openai-compat, raw REST"
+      - "System prompt: {\"role\": \"system\"} as the first message in the list"
+      - "Multi-turn history: append user + assistant turns between calls"
+      - "while True + input() + break + continue = any interactive CLI"
+      - "The model is stateless — you manage the conversation history"
+      - "Next (Day 4): structured output — get reliable, typed JSON from an LLM"
+    narration: >
+      Congratulations — Day 3 is complete. You've built something genuinely
+      useful: a free, private, offline AI assistant running on your own
+      hardware. Along the way you learned three different layers of the same
+      call — the native package, the industry-standard compatible endpoint,
+      and the raw HTTP underneath them both. You learned the three message
+      roles, how to add a system prompt, and how to build multi-turn history.
+      And you assembled it all into a working CLI program using while, input,
+      break, and continue. On Day 4 things get more precise: you'll learn
+      how to get structured, typed data out of an LLM — turning natural
+      language into reliable JSON that your code can use directly. See you
+      there.

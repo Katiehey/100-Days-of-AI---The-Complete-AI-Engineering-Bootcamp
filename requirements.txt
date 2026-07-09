@@ -22,6 +22,7 @@ matplotlib
 requests
 beautifulsoup4
 ollama            # local LLM client — needs the Ollama app + a pulled model (from Day 3)
+openai            # OpenAI-compatible client — used against Ollama's local endpoint (from Day 3)
 
 # ── PER-SECTION (install when you get there; heavy deps kept out of core) ─────
 # Section 1  Text AI (6–20):         chromadb  sentence-transformers

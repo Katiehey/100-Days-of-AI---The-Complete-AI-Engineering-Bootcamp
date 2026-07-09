@@ -1,0 +1,207 @@
+day: "003"
+lesson: "01"
+title: "Local AI & Ollama Setup"
+
+slides:
+
+  - type: title
+    heading: "Your First LLM API Call"
+    subheading: "Free, private, and running entirely on your machine"
+    narration: >
+      Welcome to Day 3. Today you call a language model from code for the
+      first time — and the model lives entirely on your own machine. No API
+      key, no account, no billing. We're using Ollama: a tool that downloads
+      and runs open-source language models locally. By the end of this lesson
+      you'll have Ollama installed, a model downloaded, and Python talking to
+      it. Everything you build today works even without internet once the
+      model is pulled. Let's get set up.
+
+  - type: concept
+    label: "Why Local AI"
+    heading: "Four Reasons to Run AI Locally"
+    body: >
+      Running a language model locally gives you capabilities that a paid API
+      cannot match: zero cost, full privacy, offline capability, and complete
+      control over which model you run.
+    bullets:
+      - "Free — no billing, no rate limits, no account required"
+      - "Private — your prompts never leave your machine"
+      - "Offline — works anywhere once the model is downloaded"
+      - "Educational — see exactly which model file is running, swap freely"
+    narration: >
+      Before touching any code, let's look at why local AI is worth learning
+      even if you later use cloud APIs too. It's completely free: no per-token
+      billing, no API key to create, no rate limits beyond your own hardware.
+      It's private: your prompts never leave your machine, which matters for
+      any sensitive work. Once the model is downloaded it works without
+      internet — on a plane, on a farm, anywhere. And it's educational: you
+      can see the model file on disk, benchmark it, swap to a bigger or
+      smaller model with one command, and understand what you're actually
+      running. That transparency is genuinely valuable at this stage.
+
+  - type: how_it_works
+    label: "Install Ollama"
+    heading: "Step 1: Install Ollama"
+    body: >
+      Ollama is a runtime that downloads, manages, and serves local language
+      models. It installs as a background service that your Python code calls
+      over a local HTTP connection on port 11434.
+    code: |
+      # ── macOS (easiest — Homebrew) ──────────────────────────────
+      brew install ollama
+      # OR: download the app from https://ollama.com/download
+      # (drag to Applications, then launch it from the menu bar)
+
+      # ── Linux (one command) ─────────────────────────────────────
+      curl -fsSL https://ollama.com/install.sh | sh
+
+      # ── Windows ─────────────────────────────────────────────────
+      # Download the installer from https://ollama.com/download/windows
+      # Run it — Ollama appears in the system tray after install
+
+      # ── Verify it installed ─────────────────────────────────────
+      ollama --version
+    narration: >
+      Installing Ollama is a one-time step. On macOS the easiest route is
+      brew install ollama if you have Homebrew, or download the app directly
+      from ollama.com and drag it to Applications like any other Mac app. On
+      Linux, pipe the install script to sh — that one command handles
+      everything. On Windows, download the installer from the same URL and
+      run it. After installation, run ollama dash dash version in your terminal
+      to confirm it's there. On macOS the app starts automatically and sits
+      in your menu bar. On Linux and Windows you may need to start the server
+      manually — which is the next step.
+
+  - type: code
+    label: "Pull the model"
+    heading: "Step 2: Start Ollama & Pull llama3.2"
+    code: |
+      # ── macOS: server starts automatically with the menu bar app ──
+      # ── Linux / Windows: start the server in a terminal ──────────
+      ollama serve
+      # (leave this terminal open — the server runs in the foreground)
+
+      # ── In a new terminal: download the model (~2 GB, once only) ─
+      ollama pull llama3.2
+
+      # ── Verify the model works by chatting in the terminal ────────
+      ollama run llama3.2 "What is 2 + 2? Reply in one word."
+      # Expected: 4
+      # Type /bye or press Ctrl+D to exit the chat
+    body: >
+      `ollama pull` downloads the model file from the Ollama registry. This
+      takes a few minutes the first time and uses about 2 GB of disk space.
+      `ollama run` lets you chat in the terminal as a quick sanity check
+      before writing any Python.
+    narration: >
+      Two terminal commands complete the model setup. On Linux or Windows,
+      first run ollama serve in a terminal and leave it open — this starts
+      the local API server. On macOS with the menu bar app this is already
+      running. Then in a new terminal, run ollama pull llama3.2 to download
+      the model. This downloads about two gigabytes so give it a few minutes
+      the first time. Once it's done, test it immediately with ollama run —
+      if you get a response in the terminal, everything is working correctly.
+      You can list all your downloaded models anytime with ollama list.
+
+  - type: how_it_works
+    label: "Python package"
+    heading: "Step 3: Install the ollama Python Package"
+    body: >
+      The `ollama` Python package is the official client library from the
+      Ollama team. Install it once in your environment. It connects to the
+      local server on port 11434 so you can call the model from Python
+      without building any HTTP code yourself.
+    code: |
+      # Install in your ai-course conda environment:
+      pip install ollama
+
+      # Confirm it works:
+      python -c "import ollama; print(ollama.list())"
+      # Prints a list of your pulled models — llama3.2 should appear
+
+      # If you see a connection error, the Ollama server isn't running.
+      # Fix: run  ollama serve  in a separate terminal, then retry.
+    narration: >
+      The last setup step is installing the Python package. Run pip install
+      ollama in your ai-course conda environment — the same environment you've
+      been using throughout this course. The ollama package is the official
+      Python client from the Ollama team. It talks to the server running on
+      localhost port 11434 and lets you call the model with a single function
+      call instead of building HTTP requests by hand. Run the verify command
+      to confirm the import works and your model appears in the list. If you
+      see a connection error, it means the server isn't running — start it
+      with ollama serve in a separate terminal, then try again.
+
+  - type: code
+    label: "First call"
+    heading: "Your First Python Call to a Local LLM"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"   # change this if you pulled a different model
+
+      response = ollama.chat(
+          model=MODEL,
+          messages=[{"role": "user", "content": "What is the capital of Japan?"}]
+      )
+
+      text = response["message"]["content"]
+      print(text)
+      # "The capital of Japan is Tokyo."
+    body: >
+      `ollama.chat()` takes a model name and a messages list. The reply text
+      is at `response["message"]["content"]`. The first call may take up to
+      30 seconds while the model loads into memory — subsequent calls are
+      much faster.
+    narration: >
+      Here's the call. Import ollama, call ollama.chat with the model name
+      and a messages list, and read the response. The messages list is a
+      list of dicts, each with a role and content. For now role is always
+      "user" — we add more roles in Lesson 4. The response is also a dict,
+      and the reply text lives at response, then "message", then "content".
+      It's nested because Ollama's response mirrors the HTTP response directly
+      — which we'll explore in Lesson 3. Keep MODEL as a constant at the top
+      of your file so you can swap models in one place. First call may be
+      slow while the model loads into RAM — that's normal.
+
+  - type: exercise
+    heading: "Exercise 1: Ping Your Local Model"
+    prompt: >
+      Open exercise_01.ipynb in 00_warmup/day_003/exercises/.
+
+      Write ping_ollama(question: str) -> str: call ollama.chat() with
+      model="llama3.2" and a single user message. Return the reply text.
+      The checks verify Ollama is running and your function works end-to-end.
+    hint: "The reply text is at response[\"message\"][\"content\"]."
+    narration: >
+      Time to write it yourself. Open exercise one in the Day 3 exercises
+      folder. Your function takes a question string and must return the
+      model's answer as a string. You'll need to call ollama.chat with the
+      model name and a messages list containing one user message, then extract
+      the text from the response. The automated checks first verify Ollama is
+      running and give you the exact command to fix it if it isn't — either
+      the server isn't running or the model isn't pulled. If the first
+      response is slow — up to 30 seconds on some machines — that's normal
+      while the model loads into memory. Subsequent calls are much faster.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Ollama runs open-source models locally — free, private, offline after download"
+      - "Three setup steps: install Ollama, ollama pull llama3.2, pip install ollama"
+      - "Start the server: ollama serve (Linux/Windows) or the menu bar app (macOS)"
+      - "ollama.chat(model=..., messages=[...]) is the core call"
+      - "Reply text is at response[\"message\"][\"content\"]"
+      - "Next: call the same model using the OpenAI-compatible endpoint"
+    narration: >
+      Let's consolidate. Ollama is a runtime that downloads and serves
+      open-source language models locally — free, private, and offline after
+      the initial download. Setup is three steps: install Ollama for your
+      platform, pull the model with ollama pull llama3.2, and install the
+      Python package with pip install ollama. The server must be running for
+      any Python call to work — on macOS the menu bar app handles this, on
+      Linux and Windows run ollama serve in a terminal. The core call is
+      ollama.chat with a model name and a messages list, and the reply text
+      lives at response message content. In the next lesson you'll call the
+      exact same local model using a completely different Python package —
+      and understand why the API shape matters more than the library.

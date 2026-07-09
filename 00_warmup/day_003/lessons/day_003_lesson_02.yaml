@@ -1,0 +1,198 @@
+day: "003"
+lesson: "02"
+title: "The OpenAI-Compatible Endpoint"
+
+slides:
+
+  - type: title
+    heading: "The OpenAI-Compatible Endpoint"
+    subheading: "Same local model, industry-standard API shape"
+    narration: >
+      Lesson 2. You've already called llama3.2 using the native ollama
+      package. Now you'll call the exact same model using a completely
+      different library: the openai Python package. This isn't a trick — Ollama
+      deliberately implements the same API shape as OpenAI, so the official
+      openai package works with it unchanged. Understanding why this matters
+      is one of the most useful things you'll learn about AI engineering.
+
+  - type: concept
+    label: "Compatible Endpoints"
+    heading: "What 'API-Compatible' Means"
+    body: >
+      An API-compatible endpoint accepts exactly the same request format as
+      another API. Ollama serves its chat API at `/v1/chat/completions` —
+      identical to OpenAI's endpoint. This means any library built for the
+      OpenAI API works with Ollama by simply changing the server address.
+    bullets:
+      - "Same URL path, same JSON body shape, same response format"
+      - "Just change base_url to point at localhost instead of api.openai.com"
+      - "The api_key field is required by the package but ignored by Ollama"
+    narration: >
+      API compatibility is a powerful concept. When two services agree to
+      accept requests in the same format, any code written for one works with
+      the other — you just change where it connects. Ollama's developers
+      deliberately made their local server accept the same JSON format that
+      OpenAI's cloud API uses. That means you can take code written for
+      OpenAI and run it against your free local model by changing one line.
+      It also means the inverse: code you write now against Ollama would work
+      against OpenAI, Groq, Together AI, or Mistral's API with the same
+      one-line change. That's the "swappable provider" concept this course
+      is built around.
+
+  - type: how_it_works
+    label: "Setup"
+    heading: "Install the openai Package & Point It at Ollama"
+    body: >
+      The `openai` Python package connects to `https://api.openai.com` by
+      default. You override this with `base_url` to point it at your local
+      Ollama server instead. The `api_key` parameter is required by the
+      package but completely ignored by Ollama.
+    code: |
+      # Install the openai package (if you don't have it yet):
+      pip install openai
+
+      # Ollama must already be running (from Lesson 1):
+      # macOS: Ollama app in menu bar
+      # Linux/Windows: ollama serve in a terminal
+
+      # Quick check — your model should appear:
+      ollama list
+    narration: >
+      Setup for this approach is just one package install: pip install openai.
+      Ollama must already be running from your Lesson 1 setup — either the
+      menu bar app on macOS or ollama serve on Linux and Windows. Run ollama
+      list to confirm your model is still there. From the Python side, the
+      openai package needs to know two things: where to send requests and
+      what API key to include. We override the default server address to
+      point at localhost, and for the API key we pass the string "ollama" —
+      it can be anything, because Ollama doesn't actually check it.
+
+  - type: code
+    label: "The Call"
+    heading: "Calling Ollama Through the openai Package"
+    code: |
+      from openai import OpenAI
+
+      client = OpenAI(
+          base_url="http://localhost:11434/v1",
+          api_key="ollama",   # required by the package, ignored by Ollama
+      )
+
+      response = client.chat.completions.create(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "What is the capital of Japan?"}]
+      )
+
+      text = response.choices[0].message.content
+      print(text)
+      # "The capital of Japan is Tokyo."
+    body: >
+      The call structure is identical to what you'd write for real OpenAI —
+      only `base_url` and `api_key` differ. The response shape is different
+      from the native ollama package: text is at
+      `response.choices[0].message.content`.
+    narration: >
+      Here's the openai-compatible call. Create an OpenAI client with
+      base_url pointing at localhost port 11434 slash v1, and api_key set
+      to any string — "ollama" is the convention. Then call
+      client.chat.completions.create with the same model name and messages
+      list you used in Lesson 1. The response structure is different though:
+      instead of response message content, you read response.choices[0]
+      .message.content. This is the OpenAI response shape — choices is a
+      list because OpenAI supports generating multiple alternative responses
+      at once. We always use the first one, index zero.
+
+  - type: concept
+    label: "Why It Matters"
+    heading: "One Skill, Many Providers"
+    body: >
+      Any AI provider that implements the OpenAI-compatible endpoint works
+      with this exact code pattern. Just change `base_url` and `api_key`.
+      This makes your code provider-agnostic — the logic stays the same
+      regardless of who is running the model.
+    bullets:
+      - "Ollama — local, free: base_url='http://localhost:11434/v1'"
+      - "Groq — free cloud tier: base_url='https://api.groq.com/openai/v1'"
+      - "Together AI — free tier available: base_url='https://api.together.xyz/v1'"
+      - "OpenAI — paid: base_url=default (no override needed)"
+    narration: >
+      Here's why this lesson is valuable beyond just "another way to call
+      Ollama". The OpenAI-compatible endpoint is now an industry standard.
+      Groq, Together AI, Mistral, Anyscale, and dozens of other providers
+      all implement it. That means the pattern you're learning now — create
+      an OpenAI client, override base_url, call chat.completions.create —
+      works with every one of them. When you want to try Groq's free cloud
+      tier for faster inference, you change one line. When you want to compare
+      a Together AI model, you change one line. The application logic never
+      changes. That's the value of building on a standard shape rather than
+      a proprietary library.
+
+  - type: how_it_works
+    label: "Response shape"
+    heading: "The OpenAI Response Object"
+    body: >
+      The OpenAI response is a Python object with attribute access. The reply
+      text lives at `response.choices[0].message.content`. Other useful
+      attributes: `response.model` (which model ran), `response.usage`
+      (token counts).
+    code: |
+      # The reply:
+      text = response.choices[0].message.content
+
+      # Which model actually ran:
+      print(response.model)        # "llama3.2"
+
+      # Token usage (for awareness — local means no cost per token):
+      print(response.usage.prompt_tokens)       # tokens you sent
+      print(response.usage.completion_tokens)   # tokens in the reply
+    narration: >
+      The response object from the openai package uses Python attribute access
+      — dots rather than bracket notation. choices is a list; you always take
+      index zero. Then .message is the reply message object, and .content is
+      the text string. Compare this to the native ollama response:
+      response["message"]["content"] with brackets. Same information, different
+      structure. The response also exposes which model ran and the token counts,
+      mirroring the cloud API even though no cloud is involved. Local models
+      don't charge per token, so usage is informational here — but it's the
+      same attribute you'd use to track cost in a cloud deployment.
+
+  - type: exercise
+    heading: "Exercise 2: Use the OpenAI-Compatible Endpoint"
+    prompt: >
+      Open exercise_02.ipynb. Write ask_compat(question: str) -> str that
+      creates an OpenAI client pointing at http://localhost:11434/v1 and
+      calls chat.completions.create() with model="llama3.2". Return the
+      reply text. The checks verify the same Ollama server from Lesson 1.
+    hint: "The reply text is at response.choices[0].message.content."
+    narration: >
+      Exercise two has you call the same local model through the openai
+      package. Open exercise two. Your function ask_compat takes a question
+      and returns the reply text. Create the OpenAI client with the localhost
+      base_url and any api_key string, then call chat.completions.create
+      exactly as shown. The automated checks verify Ollama is still running
+      and that your function returns a non-empty string. If check two fails
+      with a connection error, the Ollama server isn't running — start it
+      with ollama serve and try again. Notice how similar the check output
+      looks to exercise one — same model, same question, different library.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Ollama exposes an OpenAI-compatible endpoint at localhost:11434/v1"
+      - "pip install openai, then point it at localhost with base_url="
+      - "call structure: client.chat.completions.create(model=..., messages=[...])"
+      - "Reply text: response.choices[0].message.content"
+      - "Same pattern works with Groq, Together AI, Mistral — just change base_url"
+      - "Next: raw REST with requests — see exactly what HTTP the libraries send"
+    narration: >
+      Here's what you've learned. Ollama implements the OpenAI-compatible
+      API at localhost port 11434 slash v1. Install the openai package, create
+      a client with base_url pointing at that address, and call
+      chat.completions.create with your model and messages. The reply text
+      lives at response.choices[0].message.content. Most importantly: this
+      exact pattern — with a different base_url and api_key — works with Groq,
+      Together AI, Mistral, and any other provider that supports the
+      OpenAI-compatible endpoint. You've just learned a genuinely transferable
+      skill. In the next lesson we strip away the library entirely and make
+      the same call with raw HTTP, so you can see exactly what's happening
+      underneath both libraries.
