@@ -1,0 +1,179 @@
+day: "004"
+lesson: "04"
+title: "Schema-Guided Prompting"
+
+slides:
+
+  - type: title
+    heading: "Schema-Guided Prompting"
+    subheading: "Let the schema write the prompt for you"
+    narration: >
+      Lesson 4. You now have all three layers individually: a schema-guided prompt,
+      JSON mode, and Pydantic validation. In this lesson you connect them into a
+      single extraction pipeline. The key insight is that you don't need to
+      manually write prompts listing your fields — you can generate the prompt
+      automatically from the Pydantic schema. The schema becomes the single source
+      of truth for both validation and instruction.
+
+  - type: concept
+    label: "Auto-generating prompts"
+    heading: "Generating the System Prompt from the Schema"
+    body: >
+      Instead of manually listing every field in your system prompt, convert the
+      Pydantic model's JSON schema to a string with `json.dumps()` and embed it
+      directly. The model reads the schema and follows it — field names, types,
+      and descriptions included.
+    code: |
+      import json
+      from pydantic import BaseModel, Field
+
+      class PersonProfile(BaseModel):
+          name:   str       = Field(description="Full name of the person")
+          age:    int       = Field(description="Age in years")
+          city:   str       = Field(description="City where they live")
+          skills: list[str] = Field(description="List of professional skills")
+          bio:    str       = Field(description="One-sentence biography")
+
+      # Generate the prompt from the schema automatically:
+      schema_json = json.dumps(PersonProfile.model_json_schema(), indent=2)
+
+      SYSTEM_PROMPT = f"""You are an information extractor.
+      Extract information from the user's text and return a JSON object
+      that matches this schema exactly:
+
+      {schema_json}
+
+      Return only the JSON object — no explanation, no prose."""
+    narration: >
+      Here's the key move: model_json_schema returns a Python dict. json.dumps
+      converts it to a formatted string. You embed that string in the system
+      prompt with an f-string. The model now has the complete specification for
+      what to return: every field name, every type, every description. When you
+      add a new field to PersonProfile, the prompt updates automatically on the
+      next call — you never need to remember to update it manually. This is the
+      "schema as single source of truth" principle: one place to define what you
+      want, and that definition drives both the prompt and the validation.
+
+  - type: how_it_works
+    label: "Full pipeline"
+    heading: "The Complete Three-Layer Pipeline"
+    body: >
+      With all three layers connected: schema-guided prompt → JSON mode →
+      Pydantic validation. Each layer adds a guarantee the previous one can't
+      provide alone.
+    code: |
+      import ollama, json
+      from pydantic import BaseModel, Field, ValidationError
+
+      MODEL = "llama3.2"
+
+      class PersonProfile(BaseModel):
+          name:   str       = Field(description="Full name of the person")
+          age:    int       = Field(description="Age in years")
+          city:   str       = Field(description="City where they live")
+          skills: list[str] = Field(description="List of professional skills")
+          bio:    str       = Field(description="One-sentence biography")
+
+      schema_json = json.dumps(PersonProfile.model_json_schema(), indent=2)
+
+      SYSTEM = f"""Extract information and return a JSON object matching this schema:
+      {schema_json}
+      Return only the JSON object."""
+
+      def extract_person(text: str) -> PersonProfile:
+          response = ollama.chat(
+              model=MODEL,
+              messages=[
+                  {"role": "system", "content": SYSTEM},
+                  {"role": "user",   "content": text},
+              ],
+              format="json",   # Layer 2: guaranteed valid JSON syntax
+          )
+          raw = response["message"]["content"]
+          return PersonProfile.model_validate_json(raw)   # Layer 3: validated
+
+      # Try it:
+      profile = extract_person(
+          "Alice Chen is a 32-year-old data engineer in Cape Town. "
+          "She specialises in Python, SQL and dbt."
+      )
+      print(profile.name)    # "Alice Chen"
+      print(profile.age)     # 32
+      print(profile.skills)  # ["Python", "SQL", "dbt"]
+    narration: >
+      Here's the full pipeline. At the top: the Pydantic model defines the
+      schema. That schema goes into the system prompt via model_json_schema and
+      json.dumps. The chat call includes format equals "json" — JSON mode
+      guarantees the syntax. The response string goes straight into
+      model_validate_json — Pydantic validates types and required fields.
+      If everything is correct, you get a PersonProfile instance with proper
+      Python types: name is a str, age is an int, skills is a list of strings.
+      If anything is wrong — missing field, wrong type — you get a clear
+      ValidationError. Notice how short extract_person is: six lines of logic.
+      The framework handles all the complexity. This is what production
+      extraction pipelines look like.
+
+  - type: concept
+    label: "Why this is better"
+    heading: "Schema as Single Source of Truth"
+    body: >
+      When the schema drives the prompt, adding or changing a field is a
+      one-line change to the Pydantic model. Everything downstream — the
+      prompt, the validation, the type hints, the IDE autocomplete — updates
+      automatically.
+    bullets:
+      - "Add a field to PersonProfile → prompt updates on next call automatically"
+      - "Remove a field → it vanishes from the prompt and validation"
+      - "Change a type (int → float) → validation enforces the new type"
+      - "No separate prompt file to maintain — the model IS the documentation"
+    narration: >
+      Think about what happens when requirements change. Say you need to add
+      an "email" field to PersonProfile. You add one line to the Pydantic class.
+      The next time extract_person runs, model_json_schema includes the email
+      field, the prompt includes it, Pydantic validates it. You don't touch the
+      prompt, the extraction function, or the validation logic — they all update
+      automatically. Now contrast this with the naive approach: you'd have to
+      remember to update the system prompt string, add the key to whatever dict
+      you're expecting, add a check in your code. Three places to update instead
+      of one. The schema as single source of truth is not just convenient — it
+      prevents the prompt and the code from drifting apart over time.
+
+  - type: exercise
+    heading: "Exercise 4: Full Pipeline"
+    prompt: >
+      Open exercise_04.ipynb. A PersonProfile model is already defined.
+      Write extract_and_validate(text: str) -> PersonProfile that:
+      (1) builds a system prompt from PersonProfile.model_json_schema(),
+      (2) calls ollama.chat with format="json",
+      (3) calls PersonProfile.model_validate_json() on the response.
+      Return the PersonProfile instance. The checks verify you get back a
+      PersonProfile with correct field types — name is str, age is int.
+    hint: "Generate SYSTEM with json.dumps(PersonProfile.model_json_schema()). Then format=\"json\" + model_validate_json()."
+    narration: >
+      Exercise four is the full pipeline. Open exercise four. The PersonProfile
+      class is already there — you only write the extraction function. Steps:
+      build the system prompt from the schema, call ollama.chat with format
+      equals "json", pass the response to model_validate_json. The automated
+      checks test that the return value is a PersonProfile instance (not a dict),
+      that the name field is a string, and that the age field is an integer.
+      If age comes back as a string and your code returns it as-is, the check
+      will catch it. That's Pydantic doing its job.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "json.dumps(Model.model_json_schema()) generates a prompt from your schema"
+      - "Embed the schema string in the system prompt — the model follows it precisely"
+      - "Full pipeline: schema prompt + format=\"json\" + model_validate_json()"
+      - "Schema as single source of truth: change the model, everything updates"
+      - "Next: adding retry loops for when the model still doesn't produce valid output"
+    narration: >
+      The three-layer pipeline is assembled. Schema-guided prompt tells the model
+      what to produce. JSON mode guarantees it's parseable. Pydantic validates
+      that it matches the expected structure. And the schema auto-generates the
+      prompt, so there's one source of truth. There's one more layer to add:
+      retries. Even with all three layers, a model might occasionally return
+      something that fails validation — especially for complex schemas or
+      ambiguous inputs. In the final lesson you add a retry loop that catches
+      ValidationError, tells the model what went wrong, and asks it to try again.
+      That's what turns a good pipeline into a production-ready one.

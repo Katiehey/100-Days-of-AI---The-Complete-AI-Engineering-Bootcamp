@@ -1,0 +1,206 @@
+day: "004"
+lesson: "05"
+title: "Retries and the Complete Extractor"
+
+slides:
+
+  - type: title
+    heading: "Retries and the Complete Extractor"
+    subheading: "Handling failures gracefully — the production-ready pattern"
+    narration: >
+      Lesson 5. The three-layer pipeline from Lesson 4 is already much better than
+      the naive approach. But even with JSON mode and a schema-guided prompt, a
+      model occasionally produces output that fails Pydantic validation — wrong
+      type, missing field, unexpected structure. In production you don't want those
+      failures to crash your pipeline. You want to retry: catch the error, tell the
+      model what went wrong, and ask it to try again. That's what this lesson covers.
+
+  - type: concept
+    label: "Why retries"
+    heading: "When Validation Still Fails"
+    body: >
+      Even with all three layers in place, rare failures happen. The model might
+      return a numeric string where you need an integer, or omit a required field
+      when the input text doesn't mention it. A single retry — with the error
+      fed back to the model — resolves most of these cases.
+    bullets:
+      - "~5–10% of calls may fail validation even with JSON mode + schema prompt"
+      - "Retrying with the error message as context fixes most failures"
+      - "Limit retries (typically 2–3) — beyond that, the input may be unanswerable"
+      - "After all retries fail, raise a clear exception — don't return garbage"
+    narration: >
+      How often does validation still fail? With a good schema prompt and JSON
+      mode, most models get it right 90 to 95 percent of the time. But a 5
+      percent failure rate is unacceptable in production — if you process a
+      thousand records, 50 crash. The retry pattern handles this. When Pydantic
+      raises a ValidationError, you catch it, add a message to the conversation
+      explaining what was wrong, and call the model again. Because the model can
+      see its previous failed attempt and the error description, it almost always
+      corrects the mistake on the second try. Set a limit — typically two or
+      three retries — and raise a clear exception if all attempts fail. Never
+      silently return incorrect data.
+
+  - type: how_it_works
+    label: "Retry loop"
+    heading: "The Retry Pattern"
+    code: |
+      from pydantic import ValidationError
+
+      def extract_with_retry(text: str, max_tries: int = 3) -> PersonProfile:
+          messages = [
+              {"role": "system", "content": SYSTEM},
+              {"role": "user",   "content": text},
+          ]
+
+          for attempt in range(max_tries):
+              response = ollama.chat(model=MODEL, messages=messages, format="json")
+              raw = response["message"]["content"]
+
+              try:
+                  return PersonProfile.model_validate_json(raw)
+              except ValidationError as e:
+                  if attempt == max_tries - 1:
+                      raise   # all retries exhausted — let it propagate
+                  # Feed the error back to the model as an assistant + user turn:
+                  messages.append({"role": "assistant", "content": raw})
+                  messages.append({
+                      "role": "user",
+                      "content": (
+                          f"That response failed validation:\n{e}\n\n"
+                          "Please fix it and return only the corrected JSON object."
+                      ),
+                  })
+
+          raise RuntimeError("unreachable")  # for type checkers
+    narration: >
+      Here's the retry loop. It's a for loop over the attempt count — typically
+      three. On each attempt, call the model and try to validate. If validation
+      succeeds, return immediately. If it fails with ValidationError, check
+      whether you've used all your retries: if so, re-raise the exception so
+      the caller knows something went wrong. If you have retries left, append
+      the model's bad response and a user message explaining the error to the
+      messages list, then loop. On the next iteration the model sees its own
+      failed output and the specific validation error, and can correct the
+      mistake. The key implementation detail: you append two messages — the
+      assistant's bad response and then a user correction. This keeps the
+      conversation coherent and gives the model exactly the context it needs.
+
+  - type: code
+    label: "Complete extract function"
+    heading: "The Complete Extractor"
+    code: |
+      import ollama, json
+      from pydantic import BaseModel, Field, ValidationError
+
+      MODEL  = "llama3.2"
+
+      class PersonProfile(BaseModel):
+          name:   str       = Field(description="Full name of the person")
+          age:    int       = Field(description="Age in years")
+          city:   str       = Field(description="City where they live")
+          skills: list[str] = Field(description="List of professional skills")
+          bio:    str       = Field(description="One-sentence biography")
+
+      _schema = json.dumps(PersonProfile.model_json_schema(), indent=2)
+      SYSTEM = f"""You are an information extractor.
+      Extract information and return a JSON object matching this schema exactly:
+      {_schema}
+      Return only the JSON object — no explanation, no prose."""
+
+      def extract(text: str, max_tries: int = 3) -> PersonProfile:
+          messages = [
+              {"role": "system", "content": SYSTEM},
+              {"role": "user",   "content": text},
+          ]
+          for attempt in range(max_tries):
+              response  = ollama.chat(model=MODEL, messages=messages, format="json")
+              raw       = response["message"]["content"]
+              try:
+                  return PersonProfile.model_validate_json(raw)
+              except ValidationError as e:
+                  if attempt == max_tries - 1:
+                      raise
+                  messages.append({"role": "assistant", "content": raw})
+                  messages.append({
+                      "role": "user",
+                      "content": f"Validation failed:\n{e}\nPlease return only the corrected JSON.",
+                  })
+          raise RuntimeError("unreachable")
+
+      # Use it:
+      profile = extract(
+          "Bob Mokoena, 28, is a machine learning engineer based in Johannesburg. "
+          "He works with PyTorch, Scikit-learn, and FastAPI."
+      )
+      print(f"{profile.name}, {profile.age}, {profile.city}")
+      print(profile.skills)
+    narration: >
+      Here's the complete extractor — everything assembled. PersonProfile defines
+      the schema with descriptions. The schema auto-generates the system prompt.
+      The extract function runs the retry loop: up to three attempts, each with
+      JSON mode, Pydantic validation, and self-correction feedback on failure.
+      It returns a validated PersonProfile or raises an exception if all attempts
+      fail. This is a production-quality implementation. About 50 lines including
+      the model definition. Could you add more features — logging, async support,
+      different models for different schemas? Absolutely. But those are additions
+      on top of a solid foundation. Get this right first.
+
+  - type: concept
+    label: "What you built"
+    heading: "The Pattern, Generalised"
+    body: >
+      This same pattern — define schema, auto-generate prompt, JSON mode, validate,
+      retry — works for any structured extraction task. Swap PersonProfile for any
+      Pydantic model and the extractor works unchanged.
+    bullets:
+      - "InvoiceData — extract invoice number, amount, date, vendor from PDF text"
+      - "ProductReview — extract sentiment, rating, pros, cons from review text"
+      - "MeetingNotes — extract action items, owners, deadlines from meeting transcript"
+      - "TechStack — extract languages, frameworks, databases from a job description"
+    narration: >
+      The pattern you've built is general. PersonProfile is just the example.
+      Replace it with InvoiceData and you have an invoice extractor. Replace it
+      with ProductReview and you have a sentiment analysis pipeline with typed
+      output. The extraction function itself — schema prompt, JSON mode, validate,
+      retry — doesn't change. The schema changes. This is the real value: once
+      you understand the three-layer pattern, you can build any structured
+      extraction task in about 20 minutes. Define the Pydantic model, wire it
+      into the extractor, done.
+
+  - type: exercise
+    heading: "Exercise 5: Add Retries"
+    prompt: >
+      Open exercise_05.ipynb. A PersonProfile model and SYSTEM prompt are
+      defined. Write extract_with_retry(text: str, max_tries: int = 3) -> PersonProfile
+      that implements the retry loop: on ValidationError, append the bad
+      response and an error message to the conversation and try again. Raise
+      the final ValidationError if all retries fail. The checks verify you
+      return a PersonProfile and that the function accepts max_tries.
+    hint: "for attempt in range(max_tries): ... try: return ... except ValidationError as e: if attempt == max_tries - 1: raise"
+    narration: >
+      Exercise five is the final piece. Open exercise five. The PersonProfile
+      model and the SYSTEM prompt are already there. You write the retry loop.
+      The structure to follow: for loop over max_tries, call ollama.chat with
+      format equals "json", try model_validate_json, on ValidationError check
+      if it's the last attempt and raise if so, otherwise append the bad
+      response and error context to messages and continue. The automated checks
+      verify you return a PersonProfile instance and that the function signature
+      accepts a max_tries parameter.
+
+  - type: summary
+    heading: "Day 4 Complete"
+    bullets:
+      - "Layer 1 — Schema-guided prompt: model_json_schema() → json.dumps() → system prompt"
+      - "Layer 2 — JSON mode: format=\"json\" → json.loads() always succeeds"
+      - "Layer 3 — Pydantic: model_validate_json() → typed, validated instance"
+      - "Retry loop: catch ValidationError, feed error back, retry up to max_tries"
+      - "This pattern works for any structured extraction task — swap the schema"
+    narration: >
+      Day 4 is complete. You've built a production-quality structured extraction
+      system from scratch. Three layers — schema prompt, JSON mode, Pydantic
+      validation — each catching what the previous one misses. A retry loop that
+      self-corrects using the model's own failed output as feedback. And a design
+      where the Pydantic model is the single source of truth: change the schema,
+      everything downstream updates. These are techniques used in real AI
+      engineering pipelines today. Tomorrow is Day 5 — Engineering Hygiene — the
+      final warmup day before Section 1 begins.

@@ -1,0 +1,188 @@
+day: "004"
+lesson: "03"
+title: "Pydantic Schemas"
+
+slides:
+
+  - type: title
+    heading: "Pydantic Schemas"
+    subheading: "Define your data contract and let Python enforce it"
+    narration: >
+      Lesson 3. You can now get valid JSON out of your local model. But valid
+      JSON and correct JSON are different things. In this lesson you add the
+      third and most powerful layer: Pydantic schemas. You define your expected
+      data structure as a Python class, and Pydantic enforces it — checking
+      types, catching missing fields, and raising a clear error if anything
+      is wrong. This is how production AI systems make model output truly
+      trustworthy.
+
+  - type: concept
+    label: "What is Pydantic"
+    heading: "Pydantic: Data Validation Through Type Hints"
+    body: >
+      Pydantic is a Python library that turns type-annotated classes into data
+      validators. Define a class that inherits from `BaseModel`, add typed
+      fields, and Pydantic enforces the structure whenever data is passed in —
+      raising a clear `ValidationError` if anything is wrong.
+    bullets:
+      - "BaseModel — the base class for all Pydantic schemas"
+      - "Type annotations — `name: str`, `age: int`, `skills: list[str]`"
+      - "Field() — add descriptions, constraints, defaults"
+      - "ValidationError — raised when data doesn't match the schema"
+    narration: >
+      Pydantic is already installed in your ai-course environment — it's one of
+      the most widely used Python libraries in data and AI engineering. The core
+      idea is simple: you write a class with typed fields, and Pydantic makes
+      sure any data you put into it matches those types. If you try to create a
+      PersonProfile where age is the string "thirty", Pydantic raises a
+      ValidationError immediately with a clear message. If the "name" field is
+      missing entirely, same result. Instead of mysterious KeyErrors or TypeErrors
+      appearing somewhere deep in your pipeline, you get an immediate, clear
+      failure at the point where the data enters. That's the contract: define
+      what you expect, and Pydantic enforces it.
+
+  - type: code
+    label: "Defining a schema"
+    heading: "Defining a BaseModel"
+    code: |
+      from pydantic import BaseModel, Field
+
+      class PersonProfile(BaseModel):
+          name:   str        = Field(description="Full name of the person")
+          age:    int        = Field(description="Age in years")
+          city:   str        = Field(description="City where they live")
+          skills: list[str]  = Field(description="List of professional skills")
+          bio:    str        = Field(description="One-sentence biography")
+
+      # PersonProfile is now a data contract:
+      # - name must be a string
+      # - age must be an integer
+      # - city must be a string
+      # - skills must be a list of strings
+      # - bio must be a string
+    narration: >
+      Here's a PersonProfile schema. The class inherits from BaseModel — that's
+      what makes it a Pydantic model. Each field is a Python type annotation:
+      name is a str, age is an int, skills is a list of strings. Field() adds
+      metadata — the description will be useful in the next lesson when you
+      generate a prompt from the schema. The annotations are not just
+      documentation: Pydantic reads them at runtime and enforces them on every
+      piece of data that passes through. This class is the single source of
+      truth for what a valid PersonProfile looks like. Change it here, and the
+      validation changes everywhere it's used.
+
+  - type: how_it_works
+    label: "Validating data"
+    heading: "model_validate() and model_validate_json()"
+    body: >
+      Two methods turn raw data into a validated Pydantic instance.
+      `model_validate(dict)` validates a Python dict. `model_validate_json(str)`
+      parses a JSON string and validates it in one step. Both raise
+      `ValidationError` if anything is wrong.
+    code: |
+      from pydantic import ValidationError
+
+      # ── From a dict ─────────────────────────────────────────────
+      data = {"name": "Alice", "age": 30, "city": "Cape Town",
+              "skills": ["Python", "SQL"], "bio": "Data engineer."}
+      profile = PersonProfile.model_validate(data)
+      print(profile.name)    # "Alice"
+      print(profile.age)     # 30  (integer)
+      print(profile.skills)  # ["Python", "SQL"]
+
+      # ── From a JSON string (the LLM output case) ─────────────────
+      json_str = '{"name": "Bob", "age": 25, "city": "Johannesburg", "skills": ["ML"], "bio": "Researcher."}'
+      profile2 = PersonProfile.model_validate_json(json_str)
+
+      # ── What happens with bad data ───────────────────────────────
+      try:
+          PersonProfile.model_validate({"name": "Eve", "age": "thirty"})
+      except ValidationError as e:
+          print(e)   # clear message: age must be int, fields missing, etc.
+    narration: >
+      Two methods do the validation. model_validate takes a Python dict and
+      returns a PersonProfile instance if the data is valid, or raises
+      ValidationError if it isn't. model_validate_json takes a JSON string —
+      which is exactly what the model returns — parses it, and validates in one
+      step. This is the method you'll use in the extraction pipeline. When
+      validation fails, the error message tells you exactly what went wrong:
+      which field, what type was expected, what type was received. Compare this
+      to the alternative — a KeyError or AttributeError somewhere later in your
+      code with no context about what went wrong. Pydantic makes failures
+      immediate, explicit, and recoverable.
+
+  - type: how_it_works
+    label: "model_json_schema"
+    heading: "model_json_schema() — The Schema as a Dict"
+    body: >
+      `PersonProfile.model_json_schema()` returns the schema as a Python dict
+      (JSON Schema format). You can serialise this to a JSON string and include
+      it in your system prompt — telling the model exactly what structure to
+      produce.
+    code: |
+      import json
+
+      schema = PersonProfile.model_json_schema()
+      print(json.dumps(schema, indent=2))
+      # {
+      #   "type": "object",
+      #   "properties": {
+      #     "name":   {"type": "string",  "description": "Full name of the person"},
+      #     "age":    {"type": "integer", "description": "Age in years"},
+      #     "city":   {"type": "string",  "description": "City where they live"},
+      #     "skills": {"type": "array",   "items": {"type": "string"}, ...},
+      #     "bio":    {"type": "string",  "description": "One-sentence biography"}
+      #   },
+      #   "required": ["name", "age", "city", "skills", "bio"]
+      # }
+    narration: >
+      Here's why Field descriptions matter. model_json_schema returns the
+      entire schema as a Python dict in JSON Schema format, including the type
+      of each field, whether it's required, and — if you used Field with a
+      description — what the field means. When you serialise this with
+      json.dumps and put it in the model's system prompt, you're giving the
+      model a precise specification: here is the exact JSON object I want,
+      with exact field names, types, and what each field represents. The model
+      follows this much more reliably than a vague "return JSON" instruction.
+      In the next lesson you'll build the system prompt from this schema
+      automatically.
+
+  - type: exercise
+    heading: "Exercise 3: Define and Validate with Pydantic"
+    prompt: >
+      Open exercise_03.ipynb. A PersonProfile model is already defined.
+      Write validate_person(data: dict) -> PersonProfile that calls
+      PersonProfile.model_validate(data) and returns the result. The checks
+      verify it returns a PersonProfile for valid data and that ValidationError
+      is raised for invalid data (age as a non-numeric string). No Ollama
+      needed for this exercise — it's pure Pydantic.
+    hint: "Just return PersonProfile.model_validate(data). Pydantic handles everything else."
+    narration: >
+      Exercise three is the Pydantic layer in isolation. You don't need Ollama
+      running for this one — it's all Python. The PersonProfile model is already
+      defined for you; your job is to write the validate_person function that
+      calls model_validate and returns the result. The automated checks test
+      that valid data produces a PersonProfile instance with correct field
+      values, and that invalid data — an age field that's a string that can't
+      be converted to an integer — raises ValidationError. This exercise
+      teaches that Pydantic is a general validation tool, completely independent
+      of LLMs. It happens to be perfect for validating model output, but it's
+      useful for validating any data from any source.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Pydantic BaseModel turns type annotations into runtime validators"
+      - "model_validate(dict) and model_validate_json(str) validate data against the schema"
+      - "ValidationError gives a clear, immediate failure if anything is wrong"
+      - "model_json_schema() returns the schema as a dict — ready to use in a prompt"
+      - "Next: put the schema in the system prompt for schema-guided extraction"
+    narration: >
+      Layer three is in hand. You can now define a data contract as a Python
+      class and validate any dict or JSON string against it. model_validate_json
+      parses and validates in one step — perfect for LLM output. ValidationError
+      gives you a clear failure at the right point rather than a mystery crash
+      later. And model_json_schema gives you the schema as a machine-readable
+      dict that you can put straight into a system prompt. In the next lesson
+      you connect all three layers: schema-guided prompt, JSON mode, and Pydantic
+      validation working together as a single extraction pipeline.

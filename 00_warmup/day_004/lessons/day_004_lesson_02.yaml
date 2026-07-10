@@ -1,0 +1,186 @@
+day: "004"
+lesson: "02"
+title: "JSON Mode — Reliable Syntax"
+
+slides:
+
+  - type: title
+    heading: "JSON Mode"
+    subheading: "Forcing the model to output syntactically valid JSON"
+    narration: >
+      Lesson 2. You've seen what breaks when you ask a model for JSON and just
+      hope for the best. In this lesson you add layer two of the three-layer
+      system: Ollama's JSON mode. With one extra parameter, you eliminate the
+      prose-wrapping problem entirely and guarantee that whatever the model
+      returns can at least be parsed by json.loads. Let's add it.
+
+  - type: concept
+    label: "JSON Mode"
+    heading: "What format=\"json\" Does"
+    body: >
+      Passing `format="json"` to `ollama.chat()` tells Ollama to constrain
+      the model's token sampling so the output is always valid JSON. The model
+      cannot produce prose, markdown, or malformed JSON — only a syntactically
+      correct JSON object.
+    bullets:
+      - "Eliminates the prose-wrapping problem entirely"
+      - "Eliminates JSONDecodeError — json.loads() will always succeed"
+      - "Does NOT guarantee correct keys or types — that's Pydantic's job"
+      - "Works for any model supported by Ollama"
+    narration: >
+      Ollama has a feature called JSON mode, enabled by passing format equals
+      "json" to the chat function. When this is set, Ollama uses grammar-based
+      token sampling — it constrains the model so it can only produce tokens
+      that keep the output valid JSON. The result is that the model literally
+      cannot produce a sentence, a markdown code block, or a malformed JSON
+      object. Whatever comes back will parse successfully with json.loads.
+      This solves one of the four failure modes from Lesson 1: prose wrapping.
+      It does not solve the other three — wrong keys, wrong types, and missing
+      fields. But it's a major step forward. You stop worrying about whether
+      json.loads crashes and start focusing on whether the content is right.
+
+  - type: how_it_works
+    label: "Adding JSON Mode"
+    heading: "One Parameter Change"
+    body: >
+      Add `format="json"` to the `ollama.chat()` call. Everything else stays
+      the same — same model, same messages list. The response is still a dict
+      at `response["message"]["content"]`, but now that string is guaranteed
+      to be valid JSON.
+    code: |
+      import ollama, json
+
+      MODEL = "llama3.2"
+
+      response = ollama.chat(
+          model=MODEL,
+          messages=[
+              {"role": "system", "content": "Extract info as JSON."},
+              {"role": "user",   "content": "Alice is 30 and lives in Cape Town."},
+          ],
+          format="json",   # ← the only change
+      )
+
+      raw  = response["message"]["content"]
+      data = json.loads(raw)   # always succeeds now
+      print(data)
+      # {"name": "Alice", "age": 30, "city": "Cape Town"}
+    narration: >
+      Here's the change. Add format equals "json" as a keyword argument to
+      ollama.chat — that's the entire change to your calling code. The response
+      still comes back as a string in response["message"]["content"], but now
+      that string is guaranteed to be valid JSON. json.loads will always
+      succeed. No more try/except around the parse call just for syntax errors.
+      Run this a hundred times and you'll get a valid JSON object every time.
+      The content may vary — the model might choose different key names — but
+      the syntax will always be correct.
+
+  - type: code
+    label: "Before and after"
+    heading: "Before and After JSON Mode"
+    code: |
+      # ── WITHOUT format="json" — unpredictable ───────────────────
+      response_a = ollama.chat(
+          model=MODEL,
+          messages=[{"role": "user", "content": "Tell me about Alice (age 30)."}],
+      )
+      # response_a["message"]["content"] might be:
+      # "Alice is a 30-year-old person."         ← can't parse
+      # "```json\n{\"name\": \"Alice\"}\n```"    ← json.loads fails
+      # "{\"name\": \"Alice\", \"age\": 30}"     ← works, but not guaranteed
+
+      # ── WITH format="json" — always parseable ───────────────────
+      response_b = ollama.chat(
+          model=MODEL,
+          messages=[{"role": "user", "content": "Tell me about Alice (age 30)."}],
+          format="json",
+      )
+      # response_b["message"]["content"] is ALWAYS valid JSON:
+      # "{\"name\": \"Alice\", \"age\": 30}"
+      data = json.loads(response_b["message"]["content"])
+    narration: >
+      Side by side: without format, you might get a sentence, a markdown
+      code block, or valid JSON — no way to know in advance. With format equals
+      "json", the output is always a syntactically correct JSON object. The
+      json.loads call always works. That's the guarantee JSON mode gives you.
+      Notice what it doesn't guarantee: the key names. The model chose "name"
+      and "age" because that's what most training data uses for person data.
+      But for less common schemas, the keys might be wrong. That's exactly
+      what the next two layers fix.
+
+  - type: concept
+    label: "System Prompt Still Matters"
+    heading: "JSON Mode + System Prompt = Better Output"
+    body: >
+      JSON mode guarantees syntax. Your system prompt guides content. Together
+      they produce output that is both parseable and close to what you need.
+      Without a system prompt, the model decides the key names. With a system
+      prompt describing what you want, it follows your intent.
+    code: |
+      # Vague — model picks key names:
+      messages = [
+          {"role": "user", "content": "Extract info about Alice (30, Cape Town)."},
+      ]
+      # → might return {"person": "Alice", "years": 30, "location": "Cape Town"}
+
+      # Guided — key names match what you expect:
+      messages = [
+          {
+              "role": "system",
+              "content": (
+                  "Extract information and return a JSON object with exactly "
+                  "these keys: name (string), age (integer), city (string)."
+              ),
+          },
+          {"role": "user", "content": "Alice is 30 and lives in Cape Town."},
+      ]
+      # → {"name": "Alice", "age": 30, "city": "Cape Town"}
+    narration: >
+      JSON mode and the system prompt work as a team. JSON mode guarantees
+      the output is valid JSON. The system prompt guides the model on what
+      that JSON should contain. Without any system prompt, the model invents
+      key names based on what seems reasonable — often close, but not
+      guaranteed to match what your code expects. When you specify the exact
+      keys and types in the system prompt, the model follows that specification
+      much more reliably. This is already two of the three layers working:
+      guided prompt plus JSON mode. In Lesson 3 you'll add the third layer:
+      Pydantic validation to catch any remaining mismatches.
+
+  - type: exercise
+    heading: "Exercise 2: Add JSON Mode"
+    prompt: >
+      Open exercise_02.ipynb. Write extract_json_reliable(text: str) -> dict
+      that uses ollama.chat with format="json" and a clear system prompt
+      specifying the keys to extract: name (str), age (int), city (str).
+      Parse and return the dict. The checks verify Ollama is running, the
+      result is a dict, and it contains a "name" key.
+    hint: "Add format=\"json\" to ollama.chat(). Your system prompt should name the exact keys expected."
+    narration: >
+      Exercise two upgrades the naive extractor with JSON mode. Open exercise
+      two. Your function takes a text string and returns a dict with name, age,
+      and city extracted. The key changes from exercise one: format equals "json"
+      in the chat call, and a more specific system prompt that names the exact
+      keys. The automated checks verify that Ollama is running, your function
+      returns a dict, and the dict contains a "name" key — confirming the model
+      followed your instructions. Run it several times and compare the
+      consistency to exercise one.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "format=\"json\" in ollama.chat() guarantees syntactically valid JSON output"
+      - "json.loads() on the response will always succeed — no more prose wrapping"
+      - "JSON mode does NOT fix wrong keys or wrong types — that's Pydantic's job"
+      - "Pair format=\"json\" with a system prompt that specifies the exact keys"
+      - "Next: Pydantic schemas — define and validate the exact structure you expect"
+    narration: >
+      Layer two is in place. format equals "json" eliminates the syntax problem —
+      whatever the model returns is always parseable JSON. Combined with a good
+      system prompt that names the expected keys, you're now getting reliably
+      structured output the majority of the time. But "majority of the time" is
+      not the same as "always". Types might still be wrong — an age that comes
+      back as the string "30" instead of the integer 30. Fields might still be
+      missing. The third layer handles both: Pydantic schemas. In Lesson 3 you
+      define your expected structure as a Python class, and Pydantic validates
+      every response against it — raising a clear error if anything is wrong,
+      rather than letting bad data flow silently into your system.

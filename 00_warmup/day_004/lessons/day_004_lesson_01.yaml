@@ -1,0 +1,172 @@
+day: "004"
+lesson: "01"
+title: "The Reliability Problem"
+
+slides:
+
+  - type: title
+    heading: "Structured Output & Schemas"
+    subheading: "Getting reliable, typed data out of a language model"
+    narration: >
+      Welcome to Day 4. Yesterday you called a local model and got back text.
+      Today you go further: getting back data — structured, typed, and validated
+      data that your code can actually use reliably. This is one of the most
+      practically important skills in AI engineering. When your pipeline depends
+      on what the model returns, "it usually works" is not good enough. By the
+      end of today you'll know exactly how to make model output trustworthy.
+
+  - type: concept
+    label: "The Problem"
+    heading: "LLMs Output Text — Your Code Needs Data"
+    body: >
+      Every LLM returns a plain text string. That's fine for displaying to a
+      user, but when downstream code needs to read a field, check a type, or
+      store a value, a text string is the wrong format. You need data, not prose.
+    bullets:
+      - "LLM output: a string — e.g. \"The person is Alice, aged 30, in Cape Town.\""
+      - "What code needs: a dict or object — e.g. {\"name\": \"Alice\", \"age\": 30}"
+      - "Text parsing is fragile — any wording change breaks your code"
+      - "Different runs produce different formats — no guarantee of consistency"
+    narration: >
+      Here's the core tension. Language models are trained to generate fluent
+      text for humans to read. But in an AI engineering pipeline, the model is
+      often a step in a larger system — its output feeds into a database, an
+      API, a downstream function. Those consumers don't read text, they read
+      data. When you ask a model "extract the person's name and age", it might
+      say "The person is Alice, who is 30 years old." That sentence looks right,
+      but code that tries to read name and age from it will fail. Ask again and
+      you might get "Name: Alice. Age: 30." — a different format. Run it a
+      hundred times and you get a hundred different formats. That's the
+      reliability problem.
+
+  - type: how_it_works
+    label: "What Breaks"
+    heading: "Three Ways Unstructured Output Fails"
+    body: >
+      Even when you ask a model to "return JSON", three things commonly go wrong:
+      inconsistent key names, wrong value types, and extra prose wrapping the
+      JSON. Each one causes a silent or noisy failure downstream.
+    code: |
+      # You asked for JSON. You got... this:
+
+      # Run 1 — key names vary:
+      {"full_name": "Alice", "years_old": 30}
+
+      # Run 2 — type is wrong (age as string):
+      {"name": "Alice", "age": "30"}
+
+      # Run 3 — JSON wrapped in prose:
+      "Here is the JSON you requested:\n```json\n{\"name\": \"Alice\"}\n```"
+
+      # Run 4 — missing field entirely:
+      {"name": "Alice"}
+
+      # Any of these break code that expects {"name": str, "age": int}
+    narration: >
+      Let's look at the failure modes concretely. First: key names. You asked for
+      "name" and "age" but the model might return "full_name" and "years_old" —
+      same data, different keys, your code breaks. Second: types. The age field
+      might come back as the string "30" instead of the integer 30. Depending
+      on what you do with it, this either silently passes a string where an int
+      was expected, or crashes later with a type error. Third: extra prose. The
+      model might wrap the JSON in a sentence or a markdown code block. json.loads
+      on that string will throw a JSONDecodeError. Fourth: missing fields. The
+      model might simply forget to include a field, leaving your code to handle
+      a KeyError at the worst possible moment. You need a system that prevents
+      all four of these.
+
+  - type: concept
+    label: "The Solution"
+    heading: "Three Layers: Prompt → JSON Mode → Schema"
+    body: >
+      Reliable structured output requires three layers working together. Each
+      layer catches what the previous one misses.
+    bullets:
+      - "Layer 1 — Schema-guided prompt: tell the model exactly what to return"
+      - "Layer 2 — JSON mode: force the model to output syntactically valid JSON"
+      - "Layer 3 — Schema validation: verify the JSON matches your expected structure"
+    narration: >
+      The solution is three layers, and all three are necessary. Layer one is
+      prompting — you tell the model exactly what JSON schema to produce, with
+      field names, types, and examples. This addresses wrong keys and missing
+      fields. Layer two is JSON mode — Ollama has a feature that constrains the
+      model's output to valid JSON syntax, so you never get prose wrapping. This
+      addresses the malformed JSON problem. Layer three is schema validation —
+      even with a good prompt and JSON mode, types might still be wrong. You
+      use a schema library — specifically Pydantic — to validate that the parsed
+      JSON actually matches what you expected. This catches type mismatches,
+      missing required fields, and values outside allowed ranges. Each layer
+      catches what the previous one misses. Together they make model output
+      genuinely reliable.
+
+  - type: code
+    label: "Naive attempt"
+    heading: "What a Naive Approach Looks Like"
+    code: |
+      import ollama, json
+
+      MODEL = "llama3.2"
+
+      def extract_naive(text: str) -> dict:
+          response = ollama.chat(
+              model=MODEL,
+              messages=[
+                  {"role": "system", "content": "Extract name and age as JSON."},
+                  {"role": "user",   "content": text},
+              ]
+          )
+          raw = response["message"]["content"]
+          return json.loads(raw)   # 🚨 will crash on extra prose
+
+      # Works sometimes. Breaks randomly.
+      result = extract_naive("Alice is 30 years old and lives in Cape Town.")
+      print(result)   # might work... or might throw JSONDecodeError
+    narration: >
+      Here's what most people try first. Call the model with a brief system
+      prompt asking for JSON, then call json.loads on whatever comes back. This
+      works maybe 70 or 80 percent of the time — which is exactly dangerous
+      enough to seem fine in testing but break in production. The model
+      sometimes returns valid JSON. But sometimes it wraps it in text, sometimes
+      it uses wrong keys, sometimes it returns an integer as a string. Each of
+      those cases causes a crash or a silent bug. Over this day you'll replace
+      this naive approach with a reliable three-layer system that works every
+      time — or explicitly fails and retries if it genuinely can't produce valid
+      output.
+
+  - type: exercise
+    heading: "Exercise 1: Naive JSON Extraction"
+    prompt: >
+      Open exercise_01.ipynb. Write extract_json(text: str) -> dict that calls
+      ollama.chat with a system prompt asking for JSON output, then parses the
+      response with json.loads(). Return the parsed dict. Don't add JSON mode
+      or Pydantic yet — just the naive approach. The checks verify you get a
+      dict back and it has at least one key.
+    hint: "json.loads(response[\"message\"][\"content\"]) — wrap it in try/except for the bonus."
+    narration: >
+      Exercise one is the baseline. Write the naive approach yourself so you
+      feel its limitations firsthand. The function takes a text string and
+      returns a dict by asking the model to extract key information as JSON.
+      The automated checks verify Ollama is running and your function returns
+      a parseable dict. If it fails with a JSONDecodeError, that's the
+      reliability problem in action — the model returned prose instead of JSON.
+      Run it a few times and see whether the output is consistent. In the next
+      three lessons you'll fix exactly this.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "LLMs return text strings — downstream code needs typed, structured data"
+      - "Four failure modes: wrong keys, wrong types, prose wrapping, missing fields"
+      - "Solution: three layers — schema-guided prompt + JSON mode + schema validation"
+      - "Naive json.loads() on raw output works sometimes; a reliable system works always"
+      - "Next: Ollama's JSON mode — forcing syntactically valid JSON output"
+    narration: >
+      The core insight of this lesson: language models are not databases. They
+      produce text, and text is the wrong format for code. The four failure
+      modes — inconsistent keys, wrong types, prose wrapping, and missing fields
+      — are all real and all happen in production. The fix is not to prompt more
+      carefully and hope. The fix is three deliberate layers: tell the model
+      what to produce, force the syntax, and validate the result. Over the next
+      four lessons you'll implement each layer and assemble them into a
+      production-worthy extraction function. In the next lesson, layer two:
+      Ollama's JSON mode.
