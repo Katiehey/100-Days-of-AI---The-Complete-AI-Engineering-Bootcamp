@@ -111,7 +111,13 @@ slides:
       If anything is wrong — missing field, wrong type — you get a clear
       ValidationError. Notice how short extract_person is: six lines of logic.
       The framework handles all the complexity. This is what production
-      extraction pipelines look like.
+      extraction pipelines look like. One practical warning: some models
+      occasionally "echo" the schema back — returning a JSON object with keys
+      like "properties" and "required" instead of actually filling the fields.
+      If that happens, the fix is to add a concrete filled example to the system
+      prompt so the model sees exactly what a correct response looks like. You'll
+      do exactly that in Exercise 4, and the retry lesson (Lesson 5) handles the
+      remaining edge cases.
 
   - type: concept
     label: "Why this is better"

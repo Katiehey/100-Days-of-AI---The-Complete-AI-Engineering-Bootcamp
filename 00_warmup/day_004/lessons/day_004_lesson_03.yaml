@@ -124,14 +124,16 @@ slides:
 
       schema = PersonProfile.model_json_schema()
       print(json.dumps(schema, indent=2))
+      # Actual output (Pydantic v2) — each property includes a "title" field:
       # {
+      #   "title": "PersonProfile",
       #   "type": "object",
       #   "properties": {
-      #     "name":   {"type": "string",  "description": "Full name of the person"},
-      #     "age":    {"type": "integer", "description": "Age in years"},
-      #     "city":   {"type": "string",  "description": "City where they live"},
-      #     "skills": {"type": "array",   "items": {"type": "string"}, ...},
-      #     "bio":    {"type": "string",  "description": "One-sentence biography"}
+      #     "name":   {"title": "Name",   "type": "string",  "description": "Full name of the person"},
+      #     "age":    {"title": "Age",    "type": "integer", "description": "Age in years"},
+      #     "city":   {"title": "City",   "type": "string",  "description": "City where they live"},
+      #     "skills": {"title": "Skills", "type": "array",   "items": {"type": "string"}, ...},
+      #     "bio":    {"title": "Bio",    "type": "string",  "description": "One-sentence biography"}
       #   },
       #   "required": ["name", "age", "city", "skills", "bio"]
       # }
