@@ -76,30 +76,15 @@ slides:
     code: |
       import pytest
 
-      # Happy path: Ollama is running and returns a string
+      # Happy path: Ollama is running and returns a non-empty string
       def test_safe_ask_returns_string():
           result = safe_ask("Say 'ok' in one word.")
           assert isinstance(result, str)
           assert len(result) > 0
 
-      # Fallback path: if Ollama fails, fallback is returned
-      def test_safe_ask_returns_fallback_on_error():
-          # Use an invalid model name to force a failure
-          original_model = globals().get("MODEL")
-          import builtins
-          # Temporarily break the call by patching MODEL to a non-existent model
-          # (or just test the fallback by calling with a known bad model)
-          result = safe_ask.__wrapped__ if hasattr(safe_ask, '__wrapped__') else None
-          # Simpler approach — test the fallback by calling directly:
-          # (We test the fallback parameter logic separately)
-          assert safe_ask("Say 'ok'.", fallback="fallback text") in [
-              "fallback text",        # if Ollama is down
-          ] or isinstance(safe_ask("Say 'ok'.", fallback="fallback text"), str)
-          # Either way, must return a string (real answer or fallback)
-
-      # Better: test that fallback is returned when exception is raised
+      # Error path: temporarily patch MODEL to a name that doesn't exist.
+      # ollama.chat() raises an exception → safe_ask returns the fallback.
       def test_safe_ask_fallback_used_when_error():
-          # Patch MODEL to an invalid value to force an exception
           global MODEL
           _orig = MODEL
           MODEL = "this-model-does-not-exist"
@@ -107,7 +92,7 @@ slides:
               result = safe_ask("hello", fallback="error occurred")
               assert result == "error occurred"
           finally:
-              MODEL = _orig
+              MODEL = _orig   # always restore, even if assertion fails
     narration: >
       Testing the happy path is straightforward: call the function, assert the
       result is a non-empty string. Testing the error path takes a small trick:

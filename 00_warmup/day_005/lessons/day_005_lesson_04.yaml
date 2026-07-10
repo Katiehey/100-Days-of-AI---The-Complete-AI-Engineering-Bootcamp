@@ -130,40 +130,35 @@ slides:
     label: "Running in notebooks"
     heading: "Running pytest Inside a Jupyter Notebook"
     code: |
-      # pytest normally runs from the terminal:
+      # From the terminal (the normal way):
       #   pytest test_mymodule.py -v
       #
-      # In a Jupyter notebook, use ipytest:
-      #   pip install ipytest
-      #   import ipytest; ipytest.autoconfig()
-      #
-      # Or run pytest programmatically (no extra install):
+      # In this course's notebooks, call test functions directly —
+      # no extra install, no configuration:
       import pytest
 
-      # Put your test functions in the same cell as:
       def test_example():
           assert 1 + 1 == 2
 
-      # Then run (in the next cell or same cell at bottom):
-      pytest.main([__file__, "-v"])
-      # __file__ may not work in notebooks — use the actual notebook path,
-      # or use ipytest for the cleanest experience.
+      # Call it — passes silently, raises AssertionError if it fails:
+      test_example()
 
-      # For this course's exercises, tests run in-cell:
-      # just call the test functions directly and assert their results.
-      test_example()   # raises AssertionError if it fails, passes silently if not
+      # pytest.raises also works in-notebook exactly as shown in the slides:
+      def test_zero_division():
+          with pytest.raises(ZeroDivisionError):
+              1 / 0
+
+      test_zero_division()
     narration: >
-      Running pytest inside a notebook has a small complication: pytest normally
-      discovers test files on disk, but notebook cells aren't files in the usual
-      sense. There are two clean approaches. First, install ipytest — a small
-      library that integrates pytest with Jupyter — and use its autoconfig. Second,
-      call pytest.main() directly with the current file path. For the exercises
-      in this course, we use a simpler approach: just call the test functions
-      directly. A passing test function returns None silently. A failing test
-      function raises AssertionError. The check cell at the bottom of each
-      exercise calls test functions and reports results. This is slightly
-      less fancy than running pytest from a terminal but works perfectly in
-      a notebook context and needs no additional setup.
+      In this course you call test functions directly in notebook cells — no
+      extra tools needed. A passing test returns None silently. A failing test
+      raises AssertionError and the cell turns red with the failed assertion
+      shown. That's all there is to it. pytest.raises also works exactly the
+      same way in a notebook as it does in a test file — the context manager
+      is pure Python. When you move beyond notebooks to real Python projects,
+      you'll run "pytest" from the terminal to discover and run all test_*
+      functions automatically. For now, calling them directly is the cleanest
+      approach and teaches the same skill.
 
   - type: exercise
     heading: "Exercise 3: Write Tests for clean_text"
