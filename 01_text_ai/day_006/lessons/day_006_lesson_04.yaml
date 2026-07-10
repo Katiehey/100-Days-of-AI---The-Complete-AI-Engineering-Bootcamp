@@ -1,0 +1,316 @@
+day: "006"
+lesson: "04"
+title: "Output Format Constraints"
+
+slides:
+
+  - type: title
+    heading: "Output Format Constraints"
+    subheading: "Tell the model exactly what shape to produce — and mean it"
+    narration: >
+      Welcome to Lesson 4 of Day 6. In the last lesson you built reusable prompt
+      templates that let you apply the same structure across many inputs. But there
+      is still a gap: the model decides what shape its answer takes. Sometimes it
+      gives you a paragraph, sometimes a list, sometimes a JSON object, and sometimes
+      all three mixed together. If anything downstream needs to parse that output —
+      a function, a file, another prompt — inconsistent shape breaks everything. This
+      lesson is about closing that gap. You will learn two concrete techniques for
+      making the model's output format predictable enough to parse and compose reliably.
+
+  - type: concept
+    label: "The problem"
+    heading: "Inconsistent Shape Breaks Pipelines"
+    body: >
+      A model that returns great content in an unpredictable shape is still a
+      problem. Downstream code — parsers, validators, templates — expects a fixed
+      structure. When the shape changes, the code breaks. Format constraints turn
+      "usually right" into "reliably parseable."
+    bullets:
+      - "Same prompt, different runs: sometimes a list, sometimes prose, sometimes a mix"
+      - "A JSON parser that sees prose crashes; a list parser that sees JSON crashes"
+      - "Output format is the last mile — content can be perfect but still unusable"
+      - "Solution: constrain the shape, not just the content"
+    narration: >
+      Here is the situation you run into constantly in real pipelines. You call the
+      model, it gives you a great answer. You call it again with the same prompt and
+      a slightly different input, and this time the answer is formatted completely
+      differently — maybe it added an intro sentence, or switched from bullet points
+      to a numbered list, or wrapped the JSON in a markdown code fence. Your parsing
+      code, which worked fine the first time, now fails. This is not a hallucination
+      problem or a quality problem. It is a shape problem. The model is nondeterministic
+      by default, and format is one of the dimensions where that nondeterminism shows
+      up most clearly. The fix is not to parse more defensively — the fix is to
+      constrain the output shape so the model does not have a choice. Two techniques
+      give you this control, and you will learn both in this lesson.
+
+  - type: concept
+    label: "Two techniques"
+    heading: "Format Instructions vs. the Sentinel Trick"
+    body: >
+      Two techniques work in practice. They solve the same problem at different
+      levels of reliability. Use them together when format consistency is critical.
+    bullets:
+      - "**Technique 1 — Format instructions in the prompt:** tell the model explicitly what shape to produce. Works well for simple formats."
+      - "**Technique 2 — Sentinel / prefix trick:** force the model to start its reply with a specific token or opening. Near-eliminates preamble and format drift."
+      - "Together: instructions say what shape; sentinel locks in the first token so the model cannot break format before it has started"
+    narration: >
+      There are two techniques, and you want to know both because they have different
+      strengths. The first is format instructions in the prompt: you simply tell the
+      model exactly what to produce. "Return a JSON object with these keys." "Reply
+      with a numbered list, one item per line, nothing else." "Answer in exactly one
+      sentence." This works well for simple formats when you are willing to accept
+      occasional slippage. The second technique is the sentinel or prefix trick. You
+      do not just tell the model what format to use — you force it to start its
+      response with a specific opening token. For example, if you want JSON, you end
+      the prompt with "Your JSON response:" and the model treats that as a cue to
+      immediately begin the JSON object. Because the model generates one token at a
+      time and the first tokens are already forced in the right direction, it almost
+      never drifts into prose preamble. The sentinel trick is particularly powerful
+      for formats where the opening character is unambiguous — a left brace for JSON,
+      a number followed by a period for a numbered list, a backtick fence for code.
+
+  - type: how_it_works
+    label: "Format instructions"
+    heading: "Technique 1: Explicit Format Instructions in the Prompt"
+    body: >
+      Format instructions are part of the output format component you already know
+      from the four-part prompt structure (Lesson 1). The difference is specificity:
+      vague format hints produce vague compliance; concrete format instructions with
+      exact structure produce consistent output.
+    bullets:
+      - "Name the format: 'Return valid JSON', 'Use a numbered list', 'One sentence only'"
+      - "Specify every structural detail: keys for JSON, item count for lists, max length for prose"
+      - "Add a prohibition: 'Do not add any explanation before or after the JSON'"
+      - "Repeat the format constraint at the end of the prompt — models attend more to recent tokens"
+    narration: >
+      Explicit format instructions build on the four-part prompt structure from
+      Lesson 1. The output format component is not new — but specificity is what
+      makes the difference. A vague instruction like "respond in JSON" leaves the
+      model free to add a preamble, wrap the JSON in a code fence, or append a
+      closing remark. A precise instruction like "Return a raw JSON object with
+      exactly these three keys: title, summary, and tags. Do not add any text before
+      or after the JSON object" gives the model almost no wiggle room. The prohibition
+      is important: explicitly forbidding preamble and postamble cuts the most common
+      source of format breakage. The placement tip is also worth noting — models attend
+      more strongly to instructions that appear near the end of the prompt because
+      those tokens are closest to where generation begins. Putting the format instruction
+      last, immediately before the model starts responding, gives it the highest weight.
+
+  - type: code
+    label: "Format instructions in code"
+    heading: "Bullet List, Numbered List, and One-Sentence Formats"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+
+      def ask_formatted(user_message: str, format_instruction: str) -> str:
+          """Call the model with an explicit output format instruction.
+
+          Args:
+              user_message: The task or question for the model.
+              format_instruction: Exact description of the required output shape.
+
+          Returns:
+              The model's response as a string.
+          """
+          prompt = f"{user_message}\n\n{format_instruction}"
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+
+      topic = "the benefits of drinking water"
+
+      # Bullet list
+      bullet_reply = ask_formatted(
+          user_message=f"List the benefits of {topic}.",
+          format_instruction=(
+              "Return a bullet list. Each item starts with a hyphen and a space. "
+              "List exactly 4 items. Do not add any heading, intro, or conclusion."
+          ),
+      )
+
+      # Numbered list
+      numbered_reply = ask_formatted(
+          user_message=f"List the benefits of {topic}.",
+          format_instruction=(
+              "Return a numbered list. Each item starts with its number, a period, "
+              "and a space. List exactly 4 items. No heading, no intro, no conclusion."
+          ),
+      )
+
+      # One sentence
+      one_sentence_reply = ask_formatted(
+          user_message=f"What is the main benefit of {topic}?",
+          format_instruction=(
+              "Reply in exactly one sentence. Do not use bullet points or lists."
+          ),
+      )
+
+      print("=== Bullet list ===")
+      print(bullet_reply)
+      print("\n=== Numbered list ===")
+      print(numbered_reply)
+      print("\n=== One sentence ===")
+      print(one_sentence_reply)
+    narration: >
+      Here is the pattern in code. The function `ask_formatted` takes the core
+      message and the format instruction as separate arguments, joins them with a
+      blank line, and passes the result to the model. Notice how each format
+      instruction is specific to the point of being almost mechanical: "each item
+      starts with a hyphen and a space," "list exactly 4 items," "no heading, no
+      intro, no conclusion." Contrast this with what most people write: "reply as a
+      bullet list." That loose version will produce bullet points roughly eighty
+      percent of the time, but the other twenty percent you will get prose, or a
+      numbered list, or bullets with a two-sentence intro. The precise version gets
+      you compliant output almost every time. When you run this code, compare the
+      bullet and numbered outputs carefully. If they both have four items and no
+      intro, your format instructions are working. If one of them added a heading,
+      tighten the prohibition — that is the part the model is ignoring.
+
+  - type: code
+    label: "Sentinel trick"
+    heading: "Technique 2: The Sentinel Prefix Forces the Format Open"
+    code: |
+      import ollama
+      import json
+
+      MODEL = "llama3.2"
+
+
+      def ask_with_sentinel(task: str, sentinel: str) -> str:
+          """Use a sentinel prefix to force the model to open in a specific format.
+
+          The sentinel is appended to the prompt as the beginning of the assistant
+          turn. The model continues from where the sentinel left off, making it
+          nearly impossible to drift into prose preamble.
+
+          Args:
+              task: The full task description for the model.
+              sentinel: The opening token(s) the response must start with.
+
+          Returns:
+              The sentinel prepended to the model's continuation.
+          """
+          # The sentinel is placed at the very end of the user message,
+          # signalling what the response should look like immediately.
+          prompt = f"{task}\n\n{sentinel}"
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          raw = response["message"]["content"].strip()
+          # If the model echoed the sentinel, strip the duplicate.
+          if raw.startswith(sentinel.strip()):
+              return raw
+          return sentinel.strip() + raw
+
+
+      # --- Force JSON output with a left-brace sentinel ---
+      task_json = (
+          "Extract the following fields from this text and return them as JSON: "
+          "name, city, and occupation.\n\n"
+          "Text: Maria moved to Cape Town last year to work as a marine biologist.\n\n"
+          "Return only a raw JSON object — no markdown, no explanation.\n"
+          "Your JSON:"
+      )
+
+      json_text = ask_with_sentinel(task=task_json, sentinel="{")
+      print("=== JSON output ===")
+      print(json_text)
+
+      # Validate it actually parses
+      try:
+          parsed = json.loads(json_text)
+          print("Parsed successfully:", parsed)
+      except json.JSONDecodeError as e:
+          print("Parse failed:", e)
+
+      # --- Force a numbered list with a "1." sentinel ---
+      task_list = (
+          "List three reasons why sleep is important for learning.\n\n"
+          "Return a numbered list. Each item is one sentence. No intro, no conclusion.\n"
+          "1."
+      )
+
+      list_text = ask_with_sentinel(task=task_list, sentinel="1.")
+      print("\n=== Numbered list output ===")
+      print(list_text)
+    narration: >
+      This is the sentinel trick. Instead of just telling the model what format to
+      use, you end the prompt with the opening token of the desired format — a left
+      brace for JSON, "1." for a numbered list. The model's job is to continue from
+      wherever the prompt left off, so when the last thing it sees is a left brace
+      it has no choice but to produce valid JSON next. There is simply no path from
+      an opening brace to a prose preamble. The function here handles a common edge
+      case: the model sometimes echoes the sentinel back at the start of its
+      response. The logic checks for that and avoids duplicating it. Look at the
+      JSON example. The task description ends with "Your JSON:" and then the sentinel
+      is a left brace. The model sees that brace and completes a valid JSON object.
+      After the model returns, you call `json.loads` to verify the output actually
+      parses — that is the mechanical check that tells you whether the format
+      constraint worked. If it raises `JSONDecodeError`, something in the model's
+      output is still not clean JSON, and you would need to tighten either the
+      instructions or add a retry. In the next lesson you will see how to combine
+      this with Pydantic validation for even stronger guarantees.
+
+  - type: exercise
+    heading: "Exercise 4: Format-Constrained Prompt"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. You will implement two functions.
+      `extract_as_json(text)` takes a free-text description of a person and returns
+      a Python dict with exactly the keys `name`, `age`, and `hobby` — use format
+      instructions plus the sentinel trick to constrain the output, then parse it
+      with `json.loads`. `summarise_as_bullets(text)` takes a paragraph and returns
+      a Python list of exactly three bullet strings, each starting with "- ". The
+      automated checks verify that both functions return the correct Python type,
+      that the JSON dict has exactly the right keys, and that the bullet list has
+      exactly three items.
+    hint: >
+      For `extract_as_json`, end your prompt with "Your JSON:" followed by "{" as
+      the sentinel. Strip any trailing text after the closing "}" before calling
+      `json.loads`. For `summarise_as_bullets`, tell the model exactly 3 items,
+      each starting with "- ", then split the response on newlines and filter for
+      lines that start with "- ".
+    narration: >
+      Here is the exercise. You will write two functions that go all the way from
+      a free-text input to a clean Python data structure — not a raw string, but a
+      dict and a list. The first function, `extract_as_json`, needs to pull three
+      fields out of a sentence describing a person, get them back as JSON, and
+      parse that JSON into a Python dict. The second, `summarise_as_bullets`, needs
+      to condense a paragraph into exactly three bullet strings in a Python list.
+      The automated checks are strict: wrong number of keys in the dict fails, wrong
+      number of items in the list fails, wrong bullet prefix fails. That strictness
+      is intentional — it forces you to write format instructions precise enough
+      that the model actually complies, and then postprocess the output into the
+      exact shape your code needs. Both steps — constraining the model's format and
+      cleaning the output in Python — are skills you will use in every pipeline you
+      build from here on.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Inconsistent output shape breaks downstream parsers — format constraints are not optional in pipelines"
+      - "Technique 1: precise format instructions in the prompt (name the format, specify every structural detail, prohibit preamble)"
+      - "Technique 2: the sentinel trick — end the prompt with the opening token of the desired format to prevent drift"
+      - "Always validate: parse the output in Python (json.loads, split/filter) to confirm the constraint worked"
+      - "Next: Lesson 5 — the prompt library pattern: collecting all five builders into one named, importable, testable module so every caller uses the same prompt through one interface"
+    narration: >
+      You now have two reliable techniques for constraining what comes back from the
+      model. Format instructions make the requirement explicit; the sentinel trick
+      locks in the first token so the model cannot drift before it has even started.
+      Used together they give you the highest chance of getting the exact shape your
+      downstream code expects. The validation step is not optional — always parse or
+      split the output in Python and let that operation tell you whether the constraint
+      worked. If it fails, that is information: tighten the instruction, add a
+      prohibition, or move the sentinel closer to the start of the response. These
+      two techniques are the foundation. In Lesson 5, the final lesson of today, you
+      will collect all five prompt builders into a single prompt library module — one
+      named, importable, testable file where every caller gets the same carefully
+      engineered prompt through one consistent interface. That is where the individual
+      techniques from today's lessons compose into a pattern you can carry into any
+      project.

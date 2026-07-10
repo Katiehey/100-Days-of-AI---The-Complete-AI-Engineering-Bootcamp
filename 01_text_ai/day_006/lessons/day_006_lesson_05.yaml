@@ -1,0 +1,475 @@
+day: "006"
+lesson: "05"
+title: "Putting It Together — The Prompt Library"
+
+slides:
+
+  - type: title
+    heading: "The Prompt Library"
+    subheading: "One module. Named functions. Every prompt reusable, testable, and easy to change."
+    narration: >
+      Welcome to Lesson 5 — the final lesson of Day 6. Over the last four lessons
+      you built up every piece of the prompt engineering toolkit: the four-part
+      anatomy, system prompts and roles, few-shot examples, and format constraints.
+      But right now those pieces are scattered. Each lesson showed them in isolation.
+      In a real project, that scattering has a cost: prompt strings buried in
+      different files, copy-pasted with slight variations, impossible to test
+      consistently. Today you collect everything into one pattern — the prompt
+      library — that makes your prompts first-class citizens of your codebase rather
+      than stray strings.
+
+  - type: concept
+    label: "The scattered prompt problem"
+    heading: "Prompt Strings Scattered Across a Codebase Are a Maintenance Nightmare"
+    body: >
+      When prompts are written inline — as one-off strings at the call site —
+      they are invisible to the rest of the codebase. You cannot test them
+      independently, cannot reuse them, and cannot see at a glance what your
+      system is actually asking the model to do. The same prompt gets copy-pasted
+      and the copies drift apart silently.
+    bullets:
+      - "Inline prompt strings are hard to find, test, or version-control meaningfully"
+      - "Copy-pasted prompts diverge — two callers think they are doing the same thing but are not"
+      - "Changing a prompt requires hunting through every file that mentions it"
+      - "No separation between task logic and prompt construction — both get changed at the same time"
+    narration: >
+      Imagine you have built a small pipeline that classifies support tickets,
+      extracts key fields from documents, and summarises customer reviews. Three
+      tasks, three prompts — but they live in three different files, written
+      slightly differently, with no shared structure. When a product manager says
+      "the summaries are too long, can you tighten them?", you have to find the
+      right file, find the right string, and edit it carefully without breaking the
+      surrounding code. Then you wonder if the same fix is needed in the version
+      that someone else copy-pasted into a different module last month. This is
+      the scattered prompt problem. It is not hypothetical — it is what happens
+      naturally when prompts are treated as implementation details rather than as
+      the central interface of your system. A prompt library solves this by giving
+      every prompt a name, a home, and a function signature. The prompt becomes
+      something you can import, call, test, and change in one place.
+
+  - type: concept
+    label: "What a prompt library is"
+    heading: "A Prompt Library is a Dictionary of Named, Parameterised Prompt-Builder Functions"
+    body: >
+      A prompt library is a Python module whose public interface is a set of
+      functions — one per task. Each function takes the variable parts of the
+      prompt as arguments and returns a fully assembled messages list ready to
+      pass to the model. The library owns the prompt structure; the caller owns
+      the data.
+    bullets:
+      - "One function per task: `build_classifier_prompt()`, `build_extractor_prompt()`, `build_summariser_prompt()`"
+      - "Parameters are the variable parts: the input text, the target language, the field list"
+      - "The function body composes anatomy, role, few-shot examples, and format constraints"
+      - "The caller just passes data and calls the model — no prompt engineering at the call site"
+    narration: >
+      Here is the key idea. A prompt library is just a Python module. Its public
+      interface is a collection of functions, one for each task your system needs
+      to perform. Each function is a prompt builder: it takes the parts that change
+      — the user's text, the list of fields to extract, the target word count —
+      and returns a fully assembled messages list. Inside the function is where all
+      the prompt engineering lives: the system prompt with the role, the few-shot
+      examples, the format instructions, the sentinel. The caller does not need to
+      know any of that. It just calls `build_extractor_prompt(text=doc)`, gets
+      back a messages list, and passes it to `ollama.chat`. This separation is
+      exactly what makes the library testable. You can call the builder function
+      in a test and inspect the returned messages without running the model at all.
+      You can assert that the system prompt contains the right role, that the
+      examples are present, that the format instruction is at the end. These are
+      cheap, fast tests that catch prompt regressions before you ever run an LLM.
+
+  - type: how_it_works
+    label: "Library anatomy"
+    heading: "How a Prompt Library Module Is Structured"
+    body: >
+      A prompt library module has three zones: constants at the top, builder
+      functions in the middle, and optionally a thin convenience wrapper that
+      builds and calls the model in one step. The builder functions are the core
+      — they are the ones you test.
+    bullets:
+      - "**Constants zone:** model name, shared few-shot examples, shared role fragments"
+      - "**Builder zone:** one `build_*_prompt()` function per task — returns `list[dict]`"
+      - "**Convenience zone (optional):** `run_*()` functions that call the builder then `ollama.chat`"
+      - "Tests import the builder functions directly — they never need to call the model"
+    narration: >
+      The structure of the module is straightforward. At the top you define
+      constants: the model name, any few-shot example tuples that are shared
+      across tasks, any system prompt fragments that appear in more than one
+      builder. These live once, at module level, so changing them changes every
+      function that uses them. In the middle — the core of the library — are the
+      builder functions. Each one takes parameters, assembles and returns a
+      messages list. No model calls, no I/O, just pure construction. This is what
+      makes them easy to test: a test can call the builder, inspect the returned
+      list, and check structural properties without needing Ollama to be running.
+      Optionally, at the bottom, you can add convenience wrappers that call the
+      builder and then call `ollama.chat` in one step. These are convenient for
+      the production code path, but your tests bypass them and go straight to the
+      builders. This three-zone structure keeps each concern in its place and makes
+      the library easy to navigate as it grows.
+
+  - type: code
+    label: "Library: core builders"
+    heading: "A Five-Function Prompt Library"
+    code: |
+      """prompt_library.py — reusable prompt builders for Day 6 tasks.
+
+      Each build_*() function returns a messages list ready for ollama.chat().
+      No model calls happen here — the caller decides when and how to call the model.
+      """
+
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # ---------------------------------------------------------------------------
+      # Shared few-shot examples
+      # ---------------------------------------------------------------------------
+      _SENTIMENT_EXAMPLES: list[tuple[str, str]] = [
+          ("I absolutely love this product — it changed my workflow!", "POSITIVE"),
+          ("The support took three weeks to respond. Completely unacceptable.", "NEGATIVE"),
+          ("The package arrived on Wednesday as expected.", "NEUTRAL"),
+      ]
+
+      _GRAMMAR_EXAMPLES: list[tuple[str, str]] = [
+          ("Fix the grammar: she go to the store", "She goes to the store."),
+          ("Fix the grammar: they was happy", "They were happy."),
+          ("Fix the grammar: he don't know nothing", "He doesn't know anything."),
+      ]
+
+
+      # ---------------------------------------------------------------------------
+      # Builder functions — one per task
+      # ---------------------------------------------------------------------------
+
+      def build_classifier_prompt(text: str) -> list[dict]:
+          """Build a few-shot sentiment classifier prompt.
+
+          Args:
+              text: The input text to classify.
+
+          Returns:
+              messages list ready for ollama.chat().
+          """
+          messages: list[dict] = [
+              {
+                  "role": "system",
+                  "content": (
+                      "You are a sentiment analysis engine. "
+                      "Classify the input as POSITIVE, NEGATIVE, or NEUTRAL. "
+                      "Reply with exactly one word — no punctuation, no explanation."
+                  ),
+              }
+          ]
+          for user_ex, label in _SENTIMENT_EXAMPLES:
+              messages.append({"role": "user",      "content": user_ex})
+              messages.append({"role": "assistant", "content": label})
+          messages.append({"role": "user", "content": text})
+          return messages
+
+
+      def build_summariser_prompt(text: str, max_words: int = 50) -> list[dict]:
+          """Build a summarisation prompt with a word-count constraint.
+
+          Args:
+              text: The text to summarise.
+              max_words: Maximum words in the summary (default 50).
+
+          Returns:
+              messages list ready for ollama.chat().
+          """
+          return [
+              {
+                  "role": "system",
+                  "content": (
+                      "You are a concise technical writer. "
+                      "Summarise the provided text clearly and accurately."
+                  ),
+              },
+              {
+                  "role": "user",
+                  "content": (
+                      f"{text}\n\n"
+                      f"Summarise the above in at most {max_words} words. "
+                      "Write one paragraph. Do not add a heading or preamble."
+                  ),
+              },
+          ]
+
+
+      def build_extractor_prompt(text: str, fields: list[str]) -> list[dict]:
+          """Build a JSON extraction prompt using the sentinel trick.
+
+          Args:
+              text: Free-text source to extract from.
+              fields: List of field names to extract into a JSON object.
+
+          Returns:
+              messages list ready for ollama.chat().
+          """
+          field_list = ", ".join(f'"{f}"' for f in fields)
+          return [
+              {
+                  "role": "system",
+                  "content": (
+                      "You are a precise data extraction assistant. "
+                      "Extract requested fields and return them as a raw JSON object. "
+                      "Do not add any text before or after the JSON object."
+                  ),
+              },
+              {
+                  "role": "user",
+                  "content": (
+                      f"Extract the following fields from the text below: {field_list}.\n\n"
+                      f"Text: {text}\n\n"
+                      "Return only a raw JSON object with those exact keys. "
+                      "If a field is not found, use null.\n"
+                      "Your JSON:\n{"
+                  ),
+              },
+          ]
+
+
+      def build_grammar_prompt(text: str) -> list[dict]:
+          """Build a few-shot grammar correction prompt.
+
+          Args:
+              text: The sentence to correct, prefixed with 'Fix the grammar: '.
+
+          Returns:
+              messages list ready for ollama.chat().
+          """
+          messages: list[dict] = [
+              {
+                  "role": "system",
+                  "content": (
+                      "Correct the grammar of the sentence. "
+                      "Reply with only the corrected sentence — no explanation."
+                  ),
+              }
+          ]
+          for user_ex, corrected in _GRAMMAR_EXAMPLES:
+              messages.append({"role": "user",      "content": user_ex})
+              messages.append({"role": "assistant", "content": corrected})
+          messages.append({"role": "user", "content": f"Fix the grammar: {text}"})
+          return messages
+
+
+      def build_rewriter_prompt(text: str, tone: str) -> list[dict]:
+          """Build a tone-rewriting prompt.
+
+          Args:
+              text: The original text to rewrite.
+              tone: Target tone, e.g. 'formal', 'casual', 'persuasive'.
+
+          Returns:
+              messages list ready for ollama.chat().
+          """
+          return [
+              {
+                  "role": "system",
+                  "content": (
+                      f"You are a professional editor. "
+                      f"Rewrite text in a {tone} tone while preserving all meaning. "
+                      "Do not add or remove facts. Keep the same approximate length."
+                  ),
+              },
+              {
+                  "role": "user",
+                  "content": (
+                      f"Rewrite the following text in a {tone} tone:\n\n{text}\n\n"
+                      "Rewritten version:"
+                  ),
+              },
+          ]
+
+
+      # ---------------------------------------------------------------------------
+      # Convenience wrappers — build + call in one step
+      # ---------------------------------------------------------------------------
+
+      def run_classifier(text: str) -> str:
+          """Classify sentiment and return a single label string."""
+          messages = build_classifier_prompt(text)
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"].strip()
+
+
+      def run_summariser(text: str, max_words: int = 50) -> str:
+          """Summarise text and return the summary string."""
+          messages = build_summariser_prompt(text, max_words)
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"].strip()
+    narration: >
+      Here is the full library module. Walk through it from top to bottom.
+      The constants zone holds the model name and the two shared example lists
+      — sentiment examples and grammar examples. These are module-level tuples
+      that both the classifier and grammar builder functions share. If you want
+      to add or change an example, you change it in one place. The builder zone
+      has five functions. `build_classifier_prompt` uses the three-zone few-shot
+      pattern from Lesson 3 — it loops through the examples to build the messages
+      list, then appends the real input. `build_summariser_prompt` takes a
+      `max_words` parameter and injects it into the format constraint — the caller
+      controls the word budget without touching any prompt text. `build_extractor_prompt`
+      uses the sentinel trick from Lesson 4 — the user message ends with "Your JSON:"
+      and an opening brace, steering the model directly into JSON output. Notice the
+      fields parameter: the caller passes a list of strings and the builder joins
+      them into the prompt automatically. `build_grammar_prompt` follows the same
+      few-shot pattern as the classifier but with different examples and a different
+      task. `build_rewriter_prompt` takes a tone argument — "formal", "casual",
+      "persuasive" — and weaves it into both the system prompt and the user message.
+      At the bottom, two convenience wrappers combine a builder call and an
+      `ollama.chat` call into a single function. These are what production code
+      imports. Tests bypass them and call the builders directly.
+
+  - type: code
+    label: "Testing the library"
+    heading: "Testing Prompt Builders Without Calling the Model"
+    code: |
+      # test_prompt_library.py
+      # Run with: pytest test_prompt_library.py
+      # No Ollama needed — we test the builders, not the model.
+
+      from prompt_library import (
+          build_classifier_prompt,
+          build_summariser_prompt,
+          build_extractor_prompt,
+          build_grammar_prompt,
+          build_rewriter_prompt,
+      )
+
+
+      def test_classifier_has_system_message():
+          messages = build_classifier_prompt("I love this!")
+          assert messages[0]["role"] == "system"
+
+
+      def test_classifier_real_input_is_last():
+          messages = build_classifier_prompt("I love this!")
+          assert messages[-1]["role"] == "user"
+          assert messages[-1]["content"] == "I love this!"
+
+
+      def test_classifier_includes_all_three_labels():
+          messages = build_classifier_prompt("whatever")
+          assistant_contents = [
+              m["content"] for m in messages if m["role"] == "assistant"
+          ]
+          labels = set(assistant_contents)
+          assert "POSITIVE" in labels
+          assert "NEGATIVE" in labels
+          assert "NEUTRAL" in labels
+
+
+      def test_summariser_injects_max_words():
+          messages = build_summariser_prompt("Some text.", max_words=30)
+          user_content = messages[-1]["content"]
+          assert "30" in user_content
+
+
+      def test_extractor_sentinel_present():
+          messages = build_extractor_prompt("Jane is 28.", ["name", "age"])
+          user_content = messages[-1]["content"]
+          # Sentinel: prompt must end with the JSON opening brace
+          assert user_content.rstrip().endswith("{")
+
+
+      def test_extractor_fields_in_prompt():
+          messages = build_extractor_prompt("Jane is 28.", ["name", "age"])
+          user_content = messages[-1]["content"]
+          assert '"name"' in user_content
+          assert '"age"' in user_content
+
+
+      def test_grammar_examples_alternate_roles():
+          messages = build_grammar_prompt("she go to school")
+          # Skip system message at index 0; examples start at index 1
+          example_messages = messages[1:-1]
+          for i, msg in enumerate(example_messages):
+              expected_role = "user" if i % 2 == 0 else "assistant"
+              assert msg["role"] == expected_role, (
+                  f"Message at index {i + 1} should be '{expected_role}'"
+              )
+
+
+      def test_rewriter_embeds_tone():
+          for tone in ("formal", "casual", "persuasive"):
+              messages = build_rewriter_prompt("This is fine.", tone)
+              system_content = messages[0]["content"]
+              assert tone in system_content, f"Tone '{tone}' not found in system prompt"
+    narration: >
+      This is the payoff of the library pattern: tests that run in milliseconds
+      without touching Ollama. Every test imports a builder function, calls it
+      with a simple input, and asserts something about the returned messages list.
+      Look at what each test is actually checking. `test_classifier_has_system_message`
+      confirms the first message has the right role — a structural guarantee that
+      the model will always receive a system prompt. `test_classifier_real_input_is_last`
+      confirms the user's text lands at the end of the list, which is where the model
+      expects the current input. `test_classifier_includes_all_three_labels` checks
+      that all three few-shot assistant messages are present — if you accidentally
+      deleted one example, this test catches it immediately. `test_summariser_injects_max_words`
+      verifies that the parameter actually makes it into the prompt string. If someone
+      refactors the builder and forgets to include the `max_words` variable, this test
+      fails before any code ships. `test_extractor_sentinel_present` checks that the
+      sentinel is in place — if the format trick is missing, JSON parsing will start
+      failing in production. None of these tests call the model. They are testing
+      your code — the builder functions — not the model's behaviour. This is exactly
+      the right thing to test. The model's behaviour changes with updates; your
+      prompt structure should not.
+
+  - type: exercise
+    heading: "Exercise 5: Prompt Library with Five Transformers"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. You will add a sixth builder function
+      to the prompt library: `build_translator_prompt(text, target_language)`.
+      It must compose a system prompt that sets a translator role, inject the
+      target language into both the system prompt and the user message, and
+      include a format constraint that prohibits preamble and asks for only the
+      translated text. Then you will run all six builder functions — the five from
+      the lesson plus your new one — against a shared test input, collect the
+      results, and print them in a labelled summary. The automated checks verify
+      that your builder returns a list, that the first message role is "system",
+      that the target language appears in the prompt, and that the convenience
+      wrapper `run_translator(text, target_language)` returns a non-empty string.
+    hint: >
+      Model `build_translator_prompt` on `build_rewriter_prompt`: accept a string
+      parameter for the variable part, embed it in the system prompt and in the
+      user message. For the format constraint, end the user message with something
+      like "Translation:" to act as a soft sentinel and include "Do not add any
+      explanation" as an explicit prohibition.
+    narration: >
+      Here is the exercise. You have five builder functions from the lesson — now
+      you will write a sixth. The `build_translator_prompt` function takes a text
+      and a target language and returns a messages list. This is simpler than the
+      classifier or extractor, but the discipline is the same: a role in the system
+      prompt, parameters injected in the right places, a format constraint at the
+      end. Once your builder passes the structural checks, you will call all six
+      builders on a shared input and print a labelled summary of what the model
+      returns for each one. That final print is the moment where the whole day
+      comes together: six tasks, six named functions, one model, all coordinated
+      through one module. When you look at the output, every result was produced
+      by a function you can find, read, test, and change. Nothing is buried in
+      inline strings. That is the difference between prompt engineering as a
+      one-off activity and prompt engineering as a software discipline.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "A prompt library is a module of named builder functions — one per task — that return a messages list"
+      - "Builder functions compose anatomy, role, few-shot examples, and format constraints; callers pass only data"
+      - "Separating prompt construction from model calls makes builders fast to test without running Ollama"
+      - "Parameterised builders (max_words, target_language, tone) give callers control without exposing prompt internals"
+      - "Next: the Day 6 project — build and test a complete five-task prompt library that you can drop into any pipeline"
+    narration: >
+      You have now seen every piece of Day 6 assembled into a single, coherent
+      pattern. The four-part anatomy from Lesson 1 tells you what goes into each
+      builder. The system prompts and roles from Lesson 2 give you the first message.
+      The few-shot examples from Lesson 3 handle tasks where demonstration beats
+      instruction. The format constraints and sentinel trick from Lesson 4 make
+      output reliable enough to parse. And the prompt library pattern from this
+      lesson gives all of that a stable home in your codebase — named functions,
+      testable without a model, reusable across your whole project. The day's
+      project will ask you to build and test a complete version of this library,
+      with automated checks that validate both structure and behaviour. When you
+      are done, you will have a module you can carry forward and extend every day
+      for the rest of the course. That is the real deliverable of Day 6 — not any
+      single prompt, but the habit and the infrastructure to write prompts that
+      last.

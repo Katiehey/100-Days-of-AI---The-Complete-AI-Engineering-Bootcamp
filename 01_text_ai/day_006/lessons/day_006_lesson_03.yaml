@@ -1,0 +1,342 @@
+day: "006"
+lesson: "03"
+title: "Few-Shot Prompting"
+
+slides:
+
+  - type: title
+    heading: "Few-Shot Prompting"
+    subheading: "Show, don't tell — examples are the clearest specification you can write"
+    narration: >
+      Welcome to Lesson 3 of Day 6. In the last two lessons you built a mental
+      model for prompt structure and learned how system prompts set the rules for
+      an entire conversation. Now you are going to learn the single most reliable
+      way to close the gap between what you intend and what the model produces:
+      examples. When words alone leave room for interpretation, examples leave none.
+      A worked example says exactly what you mean in a way that no amount of
+      instruction text can match. This technique is called few-shot prompting, and
+      by the end of this lesson you will understand why it works, how to use it,
+      and when to reach for it.
+
+  - type: concept
+    label: "The specification problem"
+    heading: "Words Are Ambiguous — Examples Are Not"
+    body: >
+      Even a well-structured four-part prompt leaves the model room to interpret
+      the task. Words like "concise," "formal," or "professional" mean different
+      things to different people — and to different models. Examples remove that
+      ambiguity entirely. They show the model the exact input-to-output mapping you
+      want, in your own words, at your exact length and style.
+    bullets:
+      - "Instruction: 'Write a short, professional summary' — ambiguous"
+      - "Example: here is an input and here is exactly what output I want — unambiguous"
+      - "The model pattern-matches against your examples instead of guessing at your intent"
+      - "2–5 examples cover most tasks; beyond 5, returns diminish quickly"
+    narration: >
+      Think about the word "concise." To one person it means two sentences. To
+      another it means two paragraphs. To a language model it might mean something
+      else entirely depending on what it has seen during training. When you write
+      "be concise" in a prompt, you are handing the model an interpretation problem
+      and hoping it lands on yours. When you instead write: "Input: this is the
+      original text. Output: this is the summary I want, twenty words, no hedging,
+      active voice" — there is no interpretation left to do. The model reads your
+      example and pattern-matches against it. The output length, the tone, the
+      vocabulary level, the presence or absence of bullet points — all of it gets
+      inferred from the example, not from your description of the example. This is
+      why examples are the clearest possible specification. They do not describe the
+      output you want — they demonstrate it. And demonstration is always more precise
+      than description. You will use this technique constantly across the rest of the
+      course.
+
+  - type: concept
+    label: "Zero, one, few"
+    heading: "Zero-Shot, One-Shot, Few-Shot: What the Terms Mean"
+    body: >
+      The number of examples in the prompt gives you the name of the technique:
+    bullets:
+      - "**Zero-shot** — no examples; model relies on instruction and context alone"
+      - "**One-shot** — one example; enough for simple, well-defined tasks"
+      - "**Few-shot** — 2–5 examples; the reliable default for anything non-trivial"
+      - "The 'shot' is an example of the task, not a question-and-answer pair"
+    narration: >
+      You have already been doing zero-shot prompting throughout Days 1 to 5 without
+      calling it that. Every time you wrote an instruction and sent it to the model
+      without providing a worked example, that was zero-shot. Zero-shot works well
+      for tasks that are common enough that the model has seen thousands of examples
+      during training — summarisation in plain English, basic translation, answering
+      factual questions. But the moment the task is unusual, highly specific, or
+      requires a particular output format that the model would not naturally produce,
+      zero-shot starts to fail. One-shot gives the model a single worked example to
+      orient itself. It is often enough for simple classification or templated output.
+      Few-shot — two to five examples — is the go-to for anything where consistency
+      matters. The examples cover enough of the variation in inputs that the model
+      can generalise the pattern to inputs it has not seen before. More than five
+      examples rarely helps meaningfully, and it adds tokens and latency. Two to five
+      is the practical sweet spot for most tasks you will encounter.
+
+  - type: how_it_works
+    label: "Structure"
+    heading: "How Few-Shot Examples Fit Into the Messages List"
+    body: >
+      Few-shot examples are placed in the messages list as alternating user and
+      assistant turns, before the real user message. The model reads them as a
+      demonstration of the expected conversation pattern. The real input goes last.
+    bullets:
+      - "System message → (optional) sets the task and role"
+      - "User turn 1 → first example input"
+      - "Assistant turn 1 → first example output (the answer you want)"
+      - "User turn 2 → second example input"
+      - "Assistant turn 2 → second example output"
+      - "User turn N (final) → the real input you want the model to answer"
+    narration: >
+      Here is the mechanics. You already know the messages list: system, then
+      alternating user and assistant turns. Few-shot examples slot directly into
+      that structure as fake prior turns. You write a user message containing an
+      example input, then an assistant message containing the exact output you
+      want for that input. Then another user message with the next example input,
+      another assistant message with that output — and so on for each example.
+      Finally, you append the real user message with the actual input you want
+      the model to process. The model sees a coherent conversation where it has
+      apparently already answered several similar questions in the style you want.
+      It continues the pattern for your real input. The key insight is that the
+      assistant messages in the examples are written by you, not the model. You
+      are essentially showing the model its own ideal output and letting it
+      extrapolate from there. This is not a trick — it is precisely how the
+      model's context window is designed to be used.
+
+  - type: code
+    label: "Zero-shot vs few-shot"
+    heading: "Comparing Zero-Shot and Few-Shot on the Same Task"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # --- Zero-shot: instruction only ---
+      def classify_zero_shot(text: str) -> str:
+          """Classify text sentiment with no examples.
+
+          Args:
+              text: The input text to classify.
+
+          Returns:
+              The model's classification as a string.
+          """
+          messages = [
+              {
+                  "role": "system",
+                  "content": (
+                      "Classify the sentiment of the text as POSITIVE, NEGATIVE, "
+                      "or NEUTRAL. Reply with exactly one word."
+                  ),
+              },
+              {"role": "user", "content": text},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"].strip()
+
+
+      # --- Few-shot: 3 examples before the real input ---
+      def classify_few_shot(text: str) -> str:
+          """Classify text sentiment using three worked examples.
+
+          Args:
+              text: The input text to classify.
+
+          Returns:
+              The model's classification as a string.
+          """
+          messages = [
+              {
+                  "role": "system",
+                  "content": "Classify the sentiment. Reply with exactly one word.",
+              },
+              # Example 1
+              {"role": "user",      "content": "I absolutely love this product!"},
+              {"role": "assistant", "content": "POSITIVE"},
+              # Example 2
+              {"role": "user",      "content": "The delivery was three weeks late."},
+              {"role": "assistant", "content": "NEGATIVE"},
+              # Example 3
+              {"role": "user",      "content": "The package arrived on Tuesday."},
+              {"role": "assistant", "content": "NEUTRAL"},
+              # Real input — always last
+              {"role": "user", "content": text},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"].strip()
+
+
+      test_input = "It works, but the setup took longer than expected."
+
+      print("Zero-shot:", classify_zero_shot(test_input))
+      print("Few-shot: ", classify_few_shot(test_input))
+    narration: >
+      Here are both approaches side by side. The zero-shot function sends a system
+      message and the user's text — nothing else. The instruction says "reply with
+      exactly one word" but the model has no example of what that one word looks
+      like in context. On an ambiguous input like "it works, but the setup took
+      longer than expected," zero-shot models often hedge: they might return
+      "MIXED" or "NEGATIVE/NEUTRAL" or even a short explanation, none of which
+      matches your expected format. The few-shot function adds three examples before
+      the real input. Look at the messages list: user, assistant, user, assistant,
+      user, assistant, and then the real user message at the end. The model now has
+      evidence of exactly three things: what a POSITIVE response looks like, what a
+      NEGATIVE response looks like, and what a NEUTRAL response looks like. More
+      importantly, it has evidence that the output is always a single uppercase word
+      with no extra text. When you run both functions on the same ambiguous input,
+      the few-shot version is significantly more likely to return exactly one word
+      in the right format. That reliability difference is the whole point.
+
+  - type: code
+    label: "Building examples programmatically"
+    heading: "Assembling Few-Shot Prompts From a List of Examples"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # Store examples as a list of (input, output) tuples.
+      # Easy to add, remove, or reorder without rewriting the function.
+      EXAMPLES: list[tuple[str, str]] = [
+          ("Fix the grammar: she go to the store", "She goes to the store."),
+          ("Fix the grammar: they was happy", "They were happy."),
+          ("Fix the grammar: he don't know nothing", "He doesn't know anything."),
+      ]
+
+
+      def build_few_shot_messages(
+          examples: list[tuple[str, str]],
+          system_prompt: str,
+          user_input: str,
+      ) -> list[dict]:
+          """Build a messages list with few-shot examples inserted before the real input.
+
+          Args:
+              examples: List of (user_text, assistant_text) demonstration pairs.
+              system_prompt: The system message describing the task.
+              user_input: The actual input to process.
+
+          Returns:
+              A messages list ready to pass to ollama.chat().
+          """
+          messages: list[dict] = [{"role": "system", "content": system_prompt}]
+          for user_ex, assistant_ex in examples:
+              messages.append({"role": "user",      "content": user_ex})
+              messages.append({"role": "assistant", "content": assistant_ex})
+          messages.append({"role": "user", "content": user_input})
+          return messages
+
+
+      messages = build_few_shot_messages(
+          examples=EXAMPLES,
+          system_prompt="Correct the grammar of the sentence. Reply with only the corrected sentence.",
+          user_input="Fix the grammar: we was waiting since an hour",
+      )
+
+      response = ollama.chat(model=MODEL, messages=messages)
+      print(response["message"]["content"])
+      # Expected: "We have been waiting for an hour." (or similar correct form)
+    narration: >
+      The previous slide hardcoded the examples inline. That works for three
+      examples but becomes unmanageable at scale. This slide shows a better pattern:
+      store examples as a list of tuples — each tuple is an input string and its
+      correct output string — and then write a function that turns any list of
+      examples into a properly formatted messages list. The function `build_few_shot_messages`
+      takes three arguments: the examples list, a system prompt, and the real input.
+      It starts with the system message, then loops through the examples — each
+      tuple produces two messages, one user and one assistant — and finally appends
+      the real user input at the end. This pattern is reusable. You can swap out
+      the examples list without touching the function. You can write one function
+      and use it for grammar correction, sentiment classification, entity extraction,
+      or any other task just by changing the examples and the system prompt. You will
+      use a version of this `build_few_shot_messages` helper in the exercise and
+      in the project, so take a moment to make sure you understand what it is doing
+      before moving on.
+
+  - type: concept
+    label: "Choosing good examples"
+    heading: "What Makes a Good Few-Shot Example"
+    body: >
+      The quality of few-shot prompting depends almost entirely on example quality.
+      Bad examples teach the model the wrong pattern just as effectively as good
+      examples teach the right one.
+    bullets:
+      - "**Diverse inputs:** cover different cases, not slight rewrites of the same case"
+      - "**Consistent outputs:** every example output follows the exact format you want"
+      - "**Edge cases first:** if the model struggles on a type of input, add an example of it"
+      - "**No noise:** trim examples that are redundant or that contradict each other"
+    narration: >
+      Picking examples is itself a skill. The most common mistake is to choose three
+      examples that are all essentially the same input — three very positive reviews,
+      three simple grammar errors, three short documents. The model learns the pattern
+      for that one narrow case and then struggles when your real inputs are more varied.
+      The fix is diversity: pick examples that cover the range of inputs you expect.
+      For sentiment classification that might mean one clear positive, one clear
+      negative, one genuinely ambiguous case. For grammar correction it might mean
+      subject-verb disagreement, wrong tense, and double negative — three different
+      error types. The second rule is consistency: every single example output must
+      follow the format you want. If one example has a trailing period and another
+      does not, if one uses uppercase and another uses mixed case, you are teaching
+      the model that both are acceptable. It will pick one at random for your real
+      input. Decide on the format, apply it identically to every example, and the
+      model will follow suit. Think of examples as unit tests for the model: each
+      one exercises one case, together they cover the space, and they must all be
+      correct.
+
+  - type: exercise
+    heading: "Exercise 3: Few-Shot Example Builder"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. You will implement
+      `build_few_shot_prompt(task_description, examples, new_input) -> str`, a
+      function that assembles a formatted few-shot prompt string from a task
+      description, a list of input/output example dicts, and a new input to
+      process. The automated checks verify that the task description, all example
+      inputs and outputs, and the new input all appear in the returned string,
+      and that passing an empty examples list still runs without error — the
+      zero-shot baseline that makes the performance difference visible.
+    hint: >
+      Build the prompt as a list of lines, then join with `"\n"`. Start with
+      `Task: <task_description>`, follow with numbered `Example N:` blocks
+      each containing `Input:` and `Output:` lines, then close with `Now do
+      the same for:\nInput: <new_input>\nOutput:`. That final `Output:` cue
+      tells the model to continue the pattern on the very next line, which is
+      exactly the completion behaviour you want.
+    narration: >
+      Time to build it yourself. In exercise_03.ipynb you will write a function
+      called `build_few_shot_prompt` that takes a task description, a list of
+      example dicts (each with an 'input' key and an 'output' key), and the
+      new input you want the model to process. The function returns a formatted
+      string — not a messages list — that you could send as a user message. The
+      automated checks test five things. First, the function is callable. Second,
+      it returns a string. Third, the task description appears in the output.
+      Fourth, every example input, every example output, and the new input all
+      appear in the returned string. Fifth, passing an empty examples list runs
+      without error — that is the zero-shot baseline. Compare the zero-shot
+      prompt to the few-shot version and observe how removing the examples makes
+      the model's output format less consistent. That is the performance
+      difference between zero-shot and few-shot, made visible in your own
+      notebook.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Few-shot prompting adds 2–5 worked (input, output) examples before the real input"
+      - "Examples are the clearest possible specification — they show rather than tell"
+      - "In the messages list, examples appear as alternating user/assistant turns before the real user message"
+      - "Good examples are diverse, format-consistent, and edge-case-aware"
+      - "Next: Lesson 4 — output format constraints: two techniques (explicit instructions and the sentinel trick) that make model output reliably parseable"
+    narration: >
+      Few-shot prompting is one of the highest-leverage techniques in your toolkit
+      and you now know exactly how to use it. The core idea is simple: when words
+      alone are ambiguous, examples are not. Two to five worked demonstrations in
+      the messages list give the model an unambiguous specification of the input-
+      to-output mapping you want, and it pattern-matches against them. The helper
+      function pattern — storing examples as a list of tuples and building the
+      messages list programmatically — is the right way to manage this at scale.
+      One function, any set of examples, any task. In Lesson 4 you will add the
+      next layer: output format constraints. Even with a perfect system prompt and
+      good examples, the model can still wrap its answer in preamble or drift away
+      from the structure you need. Lesson 4 gives you two techniques — explicit
+      format instructions and the sentinel trick — that pin the output to a shape
+      your downstream code can parse reliably.

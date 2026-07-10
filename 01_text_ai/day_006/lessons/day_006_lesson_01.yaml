@@ -1,0 +1,252 @@
+day: "006"
+lesson: "01"
+title: "Anatomy of a Prompt"
+
+slides:
+
+  - type: title
+    heading: "Anatomy of a Prompt"
+    subheading: "The four-part structure behind every prompt that works"
+    narration: >
+      Welcome to Day 6 and the start of Section 1: Text AI. You've already
+      called a local model, shaped its output with Pydantic, and hardened your
+      code with logging and error handling. Now it's time to look at the thing
+      you've been handing the model all along — the prompt — and understand why
+      some prompts get great results while others get vague, off-topic, or
+      incomplete ones. Today is about building a mental model you can use every
+      single day. Once you see prompts as having four distinct parts, you can
+      diagnose and fix them systematically instead of just tweaking words and
+      hoping for the best.
+
+  - type: concept
+    label: "The problem"
+    heading: "Why 'Just Ask It' Breaks Down"
+    body: >
+      A prompt that works once by accident is not a reliable prompt. When a
+      model gives a bad answer, most people rewrite the whole prompt from scratch.
+      There's a better way: understand what a prompt is made of so you can fix
+      only the part that's broken.
+    bullets:
+      - "Vague prompts → vague answers (the model fills gaps with assumptions)"
+      - "Missing context → generic answers (model doesn't know your situation)"
+      - "No format spec → unpredictable shape (JSON? prose? list? depends on the model)"
+      - "Root cause is almost always one missing part — not a bad model"
+    narration: >
+      You've probably experienced this already. You write a prompt, the model
+      gives you something almost right but not quite. You tweak a word, try
+      again, still not right. After a few rounds you've rewritten the whole
+      thing and you're not sure what actually changed the output. This is
+      prompt debugging by intuition, and it doesn't scale. The reason prompts
+      fail is almost never that the model is broken or incapable. It's that
+      the prompt is missing something the model needs. The model has no choice
+      but to fill in the gaps with its own assumptions, and those assumptions
+      may not match yours. The fix is to understand what information a model
+      actually needs to do its job well, and to make sure you're providing all
+      of it. That's what the four-part structure gives you.
+
+  - type: concept
+    label: "The four parts"
+    heading: "Instruction · Context · Input · Output Format"
+    body: >
+      Every effective prompt contains four ingredients. They don't need to
+      appear in a fixed order, but all four should be present:
+    bullets:
+      - "**Instruction** — what you want the model to do (the task verb)"
+      - "**Context** — background the model needs to do the task well"
+      - "**Input** — the actual data or text the model should work on"
+      - "**Output format** — the shape, structure, or style of the answer"
+    narration: >
+      Here are the four parts. First, instruction: this is the task verb — summarise,
+      classify, extract, translate, rewrite. Without a clear instruction the model
+      is guessing what kind of output you want. Second, context: background that
+      narrows the model's interpretation of the task. Who is the audience? What
+      tone is appropriate? What domain are we in? Context keeps the model from
+      giving you a general answer when you need a specific one. Third, input: the
+      actual data you want the model to work on. This might be a document to
+      summarise, a sentence to classify, or a question to answer. Without it, the
+      model has nothing concrete to process. Fourth, output format: the shape you
+      want the answer in. A bulleted list? A single word? A JSON object? A short
+      paragraph? Without this, the model picks a format on its own, and that
+      format may not fit your downstream needs. When a prompt fails, one of these
+      four is usually missing or underspecified. That's where to look first.
+
+  - type: how_it_works
+    label: "Diagnosis"
+    heading: "Using the Framework to Diagnose a Bad Prompt"
+    body: >
+      When a prompt gives a bad result, run through all four parts as a checklist.
+      The broken part is usually the one that's absent or vague.
+    bullets:
+      - "Bad result: too generic? → context is missing"
+      - "Bad result: wrong task done? → instruction is unclear"
+      - "Bad result: working on the wrong thing? → input is absent or ambiguous"
+      - "Bad result: wrong shape? → output format is unspecified"
+    narration: >
+      Think of the four parts as a diagnostic checklist, not a writing formula.
+      When you get a bad result, you don't rewrite the whole prompt — you ask:
+      which part is missing? If the answer is too generic or too long, context
+      is probably absent. The model doesn't know who it's talking to or what
+      level of detail is right. If the model did something adjacent to what you
+      wanted but not quite the right task, the instruction is ambiguous — you
+      said "tell me about X" when you meant "extract the key dates from X". If
+      the model hallucinated details or wandered off topic, the input may be
+      missing — it had no concrete data to ground the answer. And if the output
+      came back as a long essay when you needed a JSON object, you forgot to
+      specify the format. Fixing the one missing part is almost always faster
+      and more reliable than rewriting from scratch. That's the power of this
+      framework.
+
+  - type: code
+    label: "Before"
+    heading: "A Prompt Without the Four Parts"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # Weak prompt — only one part present (vague instruction)
+      response = ollama.chat(
+          model=MODEL,
+          messages=[
+              {
+                  "role": "user",
+                  "content": "Tell me about this email.",  # No context, no input, no format
+              }
+          ],
+      )
+
+      print(response["message"]["content"])
+      # Typical result: "I'd be happy to help! Please share the email."
+      # Or worse: a generic paragraph about emails in general.
+    narration: >
+      Here's what a prompt with only one part looks like. The instruction is
+      "tell me about" — that's vague, but it's at least a task verb. There's
+      no context: the model doesn't know if you're a customer support agent,
+      a recruiter, or a developer. There's no input: the actual email is nowhere
+      in the prompt. And there's no output format: the model will write whatever
+      length and shape it feels like. When you run this, the model either asks you
+      to share the email — because it has nothing to work on — or it gives you a
+      generic paragraph about emails that isn't useful at all. This is not a model
+      failure. This is a prompt that's missing three of its four required parts.
+      Let's fix it.
+
+  - type: code
+    label: "After"
+    heading: "The Same Prompt With All Four Parts"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # The four parts, clearly separated
+      instruction = "Classify this customer support email by urgency."
+
+      context = (
+          "You are a support triage assistant for a software company. "
+          "Urgency levels: HIGH (service is down or data is at risk), "
+          "MEDIUM (feature broken but workaround exists), "
+          "LOW (general question or feature request)."
+      )
+
+      input_data = """
+      Subject: Can't export reports
+      Body: Hi, I've been trying to export my monthly report to PDF all morning
+      and the button does nothing. I have a client presentation in two hours.
+      """
+
+      output_format = (
+          "Reply with exactly one word: HIGH, MEDIUM, or LOW. "
+          "No explanation."
+      )
+
+      prompt = f"{instruction}\n\n{context}\n\nEmail:\n{input_data}\n\n{output_format}"
+
+      response = ollama.chat(
+          model=MODEL,
+          messages=[{"role": "user", "content": prompt}],
+      )
+
+      print(response["message"]["content"])  # Expected: HIGH
+    narration: >
+      Now all four parts are present and explicit. The instruction is precise:
+      classify by urgency. The context tells the model exactly what role to play
+      and defines the three urgency levels with concrete criteria — this is the
+      background the model needs to make the right call. The input is the actual
+      email, clearly labelled. And the output format says: one word, no
+      explanation. Notice that the prompt is built from four separate strings that
+      are then joined. This isn't just style — it makes the structure visible in
+      your code. When the result is wrong, you can point at exactly which variable
+      needs to change. Compare this to the previous slide where everything was
+      tangled in one vague sentence. The model's job is now unambiguous. It knows
+      what to do, what to consider, what to work on, and what to produce. That's
+      why this prompt works reliably.
+
+  - type: how_it_works
+    label: "Mapping to roles"
+    heading: "System vs. User: Where Each Part Usually Lives"
+    body: >
+      The four parts map naturally onto the message roles you already know from
+      Day 3. Neither split is mandatory, but this convention is widely used:
+    bullets:
+      - "**system** role → instruction + context (the standing rules)"
+      - "**user** role → input + output format (what changes per request)"
+    narration: >
+      You've been using the system and user roles since Day 3. Now you can see
+      them through the four-part lens. The system message is the right place for
+      the parts that stay constant across many requests: the instruction that
+      defines the assistant's job, and the context that defines its persona, domain,
+      and constraints. The user message is the right place for the parts that change
+      each time: the input — the actual data or question — and the output format
+      reminder, especially if the format needs to be enforced per request. This
+      split isn't a hard rule. For a one-off prompt you might put all four parts
+      in the user message, as we did on the previous slide. But for a multi-turn
+      assistant or a production pipeline, separating the standing rules into the
+      system message and the variable data into the user message gives you a clean,
+      maintainable structure.
+
+  - type: exercise
+    heading: "Exercise 1: Build a Structured Prompt"
+    prompt: >
+      Open the exercise notebook and build a four-part prompt that classifies
+      a short piece of text by sentiment (POSITIVE, NEGATIVE, or NEUTRAL). Write
+      each part as a separate variable, assemble them into one prompt string, call
+      the local Ollama model, and verify the output is one of the three valid
+      labels. The automated checks will confirm that all four parts are present in
+      your final prompt and that the model returns a valid label.
+    hint: >
+      Define four variables: instruction, context, input_data, and output_format.
+      Join them into one string before passing to ollama.chat(). For the output
+      format, tell the model to reply with exactly one word from the allowed set.
+    narration: >
+      Now it's your turn. Open exercise_01.ipynb and build a structured prompt
+      from scratch. Your task is sentiment classification — given a short piece of
+      text, the model should return exactly one word: POSITIVE, NEGATIVE, or
+      NEUTRAL. The exercise asks you to write each of the four parts as its own
+      variable before assembling the final prompt. This isn't busywork — it's
+      practice making the structure visible in your code. The automated checks
+      will verify two things: first, that your assembled prompt string contains
+      all four pieces of information, and second, that the model's output is one
+      of the three valid labels. If a check fails, use the four-part checklist to
+      figure out which part is missing or underspecified. That diagnostic habit is
+      the real skill this exercise is building.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Every effective prompt has four parts: instruction, context, input, and output format"
+      - "When a prompt fails, one of the four parts is usually missing — fix that part, not everything"
+      - "Building each part as a separate variable makes prompts easier to debug and maintain"
+      - "System message = standing rules (instruction + context); user message = per-request data (input + format)"
+      - "Next: Lesson 2 — system prompts and roles: how the first message in the conversation shapes every response that follows"
+    narration: >
+      You now have a mental model for prompts that will serve you throughout the
+      entire course. Every time you write a prompt — for classification, extraction,
+      summarisation, generation, or anything else — you can check it against these
+      four parts: instruction, context, input, output format. When the model gives
+      a bad answer, you have a checklist instead of a guessing game. And when you
+      write prompts in code, separating the four parts into variables keeps your
+      work readable and maintainable. In Lesson 2 you will take this foundation
+      further and learn how the system prompt — the first message in the messages
+      list — acts as standing instructions that shape every response the model
+      gives. That is where roles and personas come from, and it is the highest-
+      leverage single addition you can make to any prompt.

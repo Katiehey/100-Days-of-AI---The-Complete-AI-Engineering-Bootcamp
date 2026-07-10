@@ -1,0 +1,313 @@
+day: "006"
+lesson: "02"
+title: "System Prompts and Roles"
+
+slides:
+
+  - type: title
+    heading: "System Prompts and Roles"
+    subheading: "The highest-leverage line you write shapes every response that follows"
+    narration: >
+      Welcome to Lesson 2 of Day 6. In the last lesson you saw how prompts work
+      at the user-turn level. Now you go one level higher. The system prompt sits
+      above the conversation — it runs before any user message and it tells the
+      model who it is, what it knows, how it should behave, and what it must never
+      do. If the user prompt is a question, the system prompt is the rulebook. A
+      well-written system prompt lets you turn the same general-purpose model into
+      a customer support agent, a strict code reviewer, a friendly tutor, or a dry
+      financial analyst — all without touching anything else. That shift is what
+      this lesson is about.
+
+  - type: concept
+    label: "What is a system prompt?"
+    heading: "The System Prompt Sets the Rules for the Whole Conversation"
+    body: >
+      A system prompt is a special message that precedes the entire conversation.
+      It is invisible to the end user but shapes every reply the model produces.
+      Think of it as a contract: the model agrees to operate inside the boundaries
+      you define — persona, tone, knowledge scope, forbidden topics, output format.
+    bullets:
+      - "Sent once, before any user turn — applies to the whole conversation"
+      - "Sets persona (who the model is), constraints (what it won't do), and rules (how it behaves)"
+      - "The highest-leverage text you write — one well-crafted system prompt fixes dozens of bad outputs"
+    narration: >
+      Here is the mental model. Imagine you are hiring a contractor and giving them
+      a briefing before they start work. You do not repeat the briefing every time
+      you ask them a question — you give it once and they carry it throughout the
+      engagement. The system prompt is that briefing. It tells the model its job
+      title, its area of expertise, how formal or casual to sound, what it is and
+      is not allowed to say, and any formatting rules you want it to follow. After
+      that, every user message gets processed through that lens. If you say in the
+      system prompt "you are a concise assistant who never uses bullet points and
+      always replies in under three sentences," the model will honour that across
+      every response in the conversation. This is why experienced AI engineers spend
+      more time on the system prompt than on individual user prompts. Get the system
+      prompt right and you barely need to engineer the user prompts at all.
+
+  - type: concept
+    label: "Roles"
+    heading: "A Role is a Persona Assigned in the System Prompt"
+    body: >
+      A role is a named persona — analyst, editor, teacher, reviewer — that you
+      assign the model in the system prompt. The persona shifts tone, vocabulary,
+      framing, and even the assumptions the model makes about what the user needs.
+      Same model, same question: completely different answer depending on the role.
+    bullets:
+      - "Analyst: precise, data-driven, hedges uncertainty, cites reasoning"
+      - "Editor: opinionated, direct, rewrites rather than explains"
+      - "Teacher: patient, uses analogies, checks understanding, avoids jargon"
+      - "Reviewer: critical, systematic, enumerates issues with severity"
+    narration: >
+      Let me make the concept of roles concrete. Suppose you send the model this
+      user message: "What do you think of this paragraph?" If the system prompt
+      says "you are a copy editor with twenty years of experience at a newspaper,"
+      the model will identify weak verbs, passive constructions, and unclear
+      antecedents. If the system prompt says "you are a high-school English teacher
+      encouraging a struggling student," the model will find something positive to
+      say first, then gently suggest one or two improvements. The user message is
+      identical. The response is completely different. This is the power of roles.
+      Tone, vocabulary, depth, order of information, what gets emphasised versus
+      skipped — all of it shifts with the persona. And because the persona lives in
+      the system prompt, you can switch roles without changing a single user-facing
+      word. In practice, roles let you build what feels like a specialised tool on
+      top of a general model. You are not changing the model — you are just giving
+      it very clear instructions about which version of itself to be today.
+
+  - type: how_it_works
+    label: "Message structure"
+    heading: "How the System Prompt Fits Into the Messages List"
+    body: >
+      In Day 3 you learned that `ollama.chat()` takes a `messages` list. The system
+      prompt is the first message in that list, with `"role": "system"`. It sits
+      above all user and assistant turns and cannot be overridden by user messages.
+    bullets:
+      - "`{\"role\": \"system\", \"content\": \"You are ...\"}` — always first"
+      - "User turns follow: `{\"role\": \"user\", \"content\": \"...\"}` "
+      - "For a single-turn call, the list has exactly two messages: system + user"
+      - "For multi-turn, new user/assistant pairs are appended — system stays fixed"
+    narration: >
+      You already know the messages list from Day 3. You used it to build a
+      multi-turn chatbot by appending user and assistant turns as the conversation
+      grew. The system prompt is simply the first entry in that list, and it uses
+      the special role value "system." That is it — no new API, no new library,
+      just a different role value on the first message. Ollama passes this message
+      to the model in a special way: the model knows this message defines its
+      operating context rather than being part of the dialogue itself. In a
+      single-turn call — one question, one answer — your messages list has exactly
+      two entries: the system message and the user message. In a multi-turn
+      conversation, you keep appending user and assistant turns but you never touch
+      the system message again. It stays at index zero, anchoring every reply the
+      model makes throughout the conversation. This is the same pattern whether
+      you use the ollama package directly or the OpenAI-compatible client pointed
+      at localhost — the messages list works identically in both.
+
+  - type: code
+    label: "Basic system prompt"
+    heading: "Single-Turn Call With a System Prompt"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      def ask_with_role(role_description: str, user_message: str) -> str:
+          """Send a single-turn request with a system prompt that sets a role.
+
+          Args:
+              role_description: The system prompt text describing the model's persona.
+              user_message: The user's question or request.
+
+          Returns:
+              The model's reply as a plain string.
+          """
+          messages = [
+              {"role": "system", "content": role_description},
+              {"role": "user",   "content": user_message},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      # --- try two roles on the same question ---
+      question = "Explain what a database index is."
+
+      analyst_reply = ask_with_role(
+          role_description=(
+              "You are a senior data engineer. Be precise and technical. "
+              "Use correct terminology. Keep your answer under 100 words."
+          ),
+          user_message=question,
+      )
+
+      teacher_reply = ask_with_role(
+          role_description=(
+              "You are a patient teacher explaining concepts to a complete beginner. "
+              "Use a simple everyday analogy. Avoid jargon. Keep your answer under 100 words."
+          ),
+          user_message=question,
+      )
+
+      print("=== Data Engineer role ===")
+      print(analyst_reply)
+      print("\n=== Teacher role ===")
+      print(teacher_reply)
+    narration: >
+      Here is the code. The function `ask_with_role` takes two arguments: the
+      system prompt text and the user message. It builds the messages list with the
+      system message first, then the user message, and passes the whole thing to
+      `ollama.chat`. That is literally all that is different from the bare call you
+      made in Day 3. Then we call the same function twice with the same user
+      question — "Explain what a database index is" — but with two different system
+      prompts. The first assigns a senior data engineer persona: precise, technical,
+      under one hundred words. The second assigns a patient teacher persona: simple
+      analogies, no jargon, also under one hundred words. When you run this you will
+      see two responses that answer the same question in genuinely different ways.
+      The data engineer answer will use terms like B-tree, query planner, and
+      cardinality. The teacher answer will probably compare an index to the index
+      at the back of a textbook. Same model, same question, radically different
+      output. That is the role pattern in action.
+
+  - type: code
+    label: "Writing strong system prompts"
+    heading: "Four Elements of an Effective System Prompt"
+    code: |
+      # A strong system prompt typically has four parts.
+      # You do not always need all four — but when output quality is critical,
+      # all four make a noticeable difference.
+
+      SYSTEM_PROMPT = """You are a professional code reviewer specialising in Python.
+
+      ## Role
+      Review Python code submitted by junior developers. Your job is to catch bugs,
+      identify non-idiomatic patterns, and suggest concrete improvements.
+
+      ## Tone and style
+      Be direct and constructive. Number your findings. Use severity labels:
+      BLOCKER, WARNING, or SUGGESTION. Do not pad your response with praise.
+
+      ## Constraints
+      - Review only the code provided — do not invent context.
+      - If the code has no issues, say so in one sentence.
+      - Respond in plain text. Do not use markdown code fences.
+
+      ## Output format
+      1. [SEVERITY] Finding — one sentence description.
+         Fix: one-line suggestion.
+      """
+
+      def review_code(code_snippet: str) -> str:
+          """Run the code through the reviewer role."""
+          messages = [
+              {"role": "system", "content": SYSTEM_PROMPT},
+              {"role": "user",   "content": f"Please review this code:\n\n{code_snippet}"},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      sample = """
+      def get_user(users, id):
+          for u in users:
+              if u['id'] == id:
+                  return u
+          return None
+      """
+
+      print(review_code(sample))
+    narration: >
+      This slide shows what a production-grade system prompt actually looks like.
+      Notice it is not just one sentence. It has four clearly labelled sections.
+      The Role section tells the model who it is and what its job is. The Tone and
+      style section tells it how to communicate — direct, numbered, severity labels,
+      no empty praise. The Constraints section sets hard rules about what it must
+      not do: do not invent context, do not use code fences. And the Output format
+      section gives it a template to fill in, so every response comes back in a
+      predictable structure you can parse or display reliably. These four elements
+      — role, tone, constraints, and output format — are not magic. They are just
+      explicit answers to four questions the model would otherwise answer for itself,
+      probably inconsistently. When you leave any of these implicit, you get
+      inconsistent output. When you make them explicit, you get consistent, usable
+      output. The sample code shows this applied to a code review scenario. Try
+      swapping the `sample` snippet for your own code and observe how tightly the
+      model follows the numbered, severity-labelled format you specified.
+
+  - type: concept
+    label: "Common mistakes"
+    heading: "Three System Prompt Mistakes to Avoid"
+    body: >
+      A system prompt that is vague, contradictory, or overloaded produces outputs
+      that are just as vague, contradictory, or incoherent. Avoid these three
+      patterns that consistently degrade output quality.
+    bullets:
+      - "**Vague persona:** 'You are a helpful assistant.' — tells the model nothing it does not already assume"
+      - "**Contradictory rules:** 'Be brief but thorough' — the model picks one and ignores the other"
+      - "**Too many constraints:** more than 6–8 rules and the model starts dropping the later ones"
+    narration: >
+      Let me flag the three mistakes I see most often when people start writing
+      system prompts. The first is the vague persona. "You are a helpful, harmless,
+      and honest assistant" is essentially the model's default. Writing that in the
+      system prompt changes nothing. A useful persona is specific: "You are a
+      technical writer with a background in developer documentation. You favour
+      active voice, short sentences, and concrete examples over abstract
+      explanations." That tells the model something it would not have assumed on its
+      own. The second mistake is contradictory rules. "Be brief but thorough" forces
+      the model to choose. It will pick one interpretation and stick with it, usually
+      not the one you wanted. Instead, be concrete: "Keep responses under 150 words.
+      If a topic needs more depth, end with a note saying 'ask me to expand on X.'"
+      That is not contradictory — it is a real procedure. The third mistake is rule
+      overload. Current models can follow roughly six to eight explicit rules
+      reliably. Past that, later rules get deprioritised or forgotten within a long
+      conversation. If your system prompt is three hundred words of bullet points,
+      trim it. The rules you keep will be followed. The rules you bury will be
+      ignored.
+
+  - type: exercise
+    heading: "Exercise 2: Structured System Prompt Builder"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. You will implement
+      `make_system_prompt(role, constraints, output_style) -> str`, a function
+      that assembles a structured system prompt string from three separate parts:
+      a role description, a list of behavioural constraint rules, and an
+      output-style instruction. The automated checks verify that the role text,
+      every constraint item, and the output-style instruction each appear in
+      the returned string.
+    hint: >
+      Use three clearly labelled sections — for example `## Role`, `##
+      Constraints`, and `## Output style` — so the model can scan them
+      reliably. Join the constraint list items as bullet lines with
+      `"\n".join(f"- {c}" for c in constraints)`. Keeping the three parts
+      separate in the function signature means you can swap tone, constraints,
+      or output style independently without touching the other sections.
+    narration: >
+      Time to put this into practice. In the exercise notebook you will write a
+      function called `make_system_prompt` that takes three arguments: a role
+      string, a list of constraint strings, and an output-style string. The
+      function assembles them into a single structured text that is ready to
+      use as the content of a `{"role": "system"}` message. The automated
+      checks call your function several times and verify that the role text
+      appears in the output, that every constraint item appears in the output,
+      and that the output-style instruction appears in the output. This is the
+      core skill of the lesson: breaking a system prompt into its component
+      parts and assembling them programmatically, so every caller uses the
+      same structure through one tested function rather than writing ad-hoc
+      strings by hand.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "The system prompt is the first message (`role: system`) and governs the entire conversation"
+      - "Roles (analyst, editor, teacher) are personas that shift tone, vocabulary, and framing"
+      - "Strong system prompts specify role, tone, constraints, and output format explicitly"
+      - "Avoid vague personas, contradictory rules, and overloaded constraint lists"
+      - "Next: Lesson 3 — few-shot prompting: why examples are a clearer specification than instructions alone, and how to structure them in the messages list"
+    narration: >
+      Here is what this lesson has established. The system prompt is not optional
+      decoration — it is the primary control surface for shaping model behaviour.
+      It runs before the conversation, applies to every response, and lets you turn
+      one general-purpose model into many specialised tools simply by changing what
+      you put in that first message. Roles are the most common pattern: name a
+      persona, describe how it communicates, set what it will and will not do, and
+      specify the output format you want. Four elements, consistently applied, give
+      you consistent output you can rely on. In Lesson 3 you will take this one
+      step further with few-shot prompting — adding two to five worked examples
+      directly into the messages list before the real input. When words alone are
+      ambiguous, examples are not. That is the next upgrade to your prompt toolkit.
