@@ -1,0 +1,178 @@
+day: "005"
+lesson: "02"
+title: "Logging"
+
+slides:
+
+  - type: title
+    heading: "Logging"
+    subheading: "Visibility into what your code is actually doing"
+    narration: >
+      Lesson 2. The first pillar: logging. When your script runs without you
+      watching, logs are the only record of what happened. Python's standard
+      library includes a logging module that's simple, flexible, and used by
+      virtually every production Python application. This lesson shows you how
+      to add it to your code and use it effectively.
+
+  - type: concept
+    label: "Why not print"
+    heading: "print() vs logging — Why the Difference Matters"
+    body: >
+      `print()` statements and log messages both produce output, but they're
+      fundamentally different. `print()` is for user-facing output. Logging
+      is for developer-facing diagnostics. The logging module adds level
+      filtering, timestamps, and output routing without any extra code from you.
+    bullets:
+      - "print() always runs — logging can be silenced with one setting"
+      - "Logging adds timestamps, levels, and caller location automatically"
+      - "Logs can be sent to files, remote servers, or multiple places at once"
+      - "In production, print() is noise — logging is signal"
+    narration: >
+      Early in a project, print() works fine. But as your code grows and starts
+      running in the background, print statements become a problem. They clutter
+      the output that users see. They're all-or-nothing — you can't tell Python
+      to show only the important prints. And they give you no context: no
+      timestamp, no severity, no information about which function produced the
+      line. The logging module solves all of this. You add log calls throughout
+      your code, set a minimum level, and the module handles formatting and
+      routing. In development you see everything. In production you see only
+      warnings and errors. The same code, different visibility — controlled by
+      one configuration change. This is why every production Python application
+      uses logging, not print.
+
+  - type: how_it_works
+    label: "Setup"
+    heading: "Setting Up a Logger"
+    body: >
+      Two steps: configure logging once at the top of your script, then create
+      a module-level logger. Every function in the module uses the same logger.
+    code: |
+      import logging
+
+      # Configure once per script/app (controls format and minimum level):
+      logging.basicConfig(
+          level=logging.DEBUG,                        # show DEBUG and above
+          format="%(asctime)s %(levelname)s %(message)s",
+      )
+
+      # Create a module-level logger (best practice):
+      logger = logging.getLogger(__name__)
+      # __name__ is the current module name — helps trace where logs come from
+
+      # Use it anywhere in the module:
+      logger.debug("Starting up")
+      logger.info("Processing %d items", 42)
+      logger.warning("This might be a problem")
+      logger.error("Something failed: %s", "connection refused")
+    narration: >
+      Two lines of setup and you're done. First, call logging.basicConfig once.
+      The level parameter sets the minimum severity to show — DEBUG means show
+      everything. The format string controls what each line looks like: here it
+      shows the timestamp, level name, and message. Second, call
+      logging.getLogger with double-underscore name double-underscore — that's
+      a built-in variable that holds the current module's name. This means log
+      lines automatically tell you which file they came from, which is invaluable
+      when you have multiple modules. Then use the logger anywhere in that
+      module. Notice the percent-s format — use that rather than f-strings
+      in log calls because the logging module only formats the string if the
+      message will actually be shown. It's more efficient.
+
+  - type: concept
+    label: "Log levels"
+    heading: "Five Log Levels — When to Use Each"
+    body: >
+      Each log level represents a different severity. Setting the minimum level
+      in `basicConfig` controls which ones appear. This lets you use verbose
+      debug logging in development and quiet logging in production without
+      changing any log calls.
+    bullets:
+      - "DEBUG — detailed diagnostic info (function entry, variable values)"
+      - "INFO — confirmation that things are working as expected"
+      - "WARNING — something unexpected but recoverable"
+      - "ERROR — something failed — the operation couldn't complete"
+      - "CRITICAL — a serious failure — the program may not be able to continue"
+    narration: >
+      Five levels, five severities. DEBUG is the most verbose — use it for
+      things like "entering function X with argument Y" or "loop iteration 3
+      of 100". In production you typically set the level to WARNING or INFO
+      so debug messages are hidden. INFO is for significant events that are
+      expected: "successfully connected to database", "processed 1000 records".
+      WARNING is for unexpected-but-recoverable situations: "config file missing,
+      using defaults". ERROR is for failures: "could not connect to Ollama".
+      CRITICAL is for system-level failures. The key insight: use DEBUG liberally
+      in your code. When something goes wrong in production, you set the level
+      to DEBUG and suddenly you have all the diagnostic information you need.
+      That's much better than having to add print statements after the fact.
+
+  - type: code
+    label: "In practice"
+    heading: "Logging in a Real Function"
+    code: |
+      import logging
+      import ollama
+
+      logging.basicConfig(level=logging.DEBUG,
+                          format="%(asctime)s %(levelname)-8s %(message)s")
+      logger = logging.getLogger(__name__)
+
+      MODEL = "llama3.2"
+
+      def ask(question: str) -> str:
+          logger.debug("ask() called | question=%r", question[:60])
+          messages = [{"role": "user", "content": question}]
+          response = ollama.chat(model=MODEL, messages=messages)
+          answer = response["message"]["content"]
+          logger.info("Got response | length=%d chars", len(answer))
+          return answer
+
+      # When you run ask("What is Python?") you'll see:
+      # 2024-01-15 10:30:01 DEBUG    ask() called | question='What is Python?'
+      # 2024-01-15 10:30:03 INFO     Got response | length=142 chars
+    narration: >
+      Here's logging added to the Day 3 ask function. Two log calls: a DEBUG at
+      entry showing the question (truncated to 60 characters to keep logs
+      manageable), and an INFO on success showing how many characters came back.
+      The log format uses a minus-8s for the level name to pad it to 8 characters,
+      which keeps the messages aligned and readable. When you run this, you'll
+      see timestamps and context for every call. If the call fails, you'll know
+      exactly when it was attempted and what input it received. That's visibility.
+      Notice also `%r` for the question — the repr() format adds quotes around
+      strings and shows escape characters, making it much easier to spot hidden
+      spaces or newlines in your log output.
+
+  - type: exercise
+    heading: "Exercise 1: Add Logging to a Function"
+    prompt: >
+      Open exercise_01.ipynb. A stub function `parse_and_log(text: str) -> float`
+      is provided. Add logging: (1) configure basicConfig with DEBUG level,
+      (2) create a module-level logger, (3) log at DEBUG when the function is
+      called with the input text, (4) log at INFO when returning with the
+      parsed value, (5) call float(text.strip()) and return it.
+      The checks verify the function returns the correct float for valid input.
+    hint: "Create logger = logging.getLogger(__name__) before the function. Use logger.debug() and logger.info() inside it."
+    narration: >
+      Exercise one is purely about logging — no LLM needed. Open exercise one.
+      You're given a function stub called parse_and_log that takes a string and
+      should return a float. Your job is to wire up logging: configure basicConfig,
+      create the logger, add a debug log at entry and an info log before returning.
+      Then implement the float conversion. The checks verify the function
+      returns the right float value — they don't check whether you added log
+      calls, so trust yourself on that part. Run the cell and see the log output
+      in the notebook. This is the first time you've seen log messages appear
+      in a notebook cell — take a moment to notice the format.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "logging.basicConfig() — configure once, controls format and minimum level"
+      - "logging.getLogger(__name__) — creates a named logger for the module"
+      - "Five levels: DEBUG / INFO / WARNING / ERROR / CRITICAL"
+      - "Use DEBUG liberally — filter with level setting, not by adding fewer calls"
+      - "Next: error handling — what to do when things go wrong"
+    narration: >
+      Logging is set up. The pattern: basicConfig once at the top, getLogger
+      with double-underscore name for the module logger, then call debug and
+      info and error throughout your functions. In practice you'll find yourself
+      adding log calls every time you write a function — it becomes automatic.
+      The next pillar is error handling. Logging tells you what happened; error
+      handling controls what happens next when things go wrong. In Lesson 3.

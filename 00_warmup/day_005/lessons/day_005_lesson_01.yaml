@@ -1,0 +1,125 @@
+day: "005"
+lesson: "01"
+title: "The Hygiene Gap"
+
+slides:
+
+  - type: title
+    heading: "Engineering Hygiene"
+    subheading: "Stop vibecoding — make code you can trust"
+    narration: >
+      Welcome to Day 5 and the final day of the warmup. You can now call a local
+      LLM, get structured JSON output, and validate it with Pydantic. All of that
+      is impressive — but right now it's fragile. One network hiccup, one model
+      timeout, one wrong assumption, and your script crashes silently or loudly
+      at the worst possible moment. Today you learn the three practices that turn
+      working scripts into trustworthy software: logging, error handling, and
+      testing. Professional developers apply these before shipping. You'll apply
+      them before tomorrow.
+
+  - type: concept
+    label: "Vibecoding"
+    heading: "The Difference Between a Script and Software"
+    body: >
+      "Vibecoding" means writing code that works during the demo but breaks in
+      the real world. It's the gap between "it ran once" and "I trust this." The
+      gap is narrow but the consequences are large: silent failures, mystery
+      crashes, bugs that only appear in production.
+    bullets:
+      - "Scripts: run once, maybe work, no visibility when they don't"
+      - "Software: observable (logs), resilient (error handling), verified (tests)"
+      - "The gap is three tools — all built into Python and its ecosystem"
+    narration: >
+      Vibecoding is a real phenomenon. You write something, it works on your
+      machine, you move on. Weeks later it's running in a scheduled job and
+      it silently fails — no error, no output, just nothing. Or it crashes at
+      2am and you have no idea why because there's no record of what happened.
+      This is the hygiene gap. Professional engineers close it with three
+      practices that are universal regardless of what you're building: logging
+      gives you visibility into what happened, error handling gives your code
+      resilience when things go wrong, and testing gives you confidence that
+      the code works before you ship it. Today you'll add all three to your
+      toolkit. They're not glamorous, but they're what separates hobby projects
+      from things you can stake your reputation on.
+
+  - type: concept
+    label: "Three pillars"
+    heading: "Logging, Error Handling, Testing"
+    body: >
+      Three tools, three problems they solve:
+    bullets:
+      - "**Logging** — visibility: what did my code actually do? When? With what values?"
+      - "**Error handling** — resilience: when something goes wrong, fail gracefully not silently"
+      - "**Testing** — confidence: does the code do what I think it does?"
+    narration: >
+      Let's map each tool to the problem it solves. Logging gives you visibility.
+      When your code runs at midnight in a scheduled job, you're not there. The
+      logs are the only record of what happened. Without them you're debugging
+      blind. Error handling gives you resilience. APIs go down. Models time out.
+      Files disappear. Network connections fail. Your code will encounter all of
+      these. Error handling lets you decide what to do when they happen — retry,
+      fallback, or fail clearly — instead of crashing unexpectedly. Testing gives
+      you confidence. Every time you change a function, you risk breaking something
+      else. Tests are a safety net: if the tests still pass, you haven't broken
+      what was working. Together these three practices are what make software
+      trustworthy. Each one takes maybe 10 percent extra time to add. Each one
+      saves you 10 times that when something goes wrong.
+
+  - type: how_it_works
+    label: "What you'll build"
+    heading: "Today's Goal: Harden the Day 3 Assistant"
+    body: >
+      You'll take the `ask()` function from Day 3's CLI assistant and give it
+      all three properties: logs every call, handles Ollama errors gracefully,
+      and has automated tests. By the end it will be a function you could
+      confidently put into a real application.
+    code: |
+      # Day 3 ask() — works, but fragile:
+      def ask(question: str) -> str:
+          response = ollama.chat(model=MODEL, messages=[...])
+          return response["message"]["content"]
+
+      # After today — observable, resilient, tested:
+      def ask(question: str) -> str:
+          logger.debug("ask() called: %s", question[:50])
+          try:
+              response = ollama.chat(model=MODEL, messages=[...])
+              answer = response["message"]["content"]
+              logger.info("Got %d-char response", len(answer))
+              return answer
+          except Exception as e:
+              logger.error("LLM call failed: %s", e)
+              raise
+
+      # And a test that verifies it:
+      def test_ask_returns_string():
+          result = ask("Say hello in one word.")
+          assert isinstance(result, str) and len(result) > 0
+    narration: >
+      Here's what you'll have by the end of the day. On the left, the original
+      ask function from Day 3 — two lines, no logging, no error handling. On the
+      right, the same function hardened: a debug log at entry, an info log on
+      success, an error log when something goes wrong. The try/except catches
+      any exception from the model call and logs it before letting the exception
+      propagate. And there's a test that verifies the function actually returns
+      a non-empty string. This is a realistic example of production-quality code.
+      Not complex — in fact it's still short — but observable, resilient, and
+      verified. That's the goal for today. Let's start with logging.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Vibecoding = code that works once; software = code you can trust repeatedly"
+      - "Three pillars: logging (visibility), error handling (resilience), testing (confidence)"
+      - "All three are built into Python or available via simple pip installs"
+      - "Today's project: harden the Day 3 ask() function with all three"
+      - "Next: the Python logging module — visibility into what your code is doing"
+    narration: >
+      The setup is in place. Three problems — no visibility, no resilience, no
+      confidence — and three tools to fix them. The good news is that none of
+      these require learning new frameworks or complex patterns. Python's logging
+      module is in the standard library. Error handling is just try/except taken
+      further. Pytest is a simple tool that runs your test functions. Each lesson
+      today is short and focused. By the end you'll have a hardened version of
+      the Day 3 assistant that you'd be comfortable showing to another engineer.
+      In Lesson 2, the logging module.

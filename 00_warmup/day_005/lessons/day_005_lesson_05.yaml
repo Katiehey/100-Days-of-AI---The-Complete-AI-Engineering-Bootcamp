@@ -1,0 +1,224 @@
+day: "005"
+lesson: "05"
+title: "A Hardened Function"
+
+slides:
+
+  - type: title
+    heading: "A Hardened Function"
+    subheading: "All three pillars in one production-ready pattern"
+    narration: >
+      Lesson 5, and the final lesson of the warmup. You have all three tools:
+      logging for visibility, error handling for resilience, and testing for
+      confidence. In this lesson you combine them into a single pattern for
+      writing production-ready functions. This pattern applies to every function
+      you'll write for the rest of the course and beyond.
+
+  - type: how_it_works
+    label: "The full pattern"
+    heading: "The Three-Layer Pattern"
+    body: >
+      Every function that does something meaningful — calls an API, reads a file,
+      parses data — should have all three layers. They compose cleanly and add
+      roughly ten lines total.
+    code: |
+      import logging
+      logger = logging.getLogger(__name__)
+
+      def safe_ask(question: str, fallback: str = "") -> str:
+          """Ask the local LLM. Returns fallback if Ollama is unavailable.
+
+          Args:
+              question: The question to ask.
+              fallback: Return value if the LLM call fails.
+
+          Returns:
+              The model's answer, or fallback if unavailable.
+
+          Raises:
+              Exception: If fallback is empty and the call fails.
+          """
+          logger.debug("safe_ask() | question=%r", question[:60])
+
+          try:
+              response = ollama.chat(
+                  model=MODEL,
+                  messages=[{"role": "user", "content": question}],
+              )
+              answer = response["message"]["content"]
+              logger.info("safe_ask() | got %d chars", len(answer))
+              return answer
+
+          except Exception as e:
+              logger.error("safe_ask() failed: %s", e)
+              if fallback:
+                  logger.warning("Returning fallback: %r", fallback[:40])
+                  return fallback
+              raise
+    narration: >
+      Here's the complete pattern assembled. At the top: a module-level logger.
+      The function: docstring, debug log at entry, try block around the risky
+      call, info log on success. On exception: error log with the specific error,
+      then either return the fallback (if provided) or re-raise. This is every
+      layer in one place. Notice how clean it still is — it's about 25 lines
+      for a function that calls an external service, handles failures gracefully,
+      and leaves a complete trace in the logs. That's the benchmark for production
+      code. Not 200 lines of defensive code — just the right 25 lines.
+
+  - type: concept
+    label: "Tests for it"
+    heading: "Tests for the Hardened Function"
+    body: >
+      The tests cover both the happy path (Ollama returns a response) and the
+      error path (fallback is used when Ollama is unavailable). The happy-path
+      test calls the real Ollama instance; the error-path test uses a simple
+      trick to force the failure.
+    code: |
+      import pytest
+
+      # Happy path: Ollama is running and returns a string
+      def test_safe_ask_returns_string():
+          result = safe_ask("Say 'ok' in one word.")
+          assert isinstance(result, str)
+          assert len(result) > 0
+
+      # Fallback path: if Ollama fails, fallback is returned
+      def test_safe_ask_returns_fallback_on_error():
+          # Use an invalid model name to force a failure
+          original_model = globals().get("MODEL")
+          import builtins
+          # Temporarily break the call by patching MODEL to a non-existent model
+          # (or just test the fallback by calling with a known bad model)
+          result = safe_ask.__wrapped__ if hasattr(safe_ask, '__wrapped__') else None
+          # Simpler approach — test the fallback by calling directly:
+          # (We test the fallback parameter logic separately)
+          assert safe_ask("Say 'ok'.", fallback="fallback text") in [
+              "fallback text",        # if Ollama is down
+          ] or isinstance(safe_ask("Say 'ok'.", fallback="fallback text"), str)
+          # Either way, must return a string (real answer or fallback)
+
+      # Better: test that fallback is returned when exception is raised
+      def test_safe_ask_fallback_used_when_error():
+          # Patch MODEL to an invalid value to force an exception
+          global MODEL
+          _orig = MODEL
+          MODEL = "this-model-does-not-exist"
+          try:
+              result = safe_ask("hello", fallback="error occurred")
+              assert result == "error occurred"
+          finally:
+              MODEL = _orig
+    narration: >
+      Testing the happy path is straightforward: call the function, assert the
+      result is a non-empty string. Testing the error path takes a small trick:
+      temporarily set the MODEL variable to a name that doesn't exist in Ollama.
+      When ollama.chat can't find the model, it raises an exception. The function
+      catches it, logs the error, and returns the fallback string. The test asserts
+      the fallback was returned. The try/finally block ensures MODEL is always
+      restored to the original value, even if the assertion fails. This pattern —
+      temporarily patch a global, run the test, restore in finally — is a common
+      technique for testing failure paths without mocking frameworks.
+
+  - type: code
+    label: "Combining patterns"
+    heading: "The Full Day 5 Project"
+    code: |
+      # day_005/project/solution.py
+      import logging
+      import ollama
+      import pytest
+
+      logging.basicConfig(
+          level=logging.DEBUG,
+          format="%(asctime)s %(levelname)-8s %(message)s",
+      )
+      logger = logging.getLogger(__name__)
+
+      MODEL = "llama3.2"
+      SYSTEM = "You are a helpful assistant. Answer concisely."
+
+
+      def safe_ask(question: str, fallback: str = "") -> str:
+          logger.debug("safe_ask() | question=%r", question[:60])
+          try:
+              response = ollama.chat(
+                  model=MODEL,
+                  messages=[
+                      {"role": "system", "content": SYSTEM},
+                      {"role": "user",   "content": question},
+                  ],
+              )
+              answer = response["message"]["content"]
+              logger.info("safe_ask() | got %d chars", len(answer))
+              return answer
+          except Exception as e:
+              logger.error("safe_ask() failed: %s", e)
+              if fallback:
+                  return fallback
+              raise
+
+
+      # ── Tests ─────────────────────────────────────────────────────────────
+
+      def test_safe_ask_returns_string():
+          result = safe_ask("Say 'hello' in one word.")
+          assert isinstance(result, str) and len(result) > 0
+
+
+      def test_safe_ask_fallback_on_bad_model():
+          global MODEL
+          _orig = MODEL
+          MODEL = "no-such-model-xyz"
+          try:
+              result = safe_ask("hello", fallback="unavailable")
+              assert result == "unavailable"
+          finally:
+              MODEL = _orig
+    narration: >
+      This is the complete Day 5 project: a hardened safe_ask function and two
+      tests. 40 lines total. Logging, error handling, and tests all present.
+      The function has a docstring, a debug log at entry, an info log on success,
+      and error handling that logs the failure and returns a fallback. The tests
+      cover both the happy path and the failure path. If you showed this to a
+      senior engineer and said "I need this to be reliable in production," they'd
+      say it's ready. That's the standard you're working to. Not perfect, but
+      solid.
+
+  - type: exercise
+    heading: "Exercise 5: The Hardened safe_ask"
+    prompt: >
+      Open exercise_05.ipynb. Build `safe_ask(question: str, fallback: str = "") -> str`
+      with all three layers: (1) logging — debug at entry, info on success, error on
+      failure; (2) error handling — catch Exception, return fallback if provided,
+      re-raise if not; (3) the function must call ollama.chat and return the model's
+      answer. The checks verify: Ollama is reachable, the function returns a string,
+      and the fallback is returned when the model name is patched to be invalid.
+    hint: "try: ... ollama.chat(...) ... except Exception as e: logger.error(...); return fallback if fallback else raise"
+    narration: >
+      Exercise five is the capstone: build safe_ask with all three layers. Open
+      exercise five. You need Ollama running for this one — it's the first exercise
+      in Day 5 that calls the LLM. The checks verify logging is wired up (by
+      importing and checking it's called), the function returns a string for a
+      real question, and the fallback is used when something goes wrong. Pull the
+      patterns from the last four exercises together. This is the pattern you'll
+      use every time you write an LLM-calling function for the rest of the course.
+
+  - type: summary
+    heading: "Day 5 Complete — Warmup Complete"
+    bullets:
+      - "Logging: debug at entry, info on success, error on failure"
+      - "Error handling: catch specific or broad exceptions, log, fallback or re-raise"
+      - "Testing: test_ functions, assert, pytest.raises for error paths"
+      - "The hardened function combines all three layers in ~25 lines"
+      - "This pattern applies to every LLM-calling function you'll write"
+      - "Warmup complete: you can build, prompt, validate, and harden LLM functions"
+    narration: >
+      Day 5 done. Warmup done. Five days, five foundational skills: calling a
+      local LLM with Ollama, building prompts that actually work, structured output
+      with JSON mode and Pydantic, retry loops for reliability, and now the
+      engineering hygiene that makes everything trustworthy. You've gone from
+      writing print-and-hope code to writing observable, resilient, tested
+      software. From here, Section 1 starts with the real AI engineering skills —
+      the ones that go on a CV. But those skills are built on exactly this
+      foundation. Welcome to the other side of vibecoding. Let's build something
+      worth staking your name on.

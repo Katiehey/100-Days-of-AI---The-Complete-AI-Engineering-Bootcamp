@@ -1,0 +1,218 @@
+day: "005"
+lesson: "04"
+title: "Testing with pytest"
+
+slides:
+
+  - type: title
+    heading: "Testing with pytest"
+    subheading: "Confidence: prove your code does what you think it does"
+    narration: >
+      Lesson 4. The third pillar: testing. Logging tells you what happened.
+      Error handling controls what happens when things go wrong. Testing answers
+      the prior question: does the code do the right thing in the first place?
+      pytest is Python's most widely used testing framework. It's simple: write
+      functions that start with "test_", put assertions inside them, and run
+      pytest. If all assertions pass, your code is doing what you expect.
+
+  - type: concept
+    label: "Why tests"
+    heading: "Why Automated Tests Matter"
+    body: >
+      Manually testing a function means running it yourself and checking the
+      output. That works once. But next week when you change the function, will
+      you remember to test it again? Automated tests run in milliseconds and
+      catch regressions before you ship them.
+    bullets:
+      - "Without tests: you change code, hope it still works, find out later it didn't"
+      - "With tests: you change code, run pytest, know in 2 seconds what broke"
+      - "Tests are executable documentation: they show exactly what the function should do"
+      - "A passing test suite is the permission slip to ship with confidence"
+    narration: >
+      Here's the mental shift: manual testing is checking once. Automated testing
+      is checking every time. When you have a test suite, every change to the
+      codebase is automatically checked against all the tests. Regressions —
+      breaking something that used to work — get caught immediately instead of
+      weeks later in production. There's another benefit that's less obvious:
+      tests are documentation that executes. When someone new reads your code
+      and asks "what does clean_text do with an empty string?" the test tells
+      them. And unlike comments, tests can't go stale — if they did, they'd fail
+      and you'd notice. Every function you write for this course, and for
+      professional work, should have at least a few tests. It takes 5 minutes.
+      The payoff compounds every time the function is changed.
+
+  - type: how_it_works
+    label: "pytest basics"
+    heading: "Writing Your First Tests"
+    body: >
+      A test is just a function whose name starts with `test_`. Inside, you use
+      `assert` to check conditions. If the assertion fails, pytest reports the
+      test as failed and shows you exactly what went wrong.
+    code: |
+      # The function under test:
+      def clean_text(s: str) -> str:
+          """Strip whitespace and convert to lowercase."""
+          return s.strip().lower()
+
+      # Tests: functions that start with test_
+      def test_clean_text_strips_spaces():
+          assert clean_text("  hello  ") == "hello"
+
+      def test_clean_text_lowercases():
+          assert clean_text("HELLO") == "hello"
+
+      def test_clean_text_handles_empty_string():
+          assert clean_text("") == ""
+
+      def test_clean_text_combined():
+          assert clean_text("  WORLD  ") == "world"
+
+      # Run from terminal:   pytest filename.py -v
+      # Or in a notebook:    import pytest; pytest.main([__file__, "-v"])
+    narration: >
+      Four tests for one function. Each test has a descriptive name that explains
+      what case it covers. Inside each test, a single assert statement checks
+      that the function returns the expected output for that input. These are
+      called "example-based tests" — you pick an input and the expected output
+      and assert they match. Notice the naming convention: test underscore
+      what_it_does_with_what_input. This makes the test output readable —
+      when a test fails you can read the name and immediately know what broke.
+      To run: from a terminal, "pytest filename.py -v" — the v stands for
+      verbose. Each test appears as a green dot (pass) or red F (fail). In a
+      notebook you run a slightly different command since there's no filename.
+      Exercise 3 shows you how.
+
+  - type: how_it_works
+    label: "pytest.raises"
+    heading: "Testing That Errors Are Raised"
+    body: >
+      Sometimes the correct behavior is to raise an exception. `pytest.raises`
+      is a context manager that asserts a specific exception is raised — and
+      fails the test if it isn't.
+    code: |
+      import pytest
+
+      def divide(a: float, b: float) -> float:
+          if b == 0:
+              raise ValueError("Cannot divide by zero")
+          return a / b
+
+      # Test normal behavior:
+      def test_divide_returns_quotient():
+          assert divide(10, 2) == 5.0
+
+      def test_divide_handles_floats():
+          assert divide(7, 2) == 3.5
+
+      # Test that the exception IS raised:
+      def test_divide_raises_on_zero():
+          with pytest.raises(ValueError):
+              divide(10, 0)
+
+      # Optionally check the error message:
+      def test_divide_error_message():
+          with pytest.raises(ValueError, match="Cannot divide by zero"):
+              divide(5, 0)
+    narration: >
+      The "with pytest.raises" pattern is how you test error conditions. Inside
+      the with block you call the function with the input that should cause the
+      error. If the exception is raised, the test passes. If no exception is
+      raised, the test fails — because you expected an error and didn't get one.
+      The match argument is optional: it checks that the exception message
+      matches the given string (using regex). This is useful when you have
+      multiple paths that raise the same exception type and you want to verify
+      the right one fired. This pattern is fundamental. Every function that
+      raises exceptions in response to invalid input should have at least one
+      pytest.raises test. It's the only way to verify that error handling
+      actually works.
+
+  - type: code
+    label: "Running in notebooks"
+    heading: "Running pytest Inside a Jupyter Notebook"
+    code: |
+      # pytest normally runs from the terminal:
+      #   pytest test_mymodule.py -v
+      #
+      # In a Jupyter notebook, use ipytest:
+      #   pip install ipytest
+      #   import ipytest; ipytest.autoconfig()
+      #
+      # Or run pytest programmatically (no extra install):
+      import pytest
+
+      # Put your test functions in the same cell as:
+      def test_example():
+          assert 1 + 1 == 2
+
+      # Then run (in the next cell or same cell at bottom):
+      pytest.main([__file__, "-v"])
+      # __file__ may not work in notebooks — use the actual notebook path,
+      # or use ipytest for the cleanest experience.
+
+      # For this course's exercises, tests run in-cell:
+      # just call the test functions directly and assert their results.
+      test_example()   # raises AssertionError if it fails, passes silently if not
+    narration: >
+      Running pytest inside a notebook has a small complication: pytest normally
+      discovers test files on disk, but notebook cells aren't files in the usual
+      sense. There are two clean approaches. First, install ipytest — a small
+      library that integrates pytest with Jupyter — and use its autoconfig. Second,
+      call pytest.main() directly with the current file path. For the exercises
+      in this course, we use a simpler approach: just call the test functions
+      directly. A passing test function returns None silently. A failing test
+      function raises AssertionError. The check cell at the bottom of each
+      exercise calls test functions and reports results. This is slightly
+      less fancy than running pytest from a terminal but works perfectly in
+      a notebook context and needs no additional setup.
+
+  - type: exercise
+    heading: "Exercise 3: Write Tests for clean_text"
+    prompt: >
+      Open exercise_03.ipynb. A `clean_text(s: str) -> str` function is provided.
+      Write three test functions: `test_strips_whitespace()`, `test_lowercases()`,
+      and `test_empty_string()`. Each should assert the correct output for its
+      case. The check cell calls your test functions — if they raise AssertionError,
+      the check fails. If they pass silently, the check passes.
+    hint: "assert clean_text('  Hello  ') == 'hello' — one assert per test function."
+    narration: >
+      Exercise three: write the tests. Open exercise three. The clean_text
+      function is already written and working. Your job is to write three test
+      functions that verify it. The check cell calls each of your test functions
+      and catches AssertionError. No Ollama needed. This exercise is about
+      building the habit: given a function, write tests that cover the important
+      cases. Think about: what's the normal case, what's the edge case (empty
+      string), what's the most common mistake (forgetting to lowercase). One
+      test per case, one assert per test.
+
+  - type: exercise
+    heading: "Exercise 4: Test with pytest.raises"
+    prompt: >
+      Open exercise_04.ipynb. A `divide(a, b)` function is provided that raises
+      ValueError when b is 0. Write `test_divide_normal()` (assert 10/2 == 5.0)
+      and `test_divide_raises()` (use `with pytest.raises(ValueError):`). The
+      check cell verifies both functions pass.
+    hint: "with pytest.raises(ValueError): divide(10, 0)"
+    narration: >
+      Exercise four adds pytest.raises. Open exercise four. You'll write two tests:
+      one for the normal case (divide works correctly) and one for the error case
+      (divide raises ValueError when dividing by zero). The pytest.raises context
+      manager is the key new pattern. Remember: inside the with block, you call
+      the function that SHOULD raise the error. If the error is raised, the test
+      passes. If no error is raised, the test fails. No Ollama needed here either.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Test functions start with test_ — pytest discovers and runs them automatically"
+      - "Use assert to check expected output: assert f(x) == expected"
+      - "Use pytest.raises(ExceptionType) to test that exceptions are raised"
+      - "Descriptive test names make failure messages self-explanatory"
+      - "Tests are executable documentation: they show exactly what a function should do"
+      - "Next: put it all together — a hardened function with all three pillars"
+    narration: >
+      Testing is in place. The pattern: write def test_something functions,
+      put one assert inside each, and call them to verify they pass silently.
+      For error cases, use the "with pytest.raises" context manager. Now all
+      three pillars are in hand: logging, error handling, testing. In the final
+      lesson, you combine them into one hardened function — the Day 5 project
+      deliverable.

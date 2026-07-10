@@ -1,0 +1,174 @@
+day: "005"
+lesson: "03"
+title: "Error Handling Patterns"
+
+slides:
+
+  - type: title
+    heading: "Error Handling Patterns"
+    subheading: "Resilience: decide what to do when things go wrong"
+    narration: >
+      Lesson 3. You met try/except in Day 2 for specific cases like FileNotFoundError
+      and JSONDecodeError. Today you go further: multiple except clauses, catching
+      specific exceptions from external libraries, deciding whether to recover or
+      re-raise, and logging errors before letting them propagate. These patterns
+      are the difference between code that crashes obscurely and code that fails
+      clearly.
+
+  - type: concept
+    label: "Catch specifically"
+    heading: "Catch Specific Exceptions, Not Everything"
+    body: >
+      A bare `except:` or `except Exception:` catches everything — including bugs
+      in your own code. Catching specific exceptions means you only handle the
+      errors you know about and expect. Unexpected errors still surface.
+    code: |
+      # ── Bad: catches everything including your own bugs ─────────
+      try:
+          result = float(user_input)
+      except:           # too broad — masks syntax errors, NameErrors, etc.
+          result = 0.0
+
+      # ── Better: catch the specific expected exception ────────────
+      try:
+          result = float(user_input)
+      except ValueError:   # only raised when user_input isn't a valid float
+          result = 0.0
+
+      # ── Even better: log it ──────────────────────────────────────
+      try:
+          result = float(user_input)
+      except ValueError as e:
+          logger.warning("Could not parse %r as float: %s", user_input, e)
+          result = 0.0
+    narration: >
+      Catching everything is a common mistake, especially for beginners. When
+      you write except without specifying an exception type, you catch every
+      possible error — including NameError when you misspelled a variable,
+      AttributeError when you called a method that doesn't exist, or even
+      KeyboardInterrupt when a user presses Ctrl-C. These are bugs in your
+      code, and you want them to surface, not be silently swallowed. Catching
+      a specific exception type like ValueError means you only handle the exact
+      failure mode you anticipated. Everything else propagates normally and gets
+      fixed. The third version is best: it catches ValueError, logs what happened
+      so you have a record, and then applies the fallback. If the input causes
+      some other exception you didn't expect, that exception still propagates
+      and you can fix the underlying bug.
+
+  - type: how_it_works
+    label: "Multiple except"
+    heading: "Multiple except Clauses and Re-raise"
+    body: >
+      One `try` block can have multiple `except` clauses for different failure
+      modes — each with its own response. And sometimes the right response is
+      to log the error and then `raise` to let it propagate to the caller.
+    code: |
+      import requests
+
+      def fetch_data(url: str) -> dict:
+          logger.debug("Fetching %s", url)
+          try:
+              response = requests.get(url, timeout=10)
+              response.raise_for_status()          # raises HTTPError on 4xx/5xx
+              return response.json()
+          except requests.exceptions.Timeout:
+              logger.warning("Request timed out: %s", url)
+              return {}                            # return empty dict (fallback)
+          except requests.exceptions.HTTPError as e:
+              logger.error("HTTP error %s: %s", e.response.status_code, url)
+              return {}                            # return empty dict (fallback)
+          except requests.exceptions.ConnectionError:
+              logger.error("Connection failed: %s", url)
+              raise                               # re-raise — caller must handle
+          except Exception as e:
+              logger.exception("Unexpected error fetching %s", url)
+              raise                               # re-raise unexpected errors
+    narration: >
+      Here's the full pattern. One try block, four except clauses. Timeout and
+      HTTPError return an empty dict as a safe fallback — the caller gets
+      something it can handle. ConnectionError re-raises because if we can't
+      connect at all, there's nothing the function can do — the caller needs to
+      know. And the catch-all except Exception logs the full traceback with
+      logger.exception (which logs at ERROR level and includes the stack trace)
+      then re-raises. Notice the different strategies: some errors have a
+      sensible fallback, others need to propagate. The choice depends on whether
+      the caller can do anything useful with the fallback. The bare `raise`
+      statement without an argument re-raises the current exception unchanged —
+      it preserves the original traceback, which is important for debugging.
+
+  - type: code
+    label: "Ollama errors"
+    heading: "Handling Ollama-Specific Errors"
+    code: |
+      import ollama
+
+      # Common Ollama failure modes:
+      # 1. Server not running → ConnectionError / requests.exceptions.ConnectionError
+      # 2. Model not found → ollama throws a generic ResponseError
+      # 3. Request too long → model may return error in response
+
+      def ask(question: str, fallback: str = "") -> str:
+          """Ask the local model. Returns fallback string if unavailable."""
+          logger.debug("ask() | question=%r", question[:50])
+          try:
+              response = ollama.chat(
+                  model=MODEL,
+                  messages=[{"role": "user", "content": question}],
+              )
+              answer = response["message"]["content"]
+              logger.info("ask() | got %d chars", len(answer))
+              return answer
+          except Exception as e:
+              logger.error("ask() failed: %s — returning fallback", e)
+              if fallback:
+                  return fallback
+              raise   # no fallback — let caller handle it
+    narration: >
+      For Ollama specifically, the most common failure is the server not running.
+      This surfaces as a connection error. The function here takes an optional
+      fallback parameter. If provided, it returns the fallback string and logs
+      an error. If not provided, it re-raises the exception so the caller knows
+      something went wrong. This is a useful pattern for AI features in larger
+      applications: provide a fallback so the application can continue running
+      in degraded mode when the LLM is unavailable. logger.error logs the failure
+      with the specific exception message, which tells you exactly what went wrong
+      when you read the logs later. The combination of a good fallback and a good
+      error log means failures are both handled gracefully AND visible.
+
+  - type: exercise
+    heading: "Exercise 2: Add Error Handling"
+    prompt: >
+      Open exercise_02.ipynb. A stub `safe_parse(text: str) -> float | None`
+      is provided. Implement it with: (1) try float(text.strip()), (2) on
+      ValueError return None instead of crashing, (3) log a WARNING when
+      ValueError is caught. The checks verify valid input returns a float,
+      invalid input returns None (not an exception), and "3.14" returns 3.14.
+    hint: "except ValueError: logger.warning(...); return None"
+    narration: >
+      Exercise two focuses on the error handling pattern: catch a specific
+      exception, handle it gracefully, and return a safe value instead of
+      crashing. Open exercise two. The function takes a string and should
+      return a float if the string is parseable, or None if it isn't.
+      The checks test all three: a valid number string returns the right float,
+      an invalid string like "hello" returns None (not ValueError), and the
+      specific case of "3.14" returns 3.14. Write the try/except ValueError
+      pattern and add a logger.warning call when it's caught. No Ollama needed.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Catch specific exceptions — not bare `except:` which hides bugs"
+      - "Multiple except clauses handle different failure modes differently"
+      - "Fallback: return a safe value when the caller can work with it"
+      - "Re-raise: use bare `raise` to propagate unexpected errors unchanged"
+      - "logger.exception() logs at ERROR level plus the full stack trace"
+      - "Next: testing with pytest — prove your code does what you think"
+    narration: >
+      Error handling is in place. The key patterns: catch specific exceptions
+      not everything, give callers a safe fallback when you have one, re-raise
+      when you don't, and always log before you do either. The bare raise
+      statement is your friend — it means "I know something went wrong, I've
+      logged it, now the caller can deal with it." Together with logging,
+      error handling makes failures observable and predictable. The third
+      pillar — testing — closes the loop. Tests give you confidence that
+      the normal path works before any errors even occur. Lesson 4.
