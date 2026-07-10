@@ -141,3 +141,28 @@ before we sprint.
 - [ ] 1 project notebook + 1 solution notebook (§4)
 - [ ] Verify every named API/library/model against real docs — don't trust memory
 - [ ] Confirm no concept is used before it's taught
+
+---
+
+## 9. Safety precautions — mandatory gate before human review
+
+All five must complete in order. Do not skip or reorder.
+
+```
+python tools/check_day.py NNN        # #1 execute + render  +  #2 structure — must be GREEN
+→ adversarial review (REVIEW_CHECKLIST.md)   # #3 — fix every blocker, re-run check_day
+→ git commit "Day NNN: <title>"      # #4
+→ update CONCEPTS.md + SYLLABUS.md   # #5
+```
+
+**#1 — Execute + render (`run_day.py`):** exercises run clean, solution notebook runs clean, embedded solutions pass all checks.
+
+**#2 — Structure (`validate_day.py`):** lesson count 4–6, YAML keys present, narration on every non-title slide, exercise/project/solution files named correctly.
+
+**#3 — Adversarial review (`tools/REVIEW_CHECKLIST.md`):** critic pass on five dimensions — (1) factual correctness, (2) coherence vs CONCEPTS.md, (3) pedagogy, (4) internal consistency, (5) zero-cost constraint. Output: findings with blocker|warn|nit + SHIP or REWORK verdict. Fix every blocker and re-run `check_day.py` before proceeding.
+
+**#4 — Commit:** one commit per verified day, message `Day NNN: <title>`. Only after gate green AND review passed.
+
+**#5 — Ledger:** add every new concept/library/function to `CONCEPTS.md`. Update authoring status line in `SYLLABUS.md`.
+
+> **CRITICAL:** #3 is the step most likely to be skipped when content looks good and the gate is green. It is not optional. Run it explicitly after `check_day.py` passes, before committing.
