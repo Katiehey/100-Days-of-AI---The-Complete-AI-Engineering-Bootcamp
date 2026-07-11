@@ -168,6 +168,19 @@ def validate(day: int) -> tuple[bool, list[str]]:
              f"{ef.name} has an automated checks cell")
         hard(("<details>" in blob) or ("## Solution" in blob),
              f"{ef.name} has a solution section")
+        # async/await not introduced until Day 33
+        if day <= 32:
+            try:
+                nb = json.loads(ef.read_text(encoding="utf-8"))
+                code_src = "\n".join(
+                    "".join(c.get("source", []))
+                    for c in nb.get("cells", [])
+                    if c.get("cell_type") == "code"
+                )
+                hard("async def" not in code_src,
+                     f"{ef.name} has no 'async def' in code cells (async not until Day 33)")
+            except Exception:
+                pass  # parse failure already caught above
 
     # ---- Project + solution ----------------------------------------------
     proj = day_dir / "project" / "project.ipynb"
