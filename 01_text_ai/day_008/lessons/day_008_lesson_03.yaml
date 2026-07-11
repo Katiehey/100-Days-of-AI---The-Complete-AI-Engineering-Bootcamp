@@ -1,0 +1,341 @@
+day: "008"
+lesson: "03"
+title: "Confidence and Reasoning"
+
+slides:
+
+  - type: title
+    heading: "Confidence and Reasoning"
+    subheading: "Make the model show its work — and tell you how sure it is"
+    narration: >
+      In Lesson 2 you built a zero-shot classifier that returns a single clean
+      label. That is a solid start. But in real applications you often need more
+      than just the label. You want to know why the model chose it, and how
+      confident it is. Maybe you want to automatically route high-confidence
+      predictions and flag low-confidence ones for a human to review. Maybe you
+      want to log the reasoning so you can audit decisions later. This lesson
+      gives you both. You will extend the classifier to return a structured result
+      that includes the label, a short reasoning explanation, and a numeric
+      confidence score. You will use the Day-4 Pydantic pattern to parse and
+      validate that result, and you will add a graceful fallback for the rare
+      cases when JSON parsing fails.
+
+  - type: concept
+    label: "Why structured output"
+    heading: "Beyond the Label: What Else Do You Need?"
+    body: >
+      A bare label tells you *what* the model decided. A structured result also
+      tells you *why* and *how sure*. That extra information unlocks three
+      real-world capabilities: auditing, routing, and debugging.
+    bullets:
+      - "**Auditing** — log the reasoning alongside the label for every decision"
+      - "**Routing** — act automatically on high-confidence predictions; escalate low-confidence ones"
+      - "**Debugging** — when the label is wrong, the reasoning shows where the model went astray"
+    narration: >
+      Think about a customer-support system that automatically routes tickets.
+      If confidence is above 0.9 you can safely automate the action. If it is
+      below 0.6 you probably want a human to check it first. That routing logic
+      requires a numeric confidence score — a bare label cannot give you that.
+      Auditing is the same story. Regulations in finance, healthcare, and legal
+      work increasingly require that automated decisions be explainable. Storing
+      the model's reasoning string alongside the label gives you a lightweight
+      audit trail at essentially no extra cost. And when the classifier makes a
+      mistake — which it will — seeing the reasoning tells you exactly what the
+      model was thinking. A confusing label is a mystery; a confusing label with
+      a reasoning trace is a solvable problem. All three of these benefits come
+      from the same simple change: asking the model to return a small JSON object
+      instead of a single word.
+
+  - type: concept
+    label: "ClassificationResult schema"
+    heading: "The ClassificationResult Pydantic Model"
+    body: >
+      `ClassificationResult` is a Pydantic `BaseModel` with three fields. The
+      model (the LLM) fills them in; Pydantic validates them when you parse the
+      JSON.
+    bullets:
+      - "`label: str` — the chosen category, exactly as given in the label list"
+      - "`reasoning: str` — one or two sentences explaining the choice"
+      - "`confidence: float` — a number between 0.0 (no confidence) and 1.0 (certain)"
+    narration: >
+      You met Pydantic on Day 4, where you used BaseModel and Field to define a
+      schema and then called model_validate to parse a dict into a typed Python
+      object. ClassificationResult uses the exact same pattern. You define it once
+      at the top of your module and then pass it to model_validate_json every time
+      you get a response back from the model. Three fields: label is the string the
+      model chose from your label list; reasoning is a short explanation — one or
+      two sentences is enough; and confidence is a float that the model self-reports,
+      ranging from zero to one. Self-reported confidence is not a calibrated
+      probability — the model does not have access to token probabilities when it
+      writes this number. What it gives you is a useful signal: a model that says
+      0.95 is usually more reliable than one that says 0.55, and that signal is
+      good enough for routing decisions. Pydantic will raise a ValidationError if
+      confidence is not a number, or if any field is missing, so you get type safety
+      for free.
+
+  - type: code
+    label: "Schema definition"
+    heading: "Defining ClassificationResult"
+    code: |
+      from pydantic import BaseModel, Field
+
+
+      class ClassificationResult(BaseModel):
+          """Structured output from the classifier.
+
+          Attributes:
+              label:      The chosen category from the label list.
+              reasoning:  One-to-two sentence explanation of the choice.
+              confidence: Self-reported confidence from 0.0 to 1.0.
+          """
+
+          label: str = Field(description="Exactly one label from the provided list")
+          reasoning: str = Field(description="Brief explanation of why this label was chosen")
+          confidence: float = Field(
+              description="Confidence score between 0.0 (uncertain) and 1.0 (certain)"
+          )
+
+      # Serialise to JSON schema — used to instruct the model
+      import json
+      schema = ClassificationResult.model_json_schema()
+      print(json.dumps(schema, indent=2))
+    narration: >
+      Here is the schema definition. Nothing here is new — this is precisely the
+      BaseModel and Field pattern from Day 4. You define three fields with
+      description strings. Those descriptions are important because you will
+      embed the JSON schema in your system prompt so the model knows what to fill
+      in. The last two lines show how to serialise the schema to a JSON string.
+      model_json_schema returns a Python dict that describes the schema; json.dumps
+      converts it to a formatted string you can paste directly into a prompt.
+      If you run this you will see that Pydantic adds a "title" key to each
+      property — that is Pydantic v2 behaviour, and you saw it in Day 4. It does
+      not confuse the model; it just gives it more context. The key thing to notice
+      is how little code this takes. Five lines for the class definition, one for
+      the schema serialisation, and you have a fully validated, self-documenting
+      structured output type.
+
+  - type: how_it_works
+    label: "Schema-guided prompt"
+    heading: "Embedding the Schema in the System Prompt"
+    body: >
+      You already know how to embed a schema in a prompt — Day 4 introduced
+      schema-guided prompting. The technique is identical here: serialise the
+      schema to a JSON string, paste it into the system prompt, ask the model to
+      reply with a filled instance and nothing else.
+    bullets:
+      - "Serialise: `json.dumps(ClassificationResult.model_json_schema(), indent=2)`"
+      - "Embed: include the serialised schema verbatim in the system prompt"
+      - "Constrain: `\"Reply with a single JSON object that matches this schema. No prose.\"`"
+      - "Enable JSON mode: pass `format='json'` to `ollama.chat()` (grammar-constrained sampling)"
+      - "Parse: `ClassificationResult.model_validate_json(raw_content)` — raises `ValidationError` on failure"
+    narration: >
+      On Day 4 you learned that embedding the JSON schema in the system prompt
+      tells the model exactly what structure to produce. You also learned that
+      passing format equals json to ollama.chat enables grammar-constrained
+      sampling, which forces the model to emit valid JSON at the token level. Both
+      techniques apply here without modification. The only new part is parsing into
+      a ClassificationResult instead of whatever schema you used before. After you
+      call ollama.chat and extract the content string, you pass it to
+      model_validate_json. If the JSON matches the schema, you get back a
+      ClassificationResult object with label, reasoning, and confidence as typed
+      Python attributes. If the JSON is malformed or a field is the wrong type,
+      Pydantic raises a ValidationError. You will see in the next slide exactly
+      how to handle that error gracefully rather than letting it crash your caller.
+
+  - type: code
+    label: "Full implementation"
+    heading: "classify_structured(): The Complete Function"
+    code: |
+      import json
+      import logging
+      import ollama
+      from pydantic import BaseModel, Field, ValidationError
+
+      logger = logging.getLogger(__name__)
+
+      MODEL = "llama3.2"
+
+
+      class ClassificationResult(BaseModel):
+          label: str = Field(description="Exactly one label from the provided list")
+          reasoning: str = Field(description="Brief explanation of why this label was chosen")
+          confidence: float = Field(description="Confidence score 0.0–1.0")
+
+
+      STRUCTURED_CLASSIFY_PROMPT = """You are a text classifier.
+
+      Classify the text into exactly one of these labels: {labels}
+
+      Reply with a single JSON object that matches this schema exactly.
+      No prose, no markdown, no explanation outside the JSON.
+
+      Schema:
+      {schema}
+
+      Example output:
+      {{"label": "negative", "reasoning": "The review expresses clear dissatisfaction.", "confidence": 0.92}}"""
+
+
+      def classify_structured(
+          text: str,
+          labels: list[str],
+          model: str = MODEL,
+      ) -> ClassificationResult | None:
+          """Classify text and return label, reasoning, and confidence.
+
+          Args:
+              text:   The text to classify.
+              labels: Valid output labels.
+              model:  Ollama model name.
+
+          Returns:
+              A ClassificationResult, or None if parsing fails after logging.
+          """
+          schema_str = json.dumps(ClassificationResult.model_json_schema(), indent=2)
+          label_str = ", ".join(labels)
+          system_msg = STRUCTURED_CLASSIFY_PROMPT.format(
+              labels=label_str, schema=schema_str
+          )
+
+          messages = [
+              {"role": "system", "content": system_msg},
+              {"role": "user", "content": f"Text to classify:\n{text}"},
+          ]
+
+          logger.debug("classify_structured() called: %s", text[:60])
+          response = ollama.chat(model=model, messages=messages, format="json")
+          raw = response["message"]["content"]
+
+          try:
+              result = ClassificationResult.model_validate_json(raw)
+              logger.info(
+                  "Classified as %r (confidence=%.2f)", result.label, result.confidence
+              )
+              return result
+          except ValidationError as e:
+              logger.error("Pydantic validation failed: %s | raw=%r", e, raw[:200])
+              return None
+    narration: >
+      Let's walk through the full function. At the top you import json, logging,
+      ollama, and the Pydantic tools. The logger follows the Day-5 pattern:
+      getLogger with __name__ gives you a named logger you can control from your
+      application's logging configuration. ClassificationResult is defined exactly
+      as you saw before. The system prompt template has two placeholders — labels
+      and schema — which are filled in at call time. Notice the example output line
+      in the prompt. This is the Day-4 lesson about schema-echo failures: without a
+      concrete example the model sometimes returns the schema structure itself
+      instead of filling it in. The example prevents that. The function body formats
+      the schema and label string, builds the two-message list, and calls ollama.chat
+      with format equals json. That is the same JSON mode from Day 4. After the call,
+      the try block calls model_validate_json. If parsing succeeds you log the label
+      and confidence at INFO level and return the result. If Pydantic raises a
+      ValidationError you log the error at ERROR level — including the first 200
+      characters of the raw response so you can see what the model actually returned
+      — and return None. Returning None instead of raising is the graceful fallback:
+      the caller decides what to do with a missing result rather than getting an
+      unexpected exception.
+
+  - type: code
+    label: "Graceful fallback"
+    heading: "Handling None: The Caller's Responsibility"
+    code: |
+      # Caller pattern — handle None gracefully
+      def route_ticket(text: str) -> str:
+          """Route a support ticket; fall back to manual review if parsing fails."""
+          labels = ["billing", "technical", "general"]
+          result = classify_structured(text, labels=labels)
+
+          if result is None:
+              # Parsing failed — fall back to safe default
+              logger.warning("classify_structured() returned None; defaulting to 'general'")
+              return "general"
+
+          if result.confidence >= 0.85:
+              logger.info("Auto-routing to %r (confidence=%.2f)", result.label, result.confidence)
+              return result.label
+          else:
+              logger.info(
+                  "Low confidence (%.2f) for %r — flagging for review",
+                  result.confidence,
+                  result.label,
+              )
+              # In a real system you might push this to a review queue
+              return f"review:{result.label}"
+
+
+      # Try it
+      ticket = "I was charged twice for the same subscription this month."
+      route = route_ticket(ticket)
+      print(f"Route: {route}")
+    narration: >
+      Here is what a real caller looks like. The route_ticket function calls
+      classify_structured and immediately checks whether the result is None. If it
+      is, the function logs a warning and returns the string "general" — a safe
+      default that does not crash the system and does not silently swallow the
+      problem. The logging call means you will see in your logs exactly how often
+      the fallback is triggered, which tells you if you need to tighten your prompt
+      or retry. If the result is not None, the caller inspects the confidence field.
+      Above 0.85 it auto-routes and logs at INFO. Below 0.85 it flags for human
+      review by returning a prefixed string. This is a simple but realistic pattern:
+      high confidence means automate, low confidence means escalate. The exact
+      threshold is something you tune for your application. The important point is
+      that the confidence field gives you something to tune in the first place. With
+      a bare label from Lesson 2 you had no information to make that routing
+      decision. With ClassificationResult you do.
+
+  - type: exercise
+    heading: "Exercise 3: Structured Classification Result"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. You will define the `ClassificationResult`
+      Pydantic model and write `classify_with_confidence()` using the schema-guided
+      prompt pattern and `format='json'`. The function returns a plain `dict` with
+      keys `label`, `reasoning`, and `confidence`; on parse failure it returns a
+      fallback dict rather than raising. Automated checks verify that your function
+      returns a dict with all three required keys for normal input, that the `label`
+      field is one of the supplied labels, and that `confidence` is a float in
+      `[0.0, 1.0]`.
+    hint: >
+      Define ClassificationResult with three fields (label, reasoning, confidence)
+      before classify_with_confidence. In the system prompt embed both the label list
+      and json.dumps(ClassificationResult.model_json_schema(), indent=2) and a
+      concrete example output line. Pass format="json" to ollama.chat. Catch
+      ValidationError and return {"label": "unknown", "reasoning": "parse error",
+      "confidence": 0.0} as the fallback. Call .model_dump() on the validated result
+      to convert it to a plain dict before returning.
+    narration: >
+      Now you build it yourself. The notebook has two stubs: ClassificationResult
+      and classify_with_confidence. Both follow exactly what you just saw in the
+      lesson: embed the Pydantic schema in the system prompt, add a concrete example
+      output, call ollama.chat with format="json", and parse the response with
+      model_validate_json. The function returns a plain dict — calling .model_dump()
+      on the validated ClassificationResult converts it for you. On ValidationError,
+      log the failure and return a fallback dict so the caller never receives an
+      unexpected exception. The automated checks will confirm that your function
+      returns a dict with the correct keys, that the label is one of the supplied
+      options, and that the confidence score is a float between zero and one. Work
+      through the checks one at a time — each one pinpoints exactly which piece of
+      the implementation needs attention.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "Ask for label + reasoning + confidence — the model fills in all three if the schema is embedded in the prompt"
+      - "`ClassificationResult` is a Pydantic `BaseModel`; `model_validate_json()` gives you type-safe parsing"
+      - "Graceful fallback — catch `ValidationError`, log the raw response, return `None` or a sentinel object rather than crashing"
+      - "Confidence enables routing: automate high-confidence decisions, escalate low-confidence ones"
+      - "Next: multi-label classification — when text belongs to more than one category at once"
+    narration: >
+      Three things to take away from this lesson. First, asking for structure is
+      free — you are already making the model call, so asking for label plus
+      reasoning plus confidence costs nothing extra except a slightly longer prompt.
+      Second, the Day-4 Pydantic pattern applies directly here. ClassificationResult
+      is just another BaseModel. model_validate_json does the parsing and the type
+      checking for you. Third, graceful fallback is the engineering discipline that
+      makes structured output safe to use in production. Pydantic tells you when
+      the JSON is wrong; your except block decides what to do about it. Logging the
+      failure and returning a safe default keeps your application running while
+      giving you the visibility to diagnose and fix the prompt. In the next lesson
+      you will tackle multi-label classification — text that belongs to more than
+      one category at the same time. That requires a different output type and a
+      different parsing strategy, and it builds directly on the structured-output
+      pattern you practised here.

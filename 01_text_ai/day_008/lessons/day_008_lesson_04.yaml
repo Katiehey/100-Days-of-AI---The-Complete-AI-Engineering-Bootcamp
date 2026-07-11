@@ -1,0 +1,345 @@
+day: "008"
+lesson: "04"
+title: "Multi-Label Classification"
+
+slides:
+
+  - type: title
+    heading: "Multi-Label Classification"
+    subheading: "When one label is not enough — prompting for a list and parsing it safely"
+    narration: >
+      So far every classifier you have built picks exactly one label from a fixed
+      set. But many real texts belong to more than one category at once. A support
+      ticket can be about billing and about a technical error at the same time. A
+      news article can be tagged as both politics and finance. A product review can
+      touch quality, shipping, and customer service in the same paragraph. This is
+      called multi-label classification, and it requires a different approach —
+      a different prompt, a different output format, and a different parsing and
+      validation strategy. In this lesson you will learn the distinction between
+      single-label and multi-label classification, how to prompt the model to return
+      a list of applicable labels, how to parse that list from the model's reply,
+      and how to validate and deduplicate the result against your allowed label set.
+      By the end you will have a reusable multi-label tagger that works reliably on
+      messy real-world text.
+
+  - type: concept
+    label: "Single-label vs multi-label"
+    heading: "Single-Label vs Multi-Label: What Changes?"
+    body: >
+      Single-label classification forces exactly one answer. Multi-label
+      classification allows any subset of the allowed labels — including zero labels
+      (no match) or all of them (every label applies).
+    bullets:
+      - "Single-label: one winner — always exactly one label returned"
+      - "Multi-label: any subset — zero, one, several, or all labels can apply"
+      - "Different task → different prompt → different output format → different parsing"
+      - "Examples: article tags, ticket categories, content warnings, product attributes"
+    narration: >
+      The difference sounds small but it changes almost everything downstream.
+      In single-label classification the model makes one decision and you validate
+      one string. In multi-label classification the model must reason about each
+      label independently — could this label apply? — and return a collection.
+      That collection might have zero items if nothing matches, one item if only one
+      label fits, or several items if the text covers multiple topics. This matters
+      for how you write your prompt, because you can no longer say "pick the best
+      one." You have to say something like "list all labels that apply." It also
+      matters for what you parse — instead of one string you now need to parse a
+      list. And it matters for validation, because a list can contain duplicates,
+      labels spelled slightly differently, or labels the model invented rather than
+      choosing from your set. Each of those failure modes needs its own defence.
+      The good news is that the core ingredients are already in your toolkit from
+      Days 3 through 7 — you just assemble them differently.
+
+  - type: concept
+    label: "Output format choice"
+    heading: "Choosing an Output Format: CSV vs JSON Array"
+    body: >
+      Two formats work well for a list of labels. Both are parseable with tools
+      you already know.
+    bullets:
+      - "**CSV:** `billing, technical-issue` — simple, compact, easy to split on comma"
+      - "**JSON array:** `[\"billing\", \"technical-issue\"]` — structured, parseable with `json.loads`"
+      - "CSV is faster to prompt for; JSON array is more reliable to parse"
+      - "This lesson uses JSON array — `json.loads` from Day 2 handles it directly"
+    narration: >
+      When you need a list back from a model you have two practical options: a
+      comma-separated string or a JSON array. A comma-separated string like
+      "billing, technical-issue" is easy to ask for and easy to split on a comma.
+      The downside is ambiguity — what if a label name itself contains a comma?
+      What if the model adds "and" before the last item? Those edge cases make
+      parsing fragile. A JSON array like square bracket, quoted label, comma, quoted
+      label, close bracket is more verbose to prompt for, but json.loads parses it
+      exactly. You already know json.loads from Day 2. The model understands JSON
+      syntax because it has seen enormous amounts of it during pre-training. In
+      practice, asking for a JSON array and validating with json.loads is more
+      robust than splitting on commas. You will use the JSON array approach in this
+      lesson. You will also write a fallback that handles a comma-separated reply if
+      the model does not produce valid JSON — so your tagger is resilient to both
+      output styles.
+
+  - type: how_it_works
+    label: "Prompt design for multi-label"
+    heading: "The Multi-Label System Prompt Pattern"
+    body: >
+      Three things change in the system prompt compared to single-label:
+    bullets:
+      - "1. Instruct the model to return ALL applicable labels, not just one"
+      - "2. Tell it the exact output format: a JSON array of strings"
+      - "3. Explicitly allow an empty array `[]` when no label fits"
+    narration: >
+      Let's look at what the system prompt needs to say differently. In single-label
+      you wrote "reply with exactly one label." In multi-label you write "reply with
+      a JSON array containing all labels that apply to the text. Include a label only
+      if it clearly applies. If no label applies, return an empty array." Three
+      changes. First, you say all labels, not one. Second, you specify the format as
+      a JSON array of strings — give an example like square bracket quoted label
+      close bracket so the model knows exactly what the structure should look like.
+      Third, you explicitly allow an empty array. Without that permission, models
+      tend to always include at least one label even when nothing truly fits, because
+      "return nothing" feels like a non-answer to a language model. Giving explicit
+      permission to return an empty array fixes that. You still list the full set of
+      allowed labels in the system prompt, the same way you did for single-label —
+      but now you are asking the model to evaluate each one independently rather than
+      racing them against each other to find a winner.
+
+  - type: code
+    label: "Multi-label prompt and parsing"
+    heading: "Prompting for a Label List and Parsing the Reply"
+    code: |
+      import json
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # Module-level constant — template with {labels} placeholder
+      MULTI_LABEL_SYSTEM_PROMPT = """You are a text tagger.
+
+      Allowed labels:
+      {labels}
+
+      Task:
+      - Read the text and decide which of the allowed labels apply to it.
+      - A label applies only if it clearly and specifically describes content in the text.
+      - Return ALL applicable labels as a JSON array of strings.
+      - If no label applies, return an empty array: []
+      - Output only the JSON array. No explanation. No punctuation outside the array.
+
+      Example output for two matching labels:
+      ["billing", "technical-issue"]"""
+
+
+      def tag(text: str, labels: list[str], model: str = MODEL) -> list[str]:
+          """Return all labels from `labels` that apply to `text`.
+
+          Args:
+              text:   The text to tag.
+              labels: The full set of allowed labels.
+              model:  Ollama model name.
+
+          Returns:
+              A (possibly empty) list of applicable labels from the allowed set.
+
+          Raises:
+              ValueError: If the model reply cannot be parsed as a list of strings.
+          """
+          label_str = ", ".join(labels)
+          system_msg = MULTI_LABEL_SYSTEM_PROMPT.format(labels=label_str)
+
+          messages = [
+              {"role": "system", "content": system_msg},
+              {
+                  "role": "user",
+                  "content": (
+                      f"Text:\n{text}\n\n"
+                      f"Allowed labels: {label_str}\n"
+                      "Reply with a JSON array of applicable labels only."
+                  ),
+              },
+          ]
+
+          response = ollama.chat(model=model, messages=messages)
+          raw: str = response["message"]["content"].strip()
+          return _parse_label_list(raw, labels)
+
+
+      def _parse_label_list(raw: str, allowed: list[str]) -> list[str]:
+          """Parse the model's reply into a validated, deduplicated label list."""
+          # Attempt 1 — JSON array
+          try:
+              parsed = json.loads(raw)
+              if isinstance(parsed, list):
+                  return _validate_labels(parsed, allowed)
+          except json.JSONDecodeError:
+              pass
+
+          # Attempt 2 — CSV fallback (e.g. "billing, technical-issue")
+          candidates = [item.strip() for item in raw.split(",") if item.strip()]
+          return _validate_labels(candidates, allowed)
+
+
+      def _validate_labels(candidates: list, allowed: list[str]) -> list[str]:
+          """Keep only valid labels; deduplicate; preserve order of `allowed`."""
+          allowed_lower = {lb.lower(): lb for lb in allowed}
+          seen: set[str] = set()
+          result: list[str] = []
+          for item in candidates:
+              if not isinstance(item, str):
+                  continue
+              key = item.strip().lower()
+              if key in allowed_lower and key not in seen:
+                  seen.add(key)
+                  result.append(allowed_lower[key])
+          return result
+    narration: >
+      Walk through this code section by section. The MULTI_LABEL_SYSTEM_PROMPT
+      constant is a module-level template with a labels placeholder, following the
+      same pattern you used for CLASSIFY_SYSTEM_PROMPT in lesson 2. Notice it gives
+      an example output line — that is the example-in-prompt trick from Day 6's
+      few-shot lesson. A concrete example dramatically reduces the chance the model
+      invents its own format. The tag function is the public interface. It formats
+      the system prompt, builds the two-message list, calls ollama.chat, and passes
+      the raw response to the helper _parse_label_list. That helper tries json.loads
+      first. If the model returned valid JSON — which it usually will — you get a
+      Python list immediately. If json.loads raises a JSONDecodeError, you fall back
+      to splitting on commas. Then _validate_labels does three things in one pass:
+      it filters out anything that is not a string, it checks each item against the
+      allowed set using a case-insensitive lookup, and it deduplicates with a seen
+      set while preserving the canonical spelling from your allowed list. The result
+      is a clean, deduplicated Python list containing only labels from your allowed
+      set — never any hallucinated or misspelled extras. This is defensive
+      engineering applied to list output.
+
+  - type: code
+    label: "Deduplication and validation"
+    heading: "Deduplication and Label Validation in Practice"
+    code: |
+      # Using the tagger — run this after defining tag() above
+
+      ALLOWED_LABELS = [
+          "billing",
+          "technical-issue",
+          "feature-request",
+          "shipping",
+          "account-access",
+          "general",
+      ]
+
+      samples = [
+          # Should return two labels
+          (
+              "I was charged twice and now I can't log into my account at all.",
+              ["billing", "account-access"],
+          ),
+          # Should return one label
+          (
+              "My package has been sitting in the warehouse for two weeks.",
+              ["shipping"],
+          ),
+          # Should return empty — polite off-topic message
+          (
+              "Just wanted to say thank you for the great service!",
+              [],
+          ),
+          # Should return three labels
+          (
+              "The billing page crashes every time I try to update my card, "
+              "and my last order never arrived.",
+              ["billing", "technical-issue", "shipping"],
+          ),
+      ]
+
+      print(f"{'Input (first 55 chars)':<57} {'Tags returned'}")
+      print("-" * 80)
+      for text, expected in samples:
+          tags = tag(text, labels=ALLOWED_LABELS)
+          match = "OK" if set(tags) == set(expected) else "MISMATCH"
+          print(f"{text[:55]:<57} {tags}  [{match}]")
+
+
+      # Demonstrate deduplication — if the model returns a label twice
+      raw_with_duplicates = '["billing", "billing", "technical-issue"]'
+      cleaned = _validate_labels(
+          json.loads(raw_with_duplicates), ALLOWED_LABELS
+      )
+      print(f"\nDuplicate input: {raw_with_duplicates}")
+      print(f"After dedup:     {cleaned}")   # ['billing', 'technical-issue']
+    narration: >
+      This second code slide shows the tagger working on four realistic inputs and
+      demonstrates the deduplication logic explicitly. The samples list pairs each
+      input text with the label list you would expect from a correct tagger. The
+      first sample should trigger two labels — billing and account-access — because
+      both topics are clearly present. The third sample should return an empty list
+      because a thank-you message genuinely does not match any category. Look at the
+      match column in the output: when the tagger returns exactly the expected set,
+      it says OK. If the model drifts and returns something unexpected you will see
+      MISMATCH, which tells you the prompt needs tuning. The final block at the
+      bottom is important: it constructs a raw string where the label "billing"
+      appears twice, calls _validate_labels directly on it, and confirms the
+      duplicate is removed. You never want downstream code to count labels or iterate
+      over them and encounter the same label twice. The seen set in _validate_labels
+      ensures you will never get duplicates regardless of what the model returns.
+      Running this locally should produce mostly OK results — the tagger is not
+      perfect, because no zero-shot classifier is, but for these clear-cut cases it
+      should land the right labels.
+
+  - type: exercise
+    heading: "Exercise 4: Multi-Label Tagger"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement a `tag(text, labels)` function
+      that prompts the local Ollama model for all applicable labels, parses the
+      reply from a JSON array (with a CSV fallback), deduplicates and validates
+      the result against the allowed set, and returns a clean Python list. Test it
+      on six customer support messages across five allowed labels. Automated checks
+      verify that: the return value is always a list; every item in the list is in
+      the allowed set; no duplicates appear; an off-topic message returns an empty
+      list; and a message clearly about two topics returns at least two labels.
+    hint: >
+      Write MULTI_LABEL_SYSTEM_PROMPT as a module-level constant with a {labels}
+      placeholder. Ask explicitly for a JSON array and give a one-line example
+      output in the prompt. In the parsing step, try json.loads first; if it raises
+      json.JSONDecodeError, fall back to splitting on commas. Run every candidate
+      through strip().lower() and only keep items that appear in a lowercased copy
+      of your allowed set. Use a Python set to track what you have already added
+      before appending to the result list.
+    narration: >
+      In the exercise notebook you will build the multi-label tagger from scratch.
+      The stub gives you the function signature and a docstring listing the
+      requirements — read it carefully before you write a single line. The two
+      things most learners get wrong the first time are the output format in the
+      prompt and the parsing. On the prompt side: be explicit that you want a JSON
+      array, and give a concrete example — models respond much better to "like this:
+      square bracket quoted label close bracket" than to a description in prose. On
+      the parsing side: try json.loads first, but do not let a JSONDecodeError
+      crash the whole function — catch it and fall back to comma splitting. The
+      automated checks are your real-time feedback: run them after each step, not
+      just at the end. The empty-list check is deliberately tricky — you need to
+      give the model explicit permission to return an empty array. If you forget
+      that, the model will always return at least one label even for the off-topic
+      message, and that check will fail. Once all five checks are green, you have
+      a production-grade multi-label tagger built with nothing but a prompt and
+      forty lines of Python.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Multi-label classification returns any subset of labels — zero, one, or many"
+      - "Ask for a JSON array; parse with json.loads; fall back to CSV splitting on JSONDecodeError"
+      - "Validate every item against the allowed set and deduplicate with a seen set"
+      - "Give the model explicit permission to return [] when nothing fits"
+      - "Next: building a label-routing pipeline that acts on classification results"
+    narration: >
+      Four solid ideas to carry forward. First, multi-label differs from single-label
+      in a fundamental way: instead of finding the one best answer, the model
+      evaluates each label independently and can return any subset, including none.
+      Second, the JSON array format is your best friend here — json.loads turns it
+      directly into a Python list, and a CSV fallback handles the rare cases where
+      the model slips into a different format. Third, always validate and deduplicate.
+      The _validate_labels pattern you saw in this lesson is reusable — keep it in
+      your toolkit because any structured list output from a model needs the same
+      defence. Fourth, explicit empty-list permission is not optional. Models are
+      trained to be helpful, and returning nothing feels unhelpful to them. You have
+      to tell them explicitly that an empty array is a valid and correct answer.
+      In the final lesson of Day 8 you will put classification to work — building a
+      routing pipeline that takes these labels and uses them to trigger different
+      code paths. That is where classification goes from an academic exercise to a
+      working component in a real system.

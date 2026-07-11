@@ -1,0 +1,347 @@
+day: "008"
+lesson: "05"
+title: "Building a Batch Classifier"
+
+slides:
+
+  - type: title
+    heading: "Building a Batch Classifier"
+    subheading: "Classify many texts at once — with logging, error safety, and clean result dicts"
+    narration: >
+      You have now built a full single-label classifier, added confidence and
+      reasoning, handled multi-label output, and validated everything with Pydantic.
+      All of that works on one text at a time. But real systems do not process one
+      item at a time — they process queues, CSVs, database rows, and API payloads
+      that arrive in batches. In this final lesson of Day 8 you will build the
+      classify_batch function: a loop that takes a list of texts, classifies each
+      one, collects every result into a list of dicts, and keeps running even when
+      individual items fail. You will also add the Day-5 logging pattern so you can
+      observe progress in real time and diagnose problems after the fact. By the
+      end you will have a production-ready batch classifier that is observable,
+      error-safe, and ready to plug into any data pipeline.
+
+  - type: concept
+    label: "Why batch matters"
+    heading: "One at a Time vs Batch: Why the Loop Matters"
+    body: >
+      A single classify() call handles one decision. A batch loop handles a
+      collection — and the engineering requirements change significantly when
+      you scale from one to many.
+    bullets:
+      - "Real data arrives in lists: CSV rows, database query results, API batches"
+      - "One failure must not stop the whole job — error isolation is critical"
+      - "You need to know which items succeeded, which failed, and why"
+      - "Results must be collected in a consistent structure for downstream use"
+    narration: >
+      Think about a real deployment scenario. You have a support ticket queue
+      with five hundred new tickets that arrived overnight. You want to classify
+      every one of them and write the labels back to your database before the
+      support team arrives in the morning. If you call classify() in a naive
+      loop and the model times out on ticket number 47, you crash — and you lose
+      everything that came after ticket 47. The job has to restart from the
+      beginning. That is not acceptable in production. The batch loop pattern
+      solves this with two engineering decisions. First, you wrap each individual
+      classify() call in a try/except so that one failure is caught and recorded
+      without stopping the loop. Second, you store every outcome — whether success
+      or failure — as a dict in a results list, so at the end you have a complete
+      record of what happened to every input. You can write the successful results
+      to the database and separately re-queue the failed ones for retry. This is
+      the difference between a script that sometimes works and a pipeline you can
+      trust to run unattended.
+
+  - type: concept
+    label: "Result dict structure"
+    heading: "The Result Dict: A Consistent Record Per Item"
+    body: >
+      Each item in the batch produces one dict. That dict always has the same
+      keys so downstream code can process it reliably regardless of whether the
+      item succeeded or failed.
+    bullets:
+      - "`text` — the original input (or a short prefix of it)"
+      - "`label` — the classification result, or `None` on failure"
+      - "`status` — `\"ok\"` on success, `\"error\"` on failure"
+      - "`error` — `None` on success, the error message string on failure"
+    narration: >
+      Consistent structure is one of the most important design decisions in any
+      batch pipeline. When every result dict has the same four keys, the code
+      that reads those results does not need to check "did this item succeed or
+      fail?" before accessing a key — it always exists. On a successful item,
+      label holds the classification and error is None. On a failed item, label
+      is None and error holds a string describing what went wrong. The status
+      key makes filtering trivial: you can write a one-liner list comprehension
+      to pull out all the successful results or all the failures. You already
+      know dicts, list comprehensions, and .get() from Day 2. You are applying
+      those foundations here to build a pattern that appears constantly in
+      professional data pipelines. The text key stores the original input, which
+      is essential for debugging — when you see an error result in the output,
+      you need to know which text caused it. Without that field you would have
+      to infer it from the index, which is fragile.
+
+  - type: how_it_works
+    label: "Logging in a batch loop"
+    heading: "Using the Day-5 Logging Pattern to Observe Progress"
+    body: >
+      Batch jobs run silently unless you instrument them. Three log statements
+      per item give you full visibility: start, success, and failure.
+    bullets:
+      - "`logger.info()` at the start: how many items, which model"
+      - "`logger.debug()` per item: index and text preview so you can track progress"
+      - "`logger.info()` on success: the label assigned"
+      - "`logger.warning()` on failure: index, text preview, and error message"
+      - "`logger.info()` at the end: total processed, succeeded, failed counts"
+    narration: >
+      You learned the Python logging module on Day 5. Here you apply it to the
+      batch scenario, which is where logging earns its keep the most. When a
+      batch job runs over five hundred items and finishes in three minutes, the
+      only record of what happened is the log. Without it you have no idea which
+      items were classified as what, how long each one took, or which items
+      failed and with what error. The five log points I am describing here give
+      you a complete audit trail. The opening info log tells you the job started,
+      how many items it will process, and which model it will use — essential for
+      debugging if you later realise you ran with the wrong model. The per-item
+      debug log gives you a real-time progress trace. Use DEBUG level here because
+      in production you usually do not want five hundred individual log lines
+      cluttering the output — but you can enable DEBUG when you need to diagnose
+      a specific failure. The success info log records the outcome. The warning log
+      on failure is deliberately at WARNING rather than ERROR because a single
+      failed item is not a fatal event — it is a notable but handled condition. The
+      closing info log gives you the summary statistics that tell you at a glance
+      whether the batch ran well or needs attention.
+
+  - type: code
+    label: "classify_batch implementation"
+    heading: "The classify_batch Function"
+    code: |
+      import logging
+      import ollama
+
+      MODEL = "llama3.2"
+      logger = logging.getLogger(__name__)
+
+      # Re-use the single-item classifier from earlier in the day
+      LABELS = ["billing", "technical-issue", "feature-request", "shipping",
+                "account-access", "general"]
+
+      CLASSIFY_SYSTEM_PROMPT = (
+          "You are a support-ticket classifier. "
+          "The possible labels are: {labels}. "
+          "Reply with exactly one label. No explanation. No punctuation."
+      )
+
+
+      def classify(text: str, labels: list[str], model: str = MODEL) -> str:
+          """Classify a single text and return one label from labels."""
+          system = CLASSIFY_SYSTEM_PROMPT.format(labels=", ".join(labels))
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {"role": "system", "content": system},
+                  {"role": "user", "content": text},
+              ],
+          )
+          raw: str = response["message"]["content"].strip().lower()
+          if raw not in [lb.lower() for lb in labels]:
+              raise ValueError(f"Model returned unexpected label: {raw!r}")
+          return raw
+
+
+      def classify_batch(
+          texts: list[str],
+          labels: list[str],
+          model: str = MODEL,
+      ) -> list[dict]:
+          """Classify a list of texts, collecting results without stopping on errors.
+
+          Args:
+              texts:  List of strings to classify.
+              labels: Full set of allowed labels.
+              model:  Ollama model name.
+
+          Returns:
+              List of dicts, one per input text. Each dict has keys:
+              'text', 'label', 'status', 'error'.
+          """
+          results: list[dict] = []
+          total = len(texts)
+          logger.info("classify_batch starting: %d items, model=%r", total, model)
+
+          for i, text in enumerate(texts):
+              logger.debug("Item %d/%d: %r", i + 1, total, text[:60])
+              try:
+                  label = classify(text, labels, model)
+                  logger.info("Item %d/%d → %r", i + 1, total, label)
+                  results.append({
+                      "text": text,
+                      "label": label,
+                      "status": "ok",
+                      "error": None,
+                  })
+              except Exception as e:
+                  logger.warning(
+                      "Item %d/%d failed (%r): %s", i + 1, total, text[:40], e
+                  )
+                  results.append({
+                      "text": text,
+                      "label": None,
+                      "status": "error",
+                      "error": str(e),
+                  })
+
+          succeeded = sum(1 for r in results if r["status"] == "ok")
+          failed = total - succeeded
+          logger.info(
+              "classify_batch done: %d/%d succeeded, %d failed",
+              succeeded, total, failed,
+          )
+          return results
+    narration: >
+      Walk through this code from top to bottom. The logger is created with
+      logging.getLogger(__name__) — the same pattern from Day 5. You do not call
+      logging.basicConfig here because that belongs at the entry point of your
+      program, not inside a library function. The classify function is the single-
+      item classifier you have been building all day, condensed to its essentials:
+      build the system prompt, call ollama.chat, strip and lowercase the response,
+      validate it is in the label list, and raise a ValueError if it is not. That
+      ValueError is the signal that the batch loop will catch. Now look at
+      classify_batch. The results list accumulates one dict per input. The opening
+      logger.info records how many items and which model, so the log file always
+      shows the batch parameters. The enumerate loop runs over every text. Inside
+      the loop, logger.debug records the index and a sixty-character preview of the
+      text — note the percent-style formatting, not an f-string, exactly as Day 5
+      taught. The try block calls classify. On success, logger.info records the
+      label and the result dict is appended with status ok. On any exception —
+      whether a network error, a timeout, or a ValueError from an unexpected label
+      — the except block catches it, logs a warning with the error message, and
+      appends a result dict with status error and the error string. The loop
+      continues to the next item. After the loop, a generator expression counts
+      successes and subtraction gives the failure count, and a final logger.info
+      logs the summary. The
+      caller gets back a complete list with one dict per input, regardless of
+      what happened.
+
+  - type: code
+    label: "Using classify_batch"
+    heading: "Running and Inspecting a Batch"
+    code: |
+      import logging
+
+      # Configure logging once at the entry point (not inside library functions)
+      logging.basicConfig(
+          level=logging.INFO,
+          format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+      )
+
+      tickets = [
+          "I was charged twice for my subscription this month.",
+          "The login page keeps crashing on Chrome and Firefox.",
+          "Could you add dark mode to the dashboard? That would be great.",
+          "My delivery has been stuck in transit for eight days.",
+          "I need to reset my password but the email never arrives.",
+          "Thank you for the fast resolution last week — really appreciated!",
+      ]
+
+      ALLOWED = ["billing", "technical-issue", "feature-request",
+                 "shipping", "account-access", "general"]
+
+      results = classify_batch(tickets, labels=ALLOWED)
+
+      # ── Summary table ──────────────────────────────────────────────────────
+      print(f"\n{'#':<4} {'Status':<8} {'Label':<18} {'Text (first 50 chars)'}")
+      print("─" * 80)
+      for i, r in enumerate(results):
+          label_col = r["label"] if r["label"] else f"ERROR: {r['error'][:20]}"
+          print(f"{i+1:<4} {r['status']:<8} {label_col:<18} {r['text'][:50]}")
+
+      # ── Separate successes from failures ───────────────────────────────────
+      ok_results = [r for r in results if r["status"] == "ok"]
+      err_results = [r for r in results if r["status"] == "error"]
+      print(f"\nSucceeded: {len(ok_results)} / {len(results)}")
+      print(f"Failed:    {len(err_results)} / {len(results)}")
+    narration: >
+      This is what using classify_batch looks like in practice. You configure
+      logging once at the top of your script with logging.basicConfig — notice
+      this happens at the entry point, not inside classify_batch itself. The
+      format string includes the timestamp, level name, logger name, and message,
+      which is the format from Day 5 that gives you maximum information in the
+      log line. The tickets list has six realistic support messages spanning all
+      five specific labels plus one general message. You call classify_batch with
+      the tickets and the ALLOWED labels list. The return value is a plain Python
+      list of dicts — no special class, nothing to import, just the dict structure
+      you designed. The summary table uses enumerate and list comprehensions that
+      you have been using since Day 2. The label_col line handles the two cases:
+      if the result has a label, show it; if it has an error, show a truncated
+      error string prefixed with ERROR. Finally, two list comprehensions separate
+      the successes from the failures. You can write the ok_results to a database,
+      write the err_results to a retry queue, or inspect them for patterns. The
+      point is that you have complete information about every item in the batch
+      and you can act on that information programmatically. When you run this and
+      look at the log output alongside the summary table, you will see exactly
+      what happened to every ticket.
+
+  - type: exercise
+    heading: "Exercise 5: Batch Support-Ticket Classifier"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement `classify_batch(texts, labels,
+      model)` that loops over a list of strings, classifies each one with a single-
+      item `classify()` call, catches any exception per item without stopping the
+      loop, and collects every outcome into a list of result dicts with keys
+      `text`, `label`, `status`, and `error`. Add `logger.info` at batch start and
+      end, `logger.debug` per item, and `logger.warning` on failure. Automated
+      checks verify that: the return value has one dict per input; every dict has
+      all four required keys; a deliberately invalid input is recorded with
+      `status == "error"` and a non-None `error` field, not an exception; all
+      other items have `status == "ok"` and valid labels; and logger calls were
+      made.
+    hint: >
+      Use `enumerate(texts)` to get both the index and the text in the loop.
+      Put the `classify()` call inside `try` and append the error dict in the
+      `except Exception as e` block — store `str(e)` as the `error` field.
+      After the loop, count successes with a list comprehension:
+      `sum(1 for r in results if r["status"] == "ok")`.
+      Use `logging.getLogger(__name__)` at module level; call
+      `logging.basicConfig(level=logging.DEBUG)` once in the first cell, not
+      inside the function.
+    narration: >
+      In the notebook you will implement classify_batch from scratch with the
+      scaffold giving you the function signature and a docstring that spells out
+      the exact requirements. There are three common mistakes to watch out for.
+      First, putting the logging.basicConfig call inside the function — that
+      reconfigures the logging system on every batch call, which is wrong. Put it
+      at the top of the notebook, once. Second, letting the exception propagate
+      out of the loop instead of catching it per item — test this by passing an
+      empty string or a very long string that the model rejects, and confirm you
+      get an error dict rather than a crash. Third, forgetting the error field on
+      success dicts or the label field on error dicts — the automated checks
+      inspect every key on every dict, so missing keys will fail. Run the checks
+      after each step: first get the return type right, then the dict structure,
+      then the error isolation, then the logging. The checks are your guide. When
+      all five are green, you have built a batch classifier that behaves correctly
+      in production scenarios — incomplete data, model failures, and all.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways — and What Comes Next"
+    bullets:
+      - "classify_batch loops over texts, classifies each one, and collects result dicts — never crashing on a single failure"
+      - "Each result dict always has the same four keys: text, label, status, error — consistent structure enables clean downstream logic"
+      - "Three log levels do the job: DEBUG per item for tracing, INFO for milestones, WARNING for caught failures"
+      - "Separate ok from error results with a one-line list comprehension — then act on each group differently"
+      - "Day 8 complete — Day 9 builds a structured extractor that pulls entities and typed fields from unstructured prose using schema-guided prompting"
+    narration: >
+      Four things to lock in from this lesson. First, the error-safe batch loop
+      is the single most important pattern you built today. Wrapping each classify
+      call in try/except and recording failures as error dicts rather than letting
+      them crash the job is what makes batch processing reliable in production.
+      Second, consistent dict structure is not cosmetic — when every result has
+      the same four keys, the code that reads those results is simple, predictable,
+      and testable. Third, logging in a batch job is not optional. When something
+      goes wrong at two in the morning on item 312 of 500, the log is the only
+      evidence you have. The three-level pattern — debug per item, info for
+      milestones, warning for caught failures — gives you exactly the right
+      amount of information at each severity. Fourth, list comprehensions for
+      separating ok from error results are a one-liner that you will reach for
+      constantly in real data pipelines. That completes Day 8. You have gone from
+      a bare classify() call to a fully instrumented, error-safe, batch-capable
+      classification system. In Day 9 you will put those labels to work in a
+      routing pipeline — using the classification result to decide which code path
+      to execute. That is where classification becomes the engine of a real
+      automated system.

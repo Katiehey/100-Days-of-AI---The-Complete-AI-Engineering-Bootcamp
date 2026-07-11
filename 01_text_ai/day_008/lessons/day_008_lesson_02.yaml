@@ -1,0 +1,297 @@
+day: "008"
+lesson: "02"
+title: "Zero-Shot Classification with Prompting"
+
+slides:
+
+  - type: title
+    heading: "Zero-Shot Classification"
+    subheading: "Classify anything — no training required"
+    narration: >
+      In the last lesson you saw what classification is and why it matters. Now
+      you're going to build your first real classifier. The approach is called
+      zero-shot classification, and the core idea is beautifully simple: instead
+      of training a model on labelled examples, you just tell the model what the
+      labels are and ask it to pick one. No dataset, no training run, no GPU time.
+      Just a well-written prompt. In this lesson you'll learn exactly how to write
+      that prompt, why it can go wrong, and how to lock down the output so you
+      always get exactly one valid label back.
+
+  - type: concept
+    label: "Zero-shot classification"
+    heading: "Classify Without Training Examples"
+    body: >
+      Zero-shot classification means asking a model to assign a label from a
+      predefined list — without showing it any labelled training examples first.
+      The model uses its pre-trained knowledge of language to make the call.
+    bullets:
+      - "Zero-shot: no examples in the prompt — model infers from instructions alone"
+      - "Labels are given as a list; the model must pick exactly one"
+      - "Works because large language models have seen vast amounts of text covering most topic areas"
+      - "Contrast: few-shot adds 2–5 worked examples to guide the choice (Day 6)"
+    narration: >
+      You already know the term zero-shot from Day 6 when you compared zero-shot,
+      one-shot, and few-shot prompting. Here you apply it directly to a
+      classification task. Zero-shot classification means the prompt contains no
+      worked examples — just the label list and the text to classify. The model
+      relies entirely on what it learned during pre-training to decide which label
+      fits. That sounds risky, but it works surprisingly well for common categories
+      like sentiment, topic, and intent because these concepts appear constantly in
+      natural language. The key is that you still have to write the prompt
+      carefully. Saying "classify this text" with no further guidance is not enough.
+      You need to tell the model exactly which labels are on the table and exactly
+      what format you want back. That constrained format is what this lesson is
+      really about.
+
+  - type: concept
+    label: "Constrained-output prompt pattern"
+    heading: "Force the Model to Reply With One Label"
+    body: >
+      Without constraints a model might reply "I think this is probably Positive
+      because…" — a sentence, not a label. The constrained-output pattern removes
+      that ambiguity: the prompt instructs the model to reply with **exactly one
+      word** from the label list and nothing else.
+    bullets:
+      - "Problem: LLMs are verbose by nature — they explain, hedge, and elaborate"
+      - "Solution: explicit output constraints in the system prompt"
+      - "Rule 1 — enumerate the exact labels (copy-paste them, never paraphrase)"
+      - "Rule 2 — forbid explanation: \"Reply with only the label. No punctuation. No explanation.\""
+      - "Rule 3 — repeat the constraint at the end of the user message as a reminder"
+    narration: >
+      This is the most practically important thing in the lesson, so pay close
+      attention. Left to its own devices, a language model will give you a sentence.
+      Something like "Based on the content of the review, I would classify this as
+      Positive." That is useless if your code is checking whether the output equals
+      the string "positive". Your downstream code expects a clean label, not prose.
+      The constrained-output pattern is the fix. In your system prompt you list the
+      valid labels exactly as they appear in your code, then you add a hard
+      constraint: reply with one label, no punctuation, no explanation, nothing else.
+      You also repeat that constraint at the end of the user turn as a reminder,
+      because models sometimes ignore a constraint stated far back in the context.
+      It sounds over-specified, but that is intentional. The more explicit you are
+      about the output format, the more reliable the model becomes. You will see the
+      exact wording in the code slide coming up.
+
+  - type: concept
+    label: "CLASSIFY_SYSTEM_PROMPT constant"
+    heading: "The CLASSIFY_SYSTEM_PROMPT Constant Pattern"
+    body: >
+      System prompts are module-level constants, not inline strings. This keeps
+      prompts readable, testable, and reusable — the same pattern used for
+      `SUMMARIZE_SYSTEM_PROMPT` in Day 7.
+    bullets:
+      - "Define `CLASSIFY_SYSTEM_PROMPT` at the top of your module, outside every function"
+      - "Use a triple-quoted string so you can format it clearly across multiple lines"
+      - "Inject the label list at call time using `.format(labels=...)`"
+      - "The prompt becomes a contract: inputs go in, one label comes out"
+    narration: >
+      You have already seen this pattern in Day 7 with the summarisation system
+      prompts. The rule is the same here: never bury a system prompt inside a
+      function. Define it as a named module-level constant so you can read it at a
+      glance, write a test against it, and change it in one place when you need to.
+      For classification the prompt needs to be dynamic — the label list changes
+      depending on what you are classifying — so you write it as a format string
+      with one placeholder called labels. At call time you substitute the real
+      label list in. The resulting string is your system message. This separation
+      of the template from the data is good software design: the template is a
+      constant, the data is an argument, and the function is just the glue.
+
+  - type: how_it_works
+    label: "How zero-shot classification works"
+    heading: "Three Steps: Prompt → Model → Parse"
+    body: >
+      The full flow has three steps. Each step is simple; putting them together
+      reliably is the engineering challenge.
+    bullets:
+      - "Step 1 — Build the system prompt: fill in the label list, embed the output constraint"
+      - "Step 2 — Call the model: system prompt + user message containing the text to classify"
+      - "Step 3 — Parse and validate: `.strip().lower()` the reply, check it is in the label list"
+    narration: >
+      Let's walk through the three steps in plain language before you see the code.
+      Step one is building the system prompt. You take the CLASSIFY_SYSTEM_PROMPT
+      template, inject the label list formatted as a comma-separated string, and
+      you have a fully-formed set of instructions for the model. Step two is the
+      model call — this is just the ollama.chat pattern you have been using since
+      Day 3, with the system message first and then the user message containing the
+      text you want to classify. Step three is where engineering discipline matters.
+      The model might return "Positive", "positive", "POSITIVE ", or even
+      "positive." with a trailing period. You normalise the output with strip and
+      lower, then check whether the result is in the list of valid labels converted
+      to lowercase. If it is, you return it. If it is not, you raise a ValueError
+      with a clear message. That error tells you the prompt needs tightening —
+      it is feedback, not just a crash.
+
+  - type: code
+    label: "Implementation"
+    heading: "Building the Zero-Shot Classifier"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # Module-level constant — template, not inline string
+      CLASSIFY_SYSTEM_PROMPT = """You are a text classifier.
+
+      Classify the text into exactly one of these labels:
+      {labels}
+
+      Rules:
+      - Reply with only the label, exactly as written above.
+      - No punctuation. No explanation. No extra words.
+      - If you are unsure, pick the closest match."""
+
+
+      def classify(text: str, labels: list[str], model: str = MODEL) -> str:
+          """Classify text into one of the given labels using zero-shot prompting.
+
+          Args:
+              text:   The text to classify.
+              labels: Valid output labels (e.g. ["positive", "negative", "neutral"]).
+              model:  Ollama model name.
+
+          Returns:
+              One label from the labels list (lowercased).
+
+          Raises:
+              ValueError: If the model returns a value not in the labels list.
+          """
+          label_str = ", ".join(labels)
+          system_msg = CLASSIFY_SYSTEM_PROMPT.format(labels=label_str)
+
+          messages = [
+              {"role": "system", "content": system_msg},
+              {
+                  "role": "user",
+                  "content": (
+                      f"Text to classify:\n{text}\n\n"
+                      f"Reply with exactly one label from: {label_str}"
+                  ),
+              },
+          ]
+
+          response = ollama.chat(model=model, messages=messages)
+          raw = response["message"]["content"]
+
+          # Normalise and validate
+          result = raw.strip().lower()
+          valid = [lb.lower() for lb in labels]
+          if result not in valid:
+              raise ValueError(
+                  f"Model returned {raw!r} — not in label list {labels}"
+              )
+          return result
+
+
+      # Quick smoke test
+      if __name__ == "__main__":
+          text = "The package arrived two days late and the box was damaged."
+          label = classify(text, labels=["positive", "negative", "neutral"])
+          print(f"Label: {label}")   # expected: negative
+    narration: >
+      Let's read through this code carefully because every line is deliberate.
+      At the top you have the MODEL constant and the CLASSIFY_SYSTEM_PROMPT
+      template. Notice the format placeholder in curly braces — that is where the
+      label list will be injected at call time. The classify function takes the
+      text, a list of labels, and optionally a model name. It joins the labels into
+      a comma-separated string and formats the system prompt. Then it builds the
+      two-message list — system first, then user — exactly as you have done since
+      Day 3. Notice the user message ends with a reminder: "Reply with exactly one
+      label from …". That is the constraint repeated at the end of the user turn.
+      After the model call, you take the raw content, strip whitespace and lowercase
+      it, and check that it is in the lowercase version of your label list. If not,
+      you raise a ValueError with a clear message showing exactly what came back.
+      This is not defensive programming for its own sake — it is the feedback loop
+      that tells you when your prompt is not constraining the model tightly enough.
+      The smoke test at the bottom lets you run this file directly with python to
+      confirm the full pipeline works before you integrate it into anything larger.
+
+  - type: code
+    label: "Using the classifier"
+    heading: "Calling classify() in Practice"
+    code: |
+      from classifier import classify   # or paste the function above
+
+      # Sentiment classification
+      reviews = [
+          "Absolutely love this product — life-changing!",
+          "Stopped working after a week. Very disappointed.",
+          "It's okay. Does what it says, nothing special.",
+      ]
+
+      for review in reviews:
+          label = classify(review, labels=["positive", "negative", "neutral"])
+          print(f"[{label:>8}]  {review[:50]}")
+
+      # Topic classification — same function, different labels
+      headline = "Central bank raises interest rates for the third time this year."
+      topic = classify(
+          headline,
+          labels=["sports", "politics", "finance", "technology", "health"],
+      )
+      print(f"\nHeadline topic: {topic}")
+    narration: >
+      Here is what using the classifier looks like from the outside. You have a
+      list of three reviews and you loop over them, calling classify with the same
+      sentiment labels each time. The output is a clean lowercase label — positive,
+      negative, or neutral — and you format it into a fixed-width column so the
+      output lines up nicely. Then, below that, you use the exact same classify
+      function for a completely different task: topic classification on a news
+      headline. Different labels, different domain, same function, same prompt
+      pattern. This is the power of the zero-shot approach — you write one
+      reusable function and you can apply it to any classification problem you can
+      describe in a label list. You do not write a new classifier for each use
+      case. You write one classifier and you change the labels. That reusability
+      is the practical payoff of getting the constrained-output prompt pattern
+      right.
+
+  - type: exercise
+    heading: "Exercise 2: Single-Label Classifier"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. You will implement a `classify()`
+      function from scratch — write the CLASSIFY_SYSTEM_PROMPT constant,
+      build the messages list, call the Ollama model, and validate the output.
+      Then use it to classify five customer-support messages into one of three
+      categories: `billing`, `technical`, `general`. Automated checks verify that
+      your function always returns a string in the label list and raises ValueError
+      for an invalid model response.
+    hint: >
+      Start with CLASSIFY_SYSTEM_PROMPT as a module-level triple-quoted string
+      with a {labels} placeholder. In classify(), call ", ".join(labels) to build
+      the label string, format the system prompt, then call ollama.chat().
+      Strip and lowercase the raw response before comparing to the label list.
+    narration: >
+      Now it is your turn. The exercise notebook has a classify function stub
+      with a full docstring telling you exactly what arguments to accept, what to
+      return, and when to raise. Your job is to fill in the body. Start by defining
+      CLASSIFY_SYSTEM_PROMPT at the top of the cell — copy the structure you just
+      saw, adapt the wording if you like, but make sure the labels placeholder is
+      there. Then inside classify, join the labels into a string, format the
+      prompt, build the messages list, call ollama.chat, and validate the output.
+      The five customer-support messages cover different intents — refund requests,
+      login problems, account questions — so you will see the classifier making
+      genuinely different decisions. The automated checks will test that your
+      function returns a valid label for normal input and raises ValueError when
+      the model output is mocked to return something outside the list. Run the
+      checks as you go — they are your feedback loop, not just a final gate.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Zero-shot classification: give the model a label list, ask it to pick one — no training data needed"
+      - "Constrained-output pattern: enumerate exact labels + forbid explanation, in both system and user messages"
+      - "CLASSIFY_SYSTEM_PROMPT constant: module-level template with {labels} placeholder, never inline"
+      - "Always validate: strip, lowercase, and check the response is in the label list before returning it"
+      - "Next: multi-label classification — when a text can belong to more than one category at once"
+    narration: >
+      You now have a working zero-shot classifier that you built entirely with
+      prompting — no training, no labelled dataset, no ML library. The three ideas
+      to lock in are: zero-shot means no examples in the prompt; the constrained-
+      output pattern forces the model to reply with exactly one label; and the
+      CLASSIFY_SYSTEM_PROMPT constant keeps your prompt readable and reusable.
+      Validation is not optional — a raw LLM response is untrusted input until you
+      have confirmed it matches a known label. The same validate-or-raise pattern
+      will appear in every structured-output task you do from here on. In the next
+      lesson you will push further: what happens when a piece of text belongs to
+      multiple categories at once? That is multi-label classification, and it
+      requires a different output format and a different parsing strategy. See you
+      there.

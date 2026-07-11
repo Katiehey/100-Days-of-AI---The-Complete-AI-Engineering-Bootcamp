@@ -1,0 +1,244 @@
+day: "008"
+lesson: "01"
+title: "What Is Text Classification?"
+
+slides:
+
+  - type: title
+    heading: "Text Classification"
+    subheading: "Assigning a label from a fixed set — and why LLMs are already good at it"
+    narration: >
+      Welcome to Day 8 and the start of the Text AI section's core topic: text
+      classification. Over the next five lessons you'll go from understanding what
+      classification is to building a real, working classifier that can sort incoming
+      text into whatever categories you define. Today is the foundation. You'll learn
+      exactly what classification means as a task, how it differs from the generation
+      you've been doing since Day 3, and why a local LLM can classify text accurately
+      without any training data — right out of the box. Let's start with the
+      definition.
+
+  - type: concept
+    label: "The task"
+    heading: "Classification: One Label from a Fixed Set"
+    body: >
+      Text classification means reading a piece of text and assigning it exactly
+      one label chosen from a pre-defined list. The list is fixed before you run
+      the model — you decide what the possible answers are.
+    bullets:
+      - "Input: any string of text"
+      - "Output: one label from your list — e.g. 'positive', 'negative', 'neutral'"
+      - "The model cannot invent new labels — it must choose from your set"
+      - "Examples: sentiment, spam detection, topic routing, intent detection"
+    narration: >
+      Classification is one of the oldest and most useful tasks in all of natural
+      language processing. Here is the core idea: you give the model some text, and
+      it picks exactly one label from a list you wrote in advance. The key word is
+      fixed. You decide what the labels are before anything runs. The model's job
+      is just to match the input to the best option from your list. Think about
+      how many real problems fit this shape. Is this email spam or not spam?
+      Is this review positive, negative, or neutral? Is this support ticket about
+      billing, technical issues, or a feature request? In every case, the answer
+      is not a free-form sentence — it's a single word or short phrase from a
+      list you defined. That constraint is what makes classification powerful: it
+      turns open-ended language into structured decisions that code can act on.
+      Later in this section you'll use classification output to route messages,
+      filter content, and trigger different pipelines. But first you need a clean
+      mental model of what the task actually is.
+
+  - type: concept
+    label: "Classification vs generation"
+    heading: "How Classification Differs from Generation"
+    body: >
+      Generation produces open-ended text of any length. Classification produces
+      exactly one token (or short phrase) from a closed vocabulary. The two tasks
+      need different prompting strategies.
+    bullets:
+      - "**Generation:** 'Write a summary of this article' → free-form paragraph"
+      - "**Classification:** 'Is this positive or negative? Reply with one word.' → constrained"
+      - "Generation is measured by quality; classification is measured by accuracy"
+      - "For classification, you must constrain the model's output — else it generates prose"
+    narration: >
+      Since Day 3 you've been asking the model to generate things: summaries,
+      structured JSON, multi-turn conversation. Generation is the model's natural
+      mode — it predicts the next token one at a time and can keep going for as
+      long as you let it. Classification is fundamentally different. You're not
+      asking the model to create something; you're asking it to make a decision.
+      And decisions have a fixed answer space. The consequence for how you write
+      prompts is important. If you ask "what is the sentiment of this text?" with
+      no constraints, the model will answer in prose: "The sentiment of this text
+      appears to be largely positive, with some undertones of..." That's useless
+      for code that expects a single label. So when you write a classification
+      prompt, you always constrain the output. You tell the model exactly what
+      its options are, and you tell it to reply with only the chosen label — nothing
+      else. You already know how to do this from Day 6's output format techniques.
+      The difference is that you're applying those techniques not to shape a
+      summary, but to extract a decision. That shift in thinking — from "generate
+      something" to "decide something" — is what today is about.
+
+  - type: concept
+    label: "Zero-shot classification"
+    heading: "Why LLMs Are Good Zero-Shot Classifiers"
+    body: >
+      Traditional classifiers need labelled training data for each task. LLMs need
+      only a description of the labels — they already understand language and
+      semantics from pre-training.
+    bullets:
+      - "Zero-shot: the model classifies without task-specific examples"
+      - "LLMs encode world knowledge — they know 'angry' implies negative sentiment"
+      - "You describe the labels in plain English; the model maps text to the best match"
+      - "No training data, no fine-tuning, no GPU training cost — just a prompt"
+    narration: >
+      Before LLMs, building a text classifier required labelled training data.
+      You'd need hundreds or thousands of examples of each label, a training run
+      that could take hours or days, and a model that only knew about the specific
+      categories you trained it on. If your categories changed, you restarted.
+      LLMs break this constraint in a surprising way. Because they were pre-trained
+      on enormous amounts of human text, they already understand what words mean,
+      what emotions sound like, what topics look like. When you describe a label
+      in plain English — "positive means the writer is satisfied or happy" — the
+      model connects that description to everything it learned during pre-training.
+      It already knows that "this product is amazing" maps to positive sentiment,
+      and it knows this without ever seeing a single labelled training example from
+      you. This is called zero-shot classification: classifying without task-specific
+      training data. In practice it means you can build a working classifier for
+      a new problem in minutes, not days. The quality won't always match a fine-tuned
+      specialist model, but for most real-world routing, filtering, and triage
+      tasks, zero-shot with a good prompt is surprisingly accurate — and it costs
+      you nothing beyond the Ollama model you already have running.
+
+  - type: how_it_works
+    label: "The classification prompt pattern"
+    heading: "The Pattern: Label List + Constraint"
+    body: >
+      Every classification prompt has the same two-part structure: tell the model
+      what the labels are, then constrain it to output only the chosen label.
+    bullets:
+      - "Part 1 — label list: 'The possible labels are: positive, negative, neutral'"
+      - "Part 2 — output constraint: 'Reply with exactly one label. No other text.'"
+      - "Put the text to classify in the user message"
+      - "Validate the output: if the model returns something not in your list, retry"
+    narration: >
+      There is a reliable two-part pattern for every classification prompt you will
+      ever write. First, declare the label set in the system prompt. Say something
+      like: "The possible categories are A, B, and C." This anchors the model to
+      your vocabulary. Second, add an output constraint: "Reply with exactly one
+      label. Output nothing else." This is the technique you learned in Day 6
+      for constraining model output. Here you're applying it to force a decision
+      rather than prose. The text to classify goes in the user message, exactly
+      as you'd send any other input. When the response comes back, you validate
+      it. Strip whitespace, lowercase it, check if it's in your label set. If it's
+      not — if the model said "I believe this is positive" instead of just
+      "positive" — you either parse it out or retry with a stricter prompt.
+      Validation is not optional. Even well-prompted models occasionally produce
+      a label with extra words, a capitalisation difference, or a full sentence.
+      Your code needs to handle that. Over the next few lessons you'll build a
+      helper that does all of this cleanly, including the retry logic you learned
+      in Day 4.
+
+  - type: code
+    label: "First classifier"
+    heading: "A Minimal Sentiment Classifier"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      LABELS = ["positive", "negative", "neutral"]
+
+      SYSTEM_PROMPT = (
+          "You are a sentiment classifier. "
+          "The possible labels are: positive, negative, neutral. "
+          "Reply with exactly one label. Output nothing else."
+      )
+
+
+      def classify_sentiment(text: str) -> str:
+          """Classify text as positive, negative, or neutral."""
+          response = ollama.chat(
+              model=MODEL,
+              messages=[
+                  {"role": "system", "content": SYSTEM_PROMPT},
+                  {"role": "user", "content": text},
+              ],
+          )
+          raw: str = response["message"]["content"]
+          label = raw.strip().lower()
+          if label not in LABELS:
+              return "unknown"
+          return label
+
+
+      # Try it
+      samples = [
+          "I absolutely love this product — it changed my life!",
+          "The service was okay, nothing special.",
+          "This is the worst experience I have ever had.",
+      ]
+
+      for text in samples:
+          print(f"{classify_sentiment(text):10s}  |  {text[:50]}")
+    narration: >
+      Here is the simplest possible working classifier — about twenty lines of
+      Python. Walk through it top to bottom. The LABELS list is your fixed set;
+      it's the ground truth of what valid outputs look like. The system prompt
+      does the two-part job: it names the labels, and it constrains the output
+      to exactly one word. The classify_sentiment function calls ollama.chat the
+      same way you've been doing since Day 3, with a system message and a user
+      message. The one new thing is what you do with the response: you strip
+      whitespace, lowercase the result, and check whether it's in your LABELS
+      list. If the model went off-script — added punctuation, returned a sentence
+      — you catch that here and return "unknown" as a fallback. The for loop at
+      the bottom runs three test strings through the classifier and prints results.
+      Run this and you'll see the model correctly identify positive, neutral, and
+      negative sentiment without any training data. This is the skeleton that every
+      classifier in this section builds on. Lessons 2 through 5 add multi-label
+      support, a label set builder, validation and retry, and a real routing
+      pipeline. But the core mechanics are right here in front of you.
+
+  - type: exercise
+    heading: "Exercise 1: Build a Label Set"
+    prompt: >
+      Open exercise_01.ipynb. You will design a label set for a customer support
+      ticket classifier and write the classification system prompt. The exercise
+      checks that every label is a non-empty string and that your prompt contains
+      all the labels.
+    hint: >
+      Start with 3–5 labels. Keep each label a single word or short hyphenated
+      phrase (e.g. "billing", "technical-issue", "feature-request"). Put all labels
+      in LABELS as a list. Build the system prompt by joining them with a comma.
+      Strip and lowercase the model response before checking membership in LABELS.
+    narration: >
+      Now it's your turn. The exercise notebook walks you through designing a
+      classification system from scratch — specifically for customer support tickets.
+      This is a realistic use case: every support platform needs to route incoming
+      tickets to the right team. You'll decide what the categories are, write the
+      system prompt, and test it against five sample messages. There is no single
+      right answer for the label set. You choose the categories. The automated
+      checks verify that your design is structurally sound — labels are non-empty
+      strings and the prompt contains all of them. If you get stuck, the hint tells you exactly what format to use.
+      The goal is to get comfortable with the most important decision in any
+      classification project: choosing the right label set. Labels that are too
+      broad don't help routing; labels that are too specific are hard for the model
+      to distinguish. You'll develop intuition for this balance throughout the week.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Classification = pick one label from a fixed set you define — not free-form generation"
+      - "LLMs classify zero-shot: describe labels in plain English, no training data needed"
+      - "Every classification prompt needs two things: a label list and an output constraint"
+      - "Always validate the model's response against your LABELS list before using it"
+      - "Next lesson: building robust label sets and handling multi-class problems"
+    narration: >
+      Four clean ideas to lock in before the next lesson. First: classification
+      is a fundamentally different task from generation. You are extracting a
+      decision, not producing content. Second: LLMs are surprisingly capable
+      zero-shot classifiers because they already understand language — you just
+      describe your labels in plain English and the model maps text to the best
+      match. Third: the two-part prompt pattern — label list plus output constraint
+      — is the skeleton for every classifier you will build in this section. Fourth:
+      always validate. The model's output is a string. Your code needs to verify
+      it's a valid label before acting on it. In Lesson 2, you'll learn how to
+      design label sets that are specific enough to be useful but distinct enough
+      for the model to tell apart reliably — which is the skill that separates
+      classifiers that work in demos from classifiers that work in production.
