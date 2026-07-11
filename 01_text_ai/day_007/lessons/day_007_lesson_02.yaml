@@ -1,0 +1,324 @@
+day: "007"
+lesson: "02"
+title: "Chunking: Splitting Text Into Pieces"
+
+slides:
+
+  - type: title
+    heading: "Chunking: Splitting Text Into Pieces"
+    subheading: "Fixed-size slices, overlap, and why boundaries matter"
+    narration: >
+      In Lesson 1 you learned that LLMs have a hard context-window limit and that
+      sending too much text either raises an error or — worse — silently drops
+      content. The fix is splitting. This lesson teaches you exactly how to do that
+      correctly. By the end you will have a chunk_text function built entirely from
+      string operations you already know, and you will understand why a simple slice
+      is not quite enough — you need overlap too. Let's get into it.
+
+  - type: concept
+    label: "What is a chunk?"
+    heading: "A Chunk Is a Fixed-Size Slice of Text"
+    body: >
+      Chunking means dividing a long document into smaller pieces — chunks — each
+      of which fits inside the model's context window. The simplest version is a
+      fixed-size slice: take characters 0 to N, then N to 2N, and so on.
+    bullets:
+      - "chunk_size — the maximum number of characters per chunk"
+      - "Each chunk is a substring: text[start : start + chunk_size]"
+      - "Python string slicing never raises an error when the end index exceeds the string length"
+      - "The last chunk is whatever remains — it will be shorter than chunk_size"
+    narration: >
+      A chunk is just a substring. You pick a size — say 500 characters — and cut
+      the document into consecutive slices of that width. The first chunk is
+      characters zero through 499, the second is 500 through 999, and so on. Python's
+      slice syntax handles the edge cases for you: if the end index goes past the end
+      of the string, it simply stops at the last character. So text[900:1400] on a
+      1000-character document gives you just the last 100 characters, not an error.
+      That means you can write a loop that advances a cursor by chunk_size every
+      iteration and slices from the cursor, and it will always produce valid strings.
+      This is the foundation of every chunking strategy you will ever use. Everything
+      else is a refinement on top of this basic idea.
+
+  - type: concept
+    label: "The boundary problem"
+    heading: "Hard Cuts Lose Meaning at the Edges"
+    body: >
+      A fixed-size slice can cut a sentence — or even a word — in two. The first
+      chunk ends mid-thought; the second chunk starts mid-thought. Either chunk
+      alone is harder for the model to interpret correctly.
+    bullets:
+      - "Example: chunk 1 ends with 'the patient was given meto' — chunk 2 starts with 'formin for…'"
+      - "The model processing chunk 1 never sees the full word or the full sentence"
+      - "The model processing chunk 2 starts with a fragment it has no context for"
+      - "The more chunks, the more boundaries — and the more opportunities for lost meaning"
+    narration: >
+      Imagine you are cutting a 10 000-character medical report into 500-character
+      chunks. The boundary between chunk 4 and chunk 5 might fall right in the middle
+      of the sentence "the patient was given metformin for type 2 diabetes." Chunk 4
+      ends with "meto" and chunk 5 starts with "formin for type 2 diabetes." When
+      the model processes chunk 4, it never sees the full drug name. When it processes
+      chunk 5, it starts with a word fragment and no subject. In a summarisation
+      pipeline this leads to garbled or missing information right around every
+      boundary. The more chunks you have, the more boundaries there are, and the more
+      opportunities there are for lost meaning. This is a systematic problem, not a
+      fluke. The standard engineering fix is overlap — and that is what the next
+      slide covers.
+
+  - type: concept
+    label: "Overlap"
+    heading: "Overlap Bridges the Gap Between Chunks"
+    body: >
+      Instead of advancing by chunk_size, advance by a smaller step. The difference
+      between chunk_size and step is the overlap — text that appears in both the
+      current chunk and the next one.
+    bullets:
+      - "overlap — the number of characters shared between consecutive chunks"
+      - "step = chunk_size - overlap"
+      - "Each new chunk starts step characters after the previous one started"
+      - "Typical overlap: 10–20% of chunk_size (e.g. 100 chars for a 500-char chunk)"
+    narration: >
+      The fix is simple: instead of advancing the cursor by chunk_size each time,
+      advance it by a smaller amount called the step. The step is chunk_size minus
+      the overlap. For a chunk size of 500 characters and an overlap of 100, the step
+      is 400. So chunk 1 is characters 0 to 499, chunk 2 is characters 400 to 899,
+      chunk 3 is characters 800 to 1299, and so on. The 100 characters at the tail
+      of chunk 1 are repeated at the head of chunk 2. That repeated region is the
+      overlap. When the model processes chunk 2, it starts from a passage it shares
+      with chunk 1, so any sentence that was cut at the boundary of chunk 1 is now
+      fully visible at the start of chunk 2. The cost is that you produce more chunks,
+      and a small amount of text gets processed twice. That is almost always worth it.
+
+  - type: how_it_works
+    label: "The algorithm"
+    heading: "Chunking With Overlap: Step by Step"
+    body: >
+      The algorithm is a while loop that advances a cursor by step each iteration,
+      slicing a chunk at each position until the cursor reaches the end of the
+      document.
+    bullets:
+      - "1. Compute step = chunk_size - overlap"
+      - "2. Set cursor = 0"
+      - "3. Slice: chunk = text[cursor : cursor + chunk_size]"
+      - "4. Append chunk to results"
+      - "5. Advance: cursor += step"
+      - "6. Repeat from 3 until cursor >= len(text)"
+    narration: >
+      Let's walk through the algorithm concretely before you see the code. First
+      compute the step — that is chunk_size minus overlap. Then initialise a cursor
+      to zero. On every iteration you take a slice from the cursor to the cursor
+      plus chunk_size and append it to your output list, then advance the cursor by
+      the step. The loop condition is simply cursor less than the length of the text.
+      When the cursor reaches the end, stop. That is the entire algorithm. The one
+      thing to guard against is setting overlap equal to or larger than chunk_size,
+      which would make the step zero or negative and cause the cursor to never
+      advance — an infinite loop. A good implementation raises a ValueError in that
+      case. You will see both the guard and the loop in the code slide.
+
+  - type: code
+    label: "chunk_text implementation"
+    heading: "chunk_text: Fixed-Size Slices With Overlap"
+    code: |
+      # Uses only concepts taught in Days 1-6:
+      # string slicing, len(), while loop, list.append, type hints, docstrings.
+
+      def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+          """
+          Split text into fixed-size chunks with a shared overlap region.
+
+          Args:
+              text:       The document to split.
+              chunk_size: Maximum number of characters per chunk.
+              overlap:    Number of characters shared between consecutive chunks.
+                          Must be strictly less than chunk_size.
+
+          Returns:
+              A list of non-empty strings. The last chunk may be shorter than
+              chunk_size. Returns an empty list when text is empty.
+          """
+          if not text:
+              return []
+          if overlap >= chunk_size:
+              raise ValueError(
+                  f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+              )
+
+          step = chunk_size - overlap
+          chunks = []
+          cursor = 0
+
+          while cursor < len(text):
+              chunk = text[cursor : cursor + chunk_size]
+              chunks.append(chunk)
+              cursor += step
+
+          return chunks
+
+
+      # --- Quick smoke test ---
+      sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # 26 characters
+
+      pieces = chunk_text(sample, chunk_size=10, overlap=3)
+      for i, piece in enumerate(pieces):
+          print(f"Chunk {i}: '{piece}'")
+
+      # Expected output:
+      # Chunk 0: 'ABCDEFGHIJ'    (chars 0-9, step=7)
+      # Chunk 1: 'HIJKLMNOPQ'    (chars 7-16 — shares HIJ with chunk 0)
+      # Chunk 2: 'OPQRSTUVWX'    (chars 14-23)
+      # Chunk 3: 'VWXYZ'         (chars 21-25 — shorter last chunk)
+    narration: >
+      Here is the full implementation. Start from the top: if the text is empty,
+      return an empty list immediately — no work to do. If overlap is equal to or
+      larger than chunk_size, the step would be zero or negative, so raise a
+      ValueError with a clear message. Then compute the step, initialise an empty
+      list and a cursor at zero, and enter the while loop. The condition is cursor
+      less than the length of the text — when the cursor reaches the end, stop.
+      Inside the loop, slice from cursor to cursor plus chunk_size, append the
+      slice, and advance the cursor by step. That is the entire logic. The smoke
+      test at the bottom uses the 26-letter alphabet so the output is easy to verify
+      by hand. With chunk_size 10 and overlap 3, the step is 7. Chunk 0 is the
+      first 10 letters. Chunk 1 starts 7 characters later, so it begins at H and
+      repeats H, I, J from chunk 0. Check the expected-output comments against what
+      you see when you run it. The last chunk is only 5 characters — correct, it is
+      the tail of the string, and Python's slice handles it without any special case.
+
+  - type: code
+    label: "Using chunk_text in a pipeline"
+    heading: "Connecting Chunks to the Context-Window Check"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+      CONTEXT_WINDOW_TOKENS = 2048
+      CHARS_PER_TOKEN = 4
+      PROMPT_OVERHEAD_TOKENS = 200
+      MAX_DOC_TOKENS = CONTEXT_WINDOW_TOKENS - PROMPT_OVERHEAD_TOKENS
+      MAX_DOC_CHARS = MAX_DOC_TOKENS * CHARS_PER_TOKEN  # ~7 400 chars
+
+
+      def estimate_tokens(text: str) -> int:
+          """Rough token count for English prose (1 token ~= 4 characters)."""
+          return len(text) // CHARS_PER_TOKEN
+
+
+      def will_fit(text: str) -> bool:
+          """Return True if text is likely within the context window."""
+          return estimate_tokens(text) <= MAX_DOC_TOKENS
+
+
+      def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+          """Split text into fixed-size overlapping chunks."""
+          if not text:
+              return []
+          if overlap >= chunk_size:
+              raise ValueError(
+                  f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+              )
+          step = chunk_size - overlap
+          chunks, cursor = [], 0
+          while cursor < len(text):
+              chunks.append(text[cursor : cursor + chunk_size])
+              cursor += step
+          return chunks
+
+
+      def process_document(doc: str) -> list[str]:
+          """
+          If the document fits in one call, send it directly.
+          If not, chunk it and return per-chunk model responses.
+          """
+          if will_fit(doc):
+              response = ollama.chat(
+                  model=MODEL,
+                  messages=[{"role": "user", "content": f"Summarise:\n\n{doc}"}]
+              )
+              return [response["message"]["content"]]
+
+          # Document too long — split into overlapping chunks
+          pieces = chunk_text(doc, chunk_size=MAX_DOC_CHARS, overlap=MAX_DOC_CHARS // 10)
+          summaries = []
+          for i, piece in enumerate(pieces):
+              print(f"  Processing chunk {i + 1}/{len(pieces)} ({len(piece)} chars)...")
+              response = ollama.chat(
+                  model=MODEL,
+                  messages=[{"role": "user", "content": f"Summarise this excerpt:\n\n{piece}"}]
+              )
+              summaries.append(response["message"]["content"])
+          return summaries
+
+
+      # --- Run it ---
+      short = "The quarterly results exceeded expectations across all regions."
+      long = "Sales grew 14 percent. " * 500  # ~11 000 chars — too long
+
+      print("=== Short document ===")
+      for s in process_document(short):
+          print(s)
+
+      print("\n=== Long document (chunked) ===")
+      for i, s in enumerate(process_document(long)):
+          print(f"[Chunk {i + 1}] {s[:100]}...")
+    narration: >
+      This second code slide shows chunking working inside a real pipeline. We bring
+      back the estimate_tokens and will_fit functions from Lesson 1 and combine them
+      with chunk_text in a single process_document function. The logic is a
+      straightforward if/else: if the document fits, send it to the model in one call
+      and return a list containing one summary. If it does not fit, split it into
+      overlapping chunks — using one-tenth of MAX_DOC_CHARS as the overlap — then
+      loop over the chunks, send each one to the model separately, and collect the
+      summaries into a list. Notice the progress print inside the loop: chunk 1 of N,
+      chunk 2 of N. That kind of visibility is good engineering hygiene, and it is
+      cheap to add. The short document goes through the fast path and returns one
+      summary. The long document — 500 repetitions of a short sentence, pushing past
+      11 000 characters — goes through the chunking path and returns multiple per-chunk
+      summaries. In Lesson 3 you will learn how to collapse those multiple summaries
+      into a single coherent result.
+
+  - type: exercise
+    heading: "Exercise 2: Chunk Text With Overlap"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement chunk_text(text, chunk_size, overlap)
+      using a while loop and string slicing. The automated checks verify: the function
+      is callable; empty input returns an empty list; a text shorter than chunk_size
+      produces exactly one chunk; consecutive chunks share the expected overlap region;
+      and overlap >= chunk_size raises ValueError.
+    hint: >
+      Compute step = chunk_size - overlap before the loop. Initialise cursor = 0.
+      Slice text[cursor : cursor + chunk_size] on every iteration — Python handles
+      the end-of-string case automatically. Advance cursor by step. Guard the
+      overlap/chunk_size invariant with a ValueError at the top of the function.
+    narration: >
+      Your turn. The exercise notebook is in the exercises folder. The function
+      signature and docstring are provided — you fill in the body. Start by writing
+      the two guard clauses: return an empty list for empty input, and raise
+      ValueError when overlap is too large. Then compute the step, set up the cursor
+      and output list, and write the while loop. When you think you have it, run the
+      automated checks. There are five of them. The first verifies the function is
+      callable. The second verifies empty-input handling. The third checks the
+      single-chunk case — a short document that fits in one slice. The fourth —
+      the most important — checks that the overlap region between two consecutive
+      chunks contains exactly the right characters, not just the right count. The
+      fifth verifies the ValueError guard. All five should print a checkmark when
+      your implementation is correct. Do not move to Lesson 3 until you have a full
+      pass.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "A chunk is a fixed-size substring: text[cursor : cursor + chunk_size]"
+      - "Hard cuts at chunk boundaries lose meaning — overlap is the fix"
+      - "step = chunk_size - overlap; the cursor advances by step, not by chunk_size"
+      - "Guard: overlap must be strictly less than chunk_size, or raise ValueError"
+      - "Next lesson: Map-Reduce — combining per-chunk summaries into one final answer"
+    narration: >
+      You have now built the splitting half of the pipeline. A chunk is a substring
+      sliced by a cursor that advances by step rather than by the full chunk size.
+      The difference between chunk_size and step is the overlap — the shared region
+      that prevents sentences from being cut in half at boundaries. Together the
+      will_fit function from Lesson 1 and the chunk_text function from this lesson
+      give you everything you need to safely feed any document to a model, no matter
+      how long it is. What you are still missing is the combining step: right now
+      process_document returns a list of per-chunk summaries, not one coherent
+      answer. In Lesson 3 you will learn the Map-Reduce pattern, which takes those
+      multiple summaries and reduces them — with one final model call — into a single
+      clean result. That is where the full pipeline comes together.

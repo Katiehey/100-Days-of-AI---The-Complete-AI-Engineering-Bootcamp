@@ -1,0 +1,310 @@
+day: "007"
+lesson: "03"
+title: "Summarizing One Chunk"
+
+slides:
+
+  - type: title
+    heading: "Summarizing One Chunk"
+    subheading: "A focused system prompt and a clean function that wraps ollama.chat()"
+    narration: >
+      Welcome to Lesson 3. In the last two lessons you built the measurement and
+      splitting halves of the pipeline: you can now detect when a document is too
+      long and cut it into overlapping chunks. What you still cannot do is turn a
+      chunk into a useful summary. That is what this lesson is about. You will write
+      one focused function — summarize_chunk — that takes a string, sends it to the
+      model with a carefully designed system prompt, and returns a clean summary string.
+      It sounds simple, and it is — deliberately. A well-scoped function that does one
+      thing correctly is the building block every larger pipeline depends on.
+
+  - type: concept
+    label: "One function, one job"
+    heading: "Why Isolate the Summarization Step?"
+    body: >
+      In Lesson 2, process_document mixed chunking logic with model calls in a single
+      function. That works for a demo but is hard to test, log, or reuse. The
+      professional pattern is separation of concerns: one function chunks, one function
+      summarizes a single chunk.
+    bullets:
+      - "summarize_chunk(chunk) — one input string, one output string"
+      - "Easy to test in isolation: no chunking logic to set up"
+      - "Easy to log: one debug line in, one info line out"
+      - "Easy to reuse: any pipeline can call it, not just today's project"
+    narration: >
+      You have already seen this pattern from Day 5 onwards — functions that do exactly
+      one thing and do it well. The process_document function in Lesson 2 was a quick
+      sketch to show the full picture. In production you would never leave chunking and
+      model calls inside the same function, because every time you need to test the
+      model call you also have to set up a chunked document. Worse, every time you need
+      to change the chunking strategy, you risk accidentally breaking the summarization
+      logic too. The clean solution is to split them. One function chunks the document
+      and returns a list of strings. A separate function takes one of those strings and
+      returns a summary. Today you are building that second function. It is the atomic
+      unit — the smallest useful piece of the pipeline — and everything else you build
+      this week will call it.
+
+  - type: concept
+    label: "The system prompt"
+    heading: "A Focused System Prompt Produces Focused Output"
+    body: >
+      An unfocused prompt produces unfocused output. Telling the model exactly what
+      role to play, what the input is, and what the output must look like constrains
+      the model to the behaviour you want.
+    bullets:
+      - "Role: 'You are a precise summarization assistant'"
+      - "Task: summarize the text the user sends — nothing else"
+      - "Output format: 2–3 sentences, plain prose, no headings or bullet points"
+      - "Constraint: use only information present in the passage — no elaboration"
+    narration: >
+      From Day 6 you know the four-part anatomy of a good prompt: instruction, context,
+      input, output format. Here those four parts map directly to the system prompt.
+      The instruction is the role — you are a precise summarization assistant. The
+      context explains what the input will be — a passage of text, possibly an excerpt
+      from a larger document. The output format is explicit: two to three sentences,
+      plain prose, no bullet points, no headings. And the constraint locks down a
+      failure mode that language models are notorious for: elaborating beyond the
+      provided text. You are telling the model to summarize only what is on the page,
+      not what it knows from training. That constraint is important when you are
+      processing chunks of a larger document, because the model has no way to know
+      what information is in the other chunks. Fabricating extra detail to fill the
+      gap would corrupt your final summary. Explicit output constraints prevent that.
+
+  - type: how_it_works
+    label: "How summarize_chunk works"
+    heading: "One Function, Four Lines of Logic"
+    body: >
+      summarize_chunk wraps ollama.chat() with a fixed system prompt and returns the
+      model's reply as a plain string. No Pydantic, no retry loop — this is
+      intentionally minimal. You will harden it with logging in the next lesson.
+    bullets:
+      - "Build the messages list: system prompt first, then the chunk as a user message"
+      - "Call ollama.chat(model, messages) — the same call you have used since Day 3"
+      - "Extract the reply: response['message']['content']"
+      - "Return the reply string — caller decides what to do with it"
+    narration: >
+      Let's walk through what the function actually does before you see the code. Step
+      one: assemble the messages list. The first item is the system prompt as a system
+      role message, exactly as you learned in Day 3 and reinforced in Days 5 and 6.
+      The second item is the chunk text as a user role message. Step two: call
+      ollama.chat with the model name and that messages list. Step three: index into
+      the response dictionary to get the content string — response["message"]["content"],
+      the same path you have used in every Ollama call since Day 3. Step four: return
+      that string. There is no parsing, no validation, no retry loop in this lesson.
+      That is deliberate — you are building the clean, correct core first. Logging and
+      error handling go on top of a working foundation, not the other way round.
+
+  - type: code
+    label: "summarize_chunk implementation"
+    heading: "summarize_chunk: System Prompt + ollama.chat()"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      SUMMARIZE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "The user will send you a passage of text — possibly an excerpt from a "
+          "larger document. Summarize it in 2–3 sentences of plain prose. "
+          "Do not add headings, bullet points, or information that is not present "
+          "in the passage. Use only what is written."
+      )
+
+
+      def summarize_chunk(chunk: str) -> str:
+          """
+          Summarize a single text chunk using a local Ollama model.
+
+          Args:
+              chunk: A string containing the text to summarize.
+                     Should already fit within the model's context window.
+
+          Returns:
+              A plain-prose summary string (2–3 sentences).
+          """
+          messages = [
+              {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+              {"role": "user",   "content": chunk},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      # --- Quick smoke test ---
+      sample_chunk = (
+          "The city of Brasília was designed by urban planner Lúcio Costa and "
+          "architect Oscar Niemeyer and was inaugurated as Brazil's capital in 1960. "
+          "Its layout is often compared to the shape of an airplane or a bird in "
+          "flight when viewed from above. The city was inscribed as a UNESCO World "
+          "Heritage Site in 1987 in recognition of its modernist architecture and "
+          "innovative city planning."
+      )
+
+      summary = summarize_chunk(sample_chunk)
+      print(f"Summary ({len(summary)} chars):")
+      print(summary)
+    narration: >
+      Here is the complete implementation. At the top, the system prompt is defined as a
+      module-level constant. Keeping it at the module level means you write it once and
+      every call to summarize_chunk uses exactly the same prompt — no risk of drift
+      between calls. The function itself is four lines of logic. It builds the messages
+      list with the system prompt as the first item and the chunk as the user message.
+      Then it calls ollama.chat — the exact same call you have made since Day 3. Then
+      it indexes into the response dictionary. Then it returns the string. Notice the
+      type hint: the function accepts a str and returns a str. No dicts, no lists, no
+      Pydantic models — this function has the simplest possible interface, which makes
+      it the easiest to test. The smoke test at the bottom passes a short paragraph
+      about Brasília and prints the summary. Run it and you will see the model produce
+      two or three sentences that describe what is in the paragraph, without adding
+      anything extra. That constrained behaviour is what the system prompt is doing.
+
+  - type: code
+    label: "Connecting to the chunking pipeline"
+    heading: "summarize_chunk Inside the Chunking Loop"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      CONTEXT_WINDOW_TOKENS = 2048
+      CHARS_PER_TOKEN = 4
+      PROMPT_OVERHEAD_TOKENS = 200
+      MAX_DOC_TOKENS = CONTEXT_WINDOW_TOKENS - PROMPT_OVERHEAD_TOKENS
+      MAX_DOC_CHARS = MAX_DOC_TOKENS * CHARS_PER_TOKEN  # ~7 400 chars
+
+      SUMMARIZE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "The user will send you a passage of text — possibly an excerpt from a "
+          "larger document. Summarize it in 2–3 sentences of plain prose. "
+          "Do not add headings, bullet points, or information that is not present "
+          "in the passage. Use only what is written."
+      )
+
+
+      def estimate_tokens(text: str) -> int:
+          return len(text) // CHARS_PER_TOKEN
+
+
+      def will_fit(text: str) -> bool:
+          return estimate_tokens(text) <= MAX_DOC_TOKENS
+
+
+      def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+          if not text:
+              return []
+          if overlap >= chunk_size:
+              raise ValueError(
+                  f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+              )
+          step = chunk_size - overlap
+          chunks, cursor = [], 0
+          while cursor < len(text):
+              chunks.append(text[cursor : cursor + chunk_size])
+              cursor += step
+          return chunks
+
+
+      def summarize_chunk(chunk: str) -> str:
+          """Summarize a single text chunk with a focused system prompt."""
+          messages = [
+              {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+              {"role": "user",   "content": chunk},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      def summarize_all_chunks(doc: str) -> list[str]:
+          """
+          Split a document into chunks and return a per-chunk summary list.
+          Each element is the summary string for one chunk.
+          """
+          if will_fit(doc):
+              return [summarize_chunk(doc)]
+
+          pieces = chunk_text(doc, chunk_size=MAX_DOC_CHARS, overlap=MAX_DOC_CHARS // 10)
+          summaries = []
+          for i, piece in enumerate(pieces):
+              print(f"  Summarizing chunk {i + 1}/{len(pieces)}...")
+              summaries.append(summarize_chunk(piece))
+          return summaries
+
+
+      # --- Run it ---
+      long_doc = (
+          "Renewable energy adoption has accelerated globally over the past decade. "
+          "Solar and wind installations now account for the majority of new power "
+          "capacity added each year in most major economies. "
+      ) * 200  # ~12 000 characters — will be chunked
+
+      chunk_summaries = summarize_all_chunks(long_doc)
+      print(f"\nProduced {len(chunk_summaries)} chunk summaries.")
+      for i, s in enumerate(chunk_summaries):
+          print(f"\n[Chunk {i + 1}]\n{s}")
+    narration: >
+      This slide shows how summarize_chunk fits into the pipeline you have been
+      building across the last two lessons. The summarize_all_chunks function replaces
+      the rough process_document sketch from Lesson 2. Notice what changed: instead of
+      calling ollama.chat directly inside the loop, the loop now calls summarize_chunk.
+      That one change means the system prompt is applied consistently on every chunk,
+      the loop body is three lines instead of seven, and you can test summarize_chunk
+      independently without ever running the chunking logic. The function still returns
+      a list of per-chunk summaries — that is intentional. Lesson 4 will take that list
+      and reduce it into a single final summary with a second model call. For now, your
+      job is to make sure each individual chunk produces a clean, well-constrained
+      summary string. The long_doc in the smoke test is about 12 000 characters, which
+      forces the chunking path. When you run it you will see the progress lines print
+      and then the per-chunk summaries appear. Each one should be two to three sentences
+      of plain prose. Check that: if you see bullet points or headings, the system
+      prompt constraint is not working as expected and you should inspect the messages
+      list you are sending.
+
+  - type: exercise
+    heading: "Exercise 3: Summarize a Single Chunk"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement summarize_chunk(chunk) using a
+      focused system prompt and ollama.chat(). The automated checks verify: the return
+      value is a non-empty string; the function accepts the same chunk twice and
+      returns a string both times; the output does not contain obvious boilerplate
+      from an absent system prompt (e.g. the raw chunk echoed back verbatim); and a
+      chunk of exactly one sentence still produces a non-empty string response.
+    hint: >
+      Define SUMMARIZE_SYSTEM_PROMPT as a module-level constant. Build the messages
+      list with the system message first, then the chunk as the user message. Call
+      ollama.chat(model=MODEL, messages=messages) and return
+      response["message"]["content"]. No Pydantic, no retry loop — keep it minimal.
+    narration: >
+      Your turn. Open exercise_03.ipynb in the exercises folder. The function signature
+      and docstring are already there — you implement the body. The first thing to write
+      is the system prompt constant at the top of the cell, before the function. Then
+      inside the function build the messages list: system message first, chunk as the
+      user message. Call ollama.chat, index into the response, and return the string.
+      When you run the automated checks, the first one confirms the function is callable.
+      The second calls the function on a standard chunk and checks that it returns a
+      non-empty string. The third check is the most interesting: it looks
+      at whether the output appears to be a summary rather than an echo. If your system
+      prompt is missing or malformed, the model may just repeat the chunk back to you —
+      the check catches that. The fourth check sends a very short one-sentence chunk
+      and verifies the function still returns something useful. All four should pass
+      before you move on.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "summarize_chunk wraps ollama.chat() with a focused system prompt and returns a plain string"
+      - "A module-level system prompt constant ensures consistent behaviour across every call"
+      - "Explicit output format constraints (2–3 sentences, plain prose, no added detail) shape the model's behaviour"
+      - "One function, one job: separating chunk summarization from chunking logic makes both easier to test and reuse"
+      - "Next lesson: the Reduce step — combining per-chunk summaries into one final summary with a second model call"
+    narration: >
+      Let's lock in what you built. You now have the third piece of the pipeline:
+      summarize_chunk, a function that accepts one string and returns one string. The
+      system prompt does the heavy lifting — it tells the model its role, constrains
+      the output length, specifies the format, and prohibits the model from going
+      beyond the provided text. You also saw how this function slots cleanly into the
+      chunking loop from Lesson 2, replacing the raw ollama.chat calls with a single
+      well-named function call. The pipeline now has three stages: measure with
+      will_fit, split with chunk_text, and summarize each piece with summarize_chunk.
+      What it does not yet have is a final stage that collapses the list of per-chunk
+      summaries into one coherent result. That is Lesson 4 — the Reduce step. You will
+      write a second model call that takes all the chunk summaries as input and produces
+      a single polished summary, completing the full Map-Reduce pipeline.

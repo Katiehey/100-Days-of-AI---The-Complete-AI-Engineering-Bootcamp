@@ -1,0 +1,371 @@
+day: "007"
+lesson: "05"
+title: "The Reduce Phase: Combine Into One Summary"
+
+slides:
+
+  - type: title
+    heading: "The Reduce Phase: Combine Into One Summary"
+    subheading: "One final model call collapses all chunk summaries into a single coherent result"
+    narration: >
+      Welcome to the final lesson of Day 7. By this point you have all the
+      individual pieces: you can measure whether a document fits, split it into
+      overlapping chunks, and summarise each chunk in isolation. What you are still
+      missing is the last step — and without it, your pipeline hands the caller a
+      list of disconnected paragraphs instead of one answer. In this lesson you
+      will write reduce_summaries, a function that takes that list and sends all the
+      chunk summaries to the model as a single prompt, producing one final coherent
+      summary. That one function completes the Map-Reduce pipeline, and you will
+      wire the whole thing together into a single summarize_document function that
+      handles any document length from start to finish.
+
+  - type: concept
+    label: "Why reduce is necessary"
+    heading: "A List of Summaries Is Not a Summary"
+    body: >
+      After the map phase you have one summary per chunk — useful intermediates,
+      but not a finished result. A reader who asked for a document summary expects
+      one paragraph, not five. The reduce step closes that gap.
+    bullets:
+      - "Map output: list[str] — one summary per chunk, independent of each other"
+      - "Each chunk summary reflects only its slice of the document"
+      - "Adjacent chunks may overlap, so their summaries can repeat information"
+      - "Reduce: send all summaries together to the model and ask for one synthesis"
+    narration: >
+      Think about what the map phase actually produced. You have a list of short
+      summaries — maybe three, maybe eight, depending on how long the document was.
+      Each one is accurate for its slice, but they were written in isolation. The
+      model that summarised chunk two had no idea what was in chunk three. The result
+      is a collection of mini-summaries that may repeat facts, use inconsistent
+      phrasing, or leave the reader without a coherent through-line. That is not
+      what a user asked for when they said "summarise this document." The reduce step
+      fixes this by treating the list of chunk summaries as the new input. You
+      concatenate them into a single prompt — short enough to fit in one context
+      window, because summaries are far shorter than the original chunks — and ask
+      the model to synthesise them into one polished paragraph. The model can now
+      see the whole picture and produce a result that reads as if it was written
+      about the whole document from the start.
+
+  - type: concept
+    label: "Why it fits in one call"
+    heading: "Summaries Are Short Enough for One Context Window"
+    body: >
+      The key insight: even if the original document was 50 000 characters, ten
+      chunk summaries of 200 characters each total only 2 000 characters — well
+      within the context window. The reduce step is always a single model call.
+    bullets:
+      - "Original document: may be 10 000–100 000+ characters"
+      - "Per-chunk summary: typically 100–300 characters (2–3 sentences)"
+      - "Combined summaries: chunks × ~200 chars — almost always fits in one call"
+      - "Reduce is O(1) model calls in practice — summaries are short, so the combined input almost always fits in one call"
+    narration: >
+      Here is the mathematical reason why reduce always works in one model call.
+      Your system prompt for the map phase asked the model for two to three
+      sentences per chunk — roughly 150 to 300 characters. Even a very long
+      document that produces ten chunks gives you at most 3 000 characters of
+      intermediate summaries. That is a fraction of the context window you are
+      working with. So no matter how many chunks the map phase produced, the
+      reduce step can always concatenate all their summaries into a single prompt
+      and make one model call. The pipeline is constant in the number of reduce
+      calls — always exactly one — regardless of how long the original document
+      was. That is the elegance of this design. The map phase scales linearly with
+      document length; the reduce phase is fixed at one call. Together they handle
+      arbitrarily long documents with a predictable cost structure.
+
+  - type: how_it_works
+    label: "How reduce_summaries works"
+    heading: "Concatenate, Prompt, Return"
+    body: >
+      reduce_summaries takes the list of chunk summaries, joins them into one
+      block of text, inserts that block into a reduce prompt, and makes a single
+      ollama.chat() call to produce the final output.
+    bullets:
+      - "Join chunk summaries with a blank-line separator so the model sees distinct parts"
+      - "Use a system prompt that asks for one coherent synthesis — not a list, not headings"
+      - "Call ollama.chat() exactly once with the joined summaries as the user message"
+      - "Return response['message']['content'] — the final summary string"
+    narration: >
+      The mechanics are deliberately simple because you have already built all the
+      hard parts. Step one: join the list of chunk summaries into a single string.
+      You use a double newline as the separator so the model can see where one
+      chunk summary ends and the next begins — that small formatting detail helps
+      the model parse the input correctly. Step two: the system prompt for the
+      reduce call is different from the one you used in the map phase. The map
+      prompt told the model to summarise a passage faithfully. The reduce prompt
+      tells the model it is receiving several intermediate summaries from different
+      sections of a longer document, and its job is to synthesise them into one
+      coherent paragraph that covers the whole. That distinction in the system
+      prompt is what produces a genuinely synthesised result rather than the model
+      just picking the first summary and returning it. Step three: call
+      ollama.chat with the joined text as the user message. Step four: extract and
+      return the content string. One call, one return — the entire reduce logic
+      fits in about ten lines.
+
+  - type: code
+    label: "reduce_summaries implementation"
+    heading: "reduce_summaries: One Call, One Final Answer"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      REDUCE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "You will receive several intermediate summaries, each covering a different "
+          "section of a longer document. Synthesise them into one coherent summary "
+          "paragraph of 3–5 sentences that covers the document as a whole. "
+          "Write plain prose only — no headings, no bullet points, no section labels. "
+          "Do not introduce information that is not present in the provided summaries."
+      )
+
+
+      def reduce_summaries(chunk_summaries: list[str]) -> str:
+          """
+          Combine a list of per-chunk summaries into one final summary.
+
+          Sends all chunk summaries together in a single ollama.chat() call
+          using a synthesis-focused system prompt.
+
+          Args:
+              chunk_summaries: A list of short summary strings produced by the
+                               map phase (one per document chunk).
+
+          Returns:
+              A single string: the final synthesised summary of the whole document.
+          """
+          combined = "\n\n".join(chunk_summaries)
+          messages = [
+              {"role": "system", "content": REDUCE_SYSTEM_PROMPT},
+              {"role": "user",   "content": combined},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      # --- Quick smoke test ---
+      sample_chunk_summaries = [
+          "Renewable energy capacity grew significantly in Europe during 2023, "
+          "with solar installations reaching record levels in Germany and Spain.",
+          "Investment in offshore wind projects accelerated across the North Sea, "
+          "with the UK and Denmark committing to major new developments.",
+          "Policy frameworks in the EU set binding targets for member states, "
+          "requiring at least 42 percent of energy from renewables by 2030.",
+      ]
+
+      final = reduce_summaries(sample_chunk_summaries)
+      print(f"Final summary ({len(final)} chars):")
+      print(final)
+    narration: >
+      Here is the full implementation. At the top, the reduce system prompt is a
+      module-level constant — the same pattern you used in Lesson 3 for the map
+      phase. Notice how the wording is different: it says "synthesise them into
+      one coherent summary paragraph" and explicitly tells the model it is
+      receiving summaries from different sections. That framing prevents the common
+      failure mode where the model treats the input as a single passage and
+      summarises only the first few lines. Inside the function, the logic is three
+      steps. Join the list of summaries into a single string using double newlines
+      as separators. Build the messages list with the system prompt first and the
+      joined summaries as the user message — identical structure to every ollama.chat
+      call you have made since Day 3. Call ollama.chat and return the content
+      string. The smoke test passes three short chunk summaries about European
+      renewable energy. Run it and you should see one paragraph that covers all
+      three points — solar growth, offshore wind investment, and policy targets —
+      written as a single coherent narrative rather than three separate sentences
+      stitched together.
+
+  - type: code
+    label: "Complete map-reduce pipeline"
+    heading: "summarize_document: The Full Pipeline in One Function"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      CONTEXT_WINDOW_TOKENS = 2048
+      CHARS_PER_TOKEN = 4
+      PROMPT_OVERHEAD_TOKENS = 200
+      MAX_DOC_TOKENS = CONTEXT_WINDOW_TOKENS - PROMPT_OVERHEAD_TOKENS
+      MAX_DOC_CHARS = MAX_DOC_TOKENS * CHARS_PER_TOKEN  # ~7 400 chars
+
+      SUMMARIZE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "The user will send you a passage of text — possibly an excerpt from a "
+          "larger document. Summarize it in 2–3 sentences of plain prose. "
+          "Do not add headings, bullet points, or information that is not present "
+          "in the passage. Use only what is written."
+      )
+
+      REDUCE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "You will receive several intermediate summaries, each covering a different "
+          "section of a longer document. Synthesise them into one coherent summary "
+          "paragraph of 3–5 sentences that covers the document as a whole. "
+          "Write plain prose only — no headings, no bullet points, no section labels. "
+          "Do not introduce information that is not present in the provided summaries."
+      )
+
+
+      def estimate_tokens(text: str) -> int:
+          return len(text) // CHARS_PER_TOKEN
+
+
+      def will_fit(text: str) -> bool:
+          return estimate_tokens(text) <= MAX_DOC_TOKENS
+
+
+      def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+          if not text:
+              return []
+          if overlap >= chunk_size:
+              raise ValueError(
+                  f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+              )
+          step = chunk_size - overlap
+          chunks, cursor = [], 0
+          while cursor < len(text):
+              chunks.append(text[cursor : cursor + chunk_size])
+              cursor += step
+          return chunks
+
+
+      def summarize_chunk(chunk: str) -> str:
+          """Summarize one chunk using a focused system prompt (map phase)."""
+          messages = [
+              {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+              {"role": "user",   "content": chunk},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      def reduce_summaries(chunk_summaries: list[str]) -> str:
+          """Synthesise a list of chunk summaries into one final summary (reduce phase)."""
+          combined = "\n\n".join(chunk_summaries)
+          messages = [
+              {"role": "system", "content": REDUCE_SYSTEM_PROMPT},
+              {"role": "user",   "content": combined},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      def summarize_document(doc: str) -> str:
+          """
+          Summarize a document of any length using Map-Reduce.
+
+          Short documents (fit in one context window) go directly to the model.
+          Long documents are chunked, each chunk is summarised (map), then all
+          chunk summaries are synthesised into one final result (reduce).
+
+          Args:
+              doc: The full document text to summarise.
+
+          Returns:
+              A single summary string covering the entire document.
+          """
+          if will_fit(doc):
+              return summarize_chunk(doc)
+
+          # Map phase: summarise each chunk independently
+          pieces = chunk_text(doc, chunk_size=MAX_DOC_CHARS, overlap=MAX_DOC_CHARS // 10)
+          print(f"Document split into {len(pieces)} chunks. Running map phase...")
+          chunk_summaries = []
+          for i, piece in enumerate(pieces):
+              print(f"  Summarizing chunk {i + 1}/{len(pieces)}...")
+              chunk_summaries.append(summarize_chunk(piece))
+
+          # Reduce phase: synthesise all chunk summaries into one final summary
+          print("Running reduce phase...")
+          return reduce_summaries(chunk_summaries)
+
+
+      # --- Run the complete pipeline ---
+      long_doc = (
+          "Global temperatures have risen steadily over the past century due to "
+          "greenhouse gas emissions from industrial activity and deforestation. "
+          "Scientists have documented melting ice caps, rising sea levels, and "
+          "increasingly severe weather events as consequences of this warming trend. "
+      ) * 150  # ~22 000 characters — forces the map-reduce path
+
+      result = summarize_document(long_doc)
+      print(f"\nFinal summary ({len(result)} chars):\n")
+      print(result)
+    narration: >
+      This is the complete Map-Reduce pipeline — every function from this week
+      assembled into a single summarize_document entry point. Read it from the
+      bottom up. The summarize_document function makes one decision: does the
+      document fit in one call? If yes, it calls summarize_chunk directly and
+      returns the result. If not, it runs the two-phase pipeline. Phase one — the
+      map — calls chunk_text to split the document into overlapping pieces, then
+      loops over each piece and collects a chunk summary by calling summarize_chunk.
+      Phase two — the reduce — calls reduce_summaries with that list and returns
+      the final synthesised string. The caller gets one string back either way.
+      They do not need to know whether the pipeline chunked the document or sent it
+      whole. That is good function design: the complexity is hidden inside, and the
+      interface is simple. The smoke test creates a 22 000-character document —
+      far over the context-window limit — so you will see the progress prints as it
+      works through the chunks and then the final reduce call. Check that the final
+      summary reads as a coherent whole, not a list of separate facts. If it does,
+      your pipeline is working correctly end to end.
+
+  - type: exercise
+    heading: "Exercise 5: Reduce Summaries to Final Output"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement reduce_summaries(chunk_summaries)
+      using a synthesis-focused system prompt and a single ollama.chat() call.
+      The automated checks verify: the return value is a non-empty string; the
+      function accepts a single-item list and returns a string; it accepts a
+      multi-item list and returns a string shorter than the concatenated input
+      (confirming synthesis occurred); and the output does not consist of the
+      first chunk summary verbatim (confirming the model synthesised rather than
+      selected).
+    hint: >
+      Join the list with "\n\n".join(chunk_summaries) before building the messages
+      list. The system prompt should tell the model it is receiving intermediate
+      summaries and must synthesise them into one paragraph — not summarise a
+      passage. Call ollama.chat(model=MODEL, messages=messages) and return
+      response["message"]["content"]. Keep the function to around ten lines.
+    narration: >
+      Your turn. Open exercise_05.ipynb in the exercises folder. The function
+      signature and docstring are already there — you write the body. Start with
+      the join: the combined variable is the chunk summaries joined by double
+      newlines. Then build the messages list with your reduce system prompt as
+      the system message and combined as the user message. Call ollama.chat and
+      return the content string. When you run the automated checks, the first
+      confirms the return value is a non-empty string. The second passes a
+      single-item list — the simplest possible input — and checks that you still
+      return a string. This guards against code that breaks when there is only
+      one chunk. The third check is the most meaningful: it passes a list of
+      several summaries and checks that the output is shorter than the total
+      length of the input. A good synthesis is more concise than the sum of its
+      parts — if your output is longer, the model is elaborating rather than
+      condensing. The fourth check verifies the model did not simply return the
+      first item verbatim. Pass all four and you have a working reduce function.
+      Then try wiring it to the summarize_chunk function you built in Exercise 3
+      to complete the full pipeline yourself.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "The reduce step sends all chunk summaries together in one ollama.chat() call, producing a single final summary"
+      - "A synthesis-focused system prompt is essential — it instructs the model to combine sections, not just report the first one"
+      - "Chunk summaries are short enough to always fit in one context window, so reduce is always a single model call"
+      - "summarize_document hides the map-reduce complexity behind a simple interface: one string in, one string out"
+      - "Next up: Day 7's project — put the full pipeline to work on a real document and ship something that runs"
+    narration: >
+      Let's close out the lesson and the day. You now have all five pieces of the
+      Map-Reduce summarisation pipeline: estimate_tokens and will_fit to measure,
+      chunk_text to split, summarize_chunk to map, reduce_summaries to reduce, and
+      summarize_document to tie them all together behind a clean interface. The
+      key insight from this lesson is that the reduce step is always exactly one
+      model call, no matter how many chunks the map phase produced. That is because
+      summaries are inherently short — two to three sentences per chunk — so even
+      a document that produces ten or fifteen chunks generates a combined summary
+      block that fits comfortably in one context window. The second key insight is
+      that the system prompt for reduce is meaningfully different from the map
+      prompt. It tells the model it is synthesising from multiple sections, which
+      is what produces a coherent final result rather than an unrelated collection
+      of sentences. You have built a real, working pipeline that handles documents
+      of arbitrary length. The day's project will let you run it on an actual
+      document — that is where everything you built this week becomes a concrete,
+      runnable deliverable.

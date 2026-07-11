@@ -1,0 +1,213 @@
+day: "007"
+lesson: "01"
+title: "Why Long Documents Break LLMs"
+
+slides:
+
+  - type: title
+    heading: "Why Long Documents Break LLMs"
+    subheading: "Context windows, silent truncation, and why every long doc must be split first"
+    narration: >
+      Welcome to Day 7. Section 1 of the course is called Text AI, and this week you are
+      going to build real text-processing pipelines — summarisers, extractors, question
+      answerers — the kind of tools that are useful in actual work. But before you can
+      do any of that, you need to understand a hard constraint that every LLM has baked
+      into it: the context window. If you ignore it, your pipelines will silently fail on
+      anything longer than a short article. Today's lesson is short and conceptual, but it
+      is the foundation everything else in the week rests on. Pay close attention.
+
+  - type: concept
+    label: "The context window"
+    heading: "Every LLM Has a Fixed Input Size"
+    body: >
+      A large language model does not read text the way you do. Internally, it converts
+      every word into a token — a short chunk of text — and processes the entire input
+      at once as a fixed-length grid of numbers. That grid has a hard upper limit.
+    bullets:
+      - "Token ≈ 3–4 characters of English text on average"
+      - "Every model has a maximum token count it can process in one call"
+      - "Common limits: 4 096 tokens (older models), 8 192, 32 768, 128 000+ (newer)"
+      - "Your local Ollama model (llama3.2) defaults to 2 048–4 096 tokens"
+    narration: >
+      Let's start with the mechanics. When you call a model, your text does not arrive as
+      plain words — it is first broken into tokens by a tokeniser. A token is usually
+      a common word or word-fragment, roughly three to four characters. So a 1 000-word
+      article becomes around 1 300 to 1 500 tokens. Every model you will ever use has a
+      fixed maximum for how many tokens it can hold in one call — that ceiling is called
+      the context window. The size varies: older models top out around 4 000 tokens, which
+      is roughly a 3 000-word document. Newer commercial models push into the hundreds of
+      thousands. But the local model you are running through Ollama right now has a context
+      window in the low thousands. That matters enormously in practice, because most real
+      documents — a legal contract, a research paper, a long email thread, a support-ticket
+      history — blow straight past that limit.
+
+  - type: concept
+    label: "What happens at the limit"
+    heading: "Silent Truncation vs Hard Errors"
+    body: >
+      When input exceeds the context window, one of two things happens — and the worse
+      outcome is the quieter one.
+    bullets:
+      - "**Hard error** — the API rejects the call with a context-length exception"
+      - "**Silent truncation** — the model (or runtime) quietly drops tokens at the end"
+      - "Dropped tokens are never flagged — the model answers as if they never existed"
+      - "Result: confident-sounding answers based on incomplete information"
+    narration: >
+      Here is where it gets dangerous. There are two failure modes when you send too much
+      text to a model. The first is a hard error — the API raises an exception and you
+      know immediately that something is wrong. That is the safe failure. The second, and
+      far more treacherous, is silent truncation. Many runtimes — including some versions
+      of Ollama — simply crop the input to fit the window without telling you. The model
+      receives a truncated document, but it has no way to know the document was cut short.
+      It answers with full confidence based on whatever fraction it received. If the key
+      information was in the second half of a long report, the model's answer will be
+      wrong — and it will not say so. In an engineering pipeline that runs unattended,
+      this kind of silent error is extremely hard to catch. That is why you need to
+      measure document length before calling the model, and split anything that is too
+      long. Never assume the model saw the whole thing.
+
+  - type: how_it_works
+    heading: "Measuring Size: Characters, Words, and Tokens"
+    label: "Size estimation"
+    body: >
+      You need a quick way to know whether a document will fit before you send it.
+      Exact tokenisation requires loading the model's tokeniser — an extra dependency.
+      A practical shortcut: estimate token count from character count.
+    bullets:
+      - "Characters → tokens: divide by ~4 (conservative for English prose)"
+      - "Words → tokens: multiply by ~1.3"
+      - "`len(text)` gives characters; `len(text.split())` gives word count"
+      - "Rule of thumb: if `len(text) > 8 000`, assume it needs splitting"
+    narration: >
+      In an ideal world you would run the model's own tokeniser on every document and get
+      an exact count. In practice, that adds a dependency and latency that is rarely worth
+      it for a quick feasibility check. The standard engineering shortcut is to use
+      character count as a proxy. For typical English prose, one token is roughly four
+      characters. So if you divide the character count by four, you get a reasonable
+      upper estimate of the token count. You can also use word count: one word is roughly
+      1.3 tokens. Python makes both trivial — `len(text)` for characters, `len(text.split())`
+      for a quick word count. A safe practical rule: if a document is longer than 8 000
+      characters, treat it as potentially too long for a default Ollama context window and
+      plan to split it. Better to split unnecessarily than to send a truncated document
+      and get a wrong answer with no warning.
+
+  - type: code
+    label: "Measuring fit in Python"
+    heading: "Check Before You Send"
+    code: |
+      # Everything here uses only concepts from Days 1-6.
+      # No new libraries needed — just len() and string methods.
+
+      MODEL = "llama3.2"
+      # A conservative estimate for the local Ollama context window.
+      # Measured in tokens; we approximate: 1 token ≈ 4 characters.
+      CONTEXT_WINDOW_TOKENS = 2048
+      CHARS_PER_TOKEN = 4
+      # Reserve ~200 tokens for the system prompt + model response headroom.
+      PROMPT_OVERHEAD_TOKENS = 200
+
+      MAX_DOC_TOKENS = CONTEXT_WINDOW_TOKENS - PROMPT_OVERHEAD_TOKENS
+      MAX_DOC_CHARS = MAX_DOC_TOKENS * CHARS_PER_TOKEN  # ≈ 7 400 chars
+
+
+      def estimate_tokens(text: str) -> int:
+          """Return a rough token count for English prose."""
+          return len(text) // CHARS_PER_TOKEN
+
+
+      def will_fit(text: str) -> bool:
+          """Return True if the document is likely within the context window."""
+          return estimate_tokens(text) <= MAX_DOC_TOKENS
+
+
+      # --- Try it on documents of different lengths ---
+      short_doc = "Quarterly revenue increased by 12 percent year-over-year."
+      long_doc = "A" * 10_000  # 10 000 chars ≈ 2 500 tokens — over the limit
+
+      print(f"Short doc  | chars: {len(short_doc):>6} | tokens ≈ {estimate_tokens(short_doc):>4} | fits: {will_fit(short_doc)}")
+      print(f"Long doc   | chars: {len(long_doc):>6} | tokens ≈ {estimate_tokens(long_doc):>4} | fits: {will_fit(long_doc)}")
+    narration: >
+      Here is what this looks like in actual Python. We define two constants: the context
+      window in tokens and a rough character-per-token ratio. We subtract a small overhead
+      for the system prompt and headroom, then derive the maximum document character count
+      from that. Two functions follow — `estimate_tokens` does the division, `will_fit`
+      does the comparison. Notice there are no new imports, no new libraries, nothing from
+      Days 7 onwards. This is entirely built from what you already know: `len`, integer
+      division, a function that returns a bool. When you run this on the short sentence,
+      it prints that it fits. When you run it on the ten-thousand-character blob, it prints
+      that it does not fit. In a real pipeline, you would call `will_fit` on every document
+      before sending it to the model, and route the ones that return `False` through a
+      splitting step. That splitting step is exactly what you will build across the rest
+      of the week.
+
+  - type: concept
+    label: "The splitting strategy"
+    heading: "The Standard Fix: Chunk Then Process"
+    body: >
+      When a document is too long, the universal solution is to split it into overlapping
+      chunks, process each chunk independently, then combine the outputs.
+    bullets:
+      - "**Chunk** — break the document into pieces that each fit the context window"
+      - "**Overlap** — let adjacent chunks share a few sentences (prevents boundary loss)"
+      - "**Process** — send each chunk to the model separately"
+      - "**Combine** — merge the per-chunk outputs into one final result"
+      - "This pattern is called Map-Reduce for LLMs — you'll build it in Lesson 3"
+    narration: >
+      The fix has a name and a shape that you will recognise by the end of the week. The
+      idea is simple: if the document is too large for one model call, break it into
+      smaller pieces — chunks — that each fit comfortably. Then send each chunk to the
+      model individually and collect the outputs. Finally, combine those outputs into a
+      single coherent result. The pattern is called Map-Reduce: you map a model call over
+      each chunk, then reduce the results. The one subtlety is overlap: when you split at
+      a hard boundary, a sentence that crosses the boundary can be cut in half, losing
+      meaning. The standard fix is to let adjacent chunks share a few lines — maybe 10 to
+      20 percent overlap — so that context is preserved at every boundary. You do not need
+      to implement this today. Right now, you just need to internalise the mental model:
+      measure first, split if needed, then process. Never send a document to the model
+      without checking that it fits.
+
+  - type: exercise
+    heading: "Exercise 1: Count Characters and Estimate Fit"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. You will implement two functions:
+      `estimate_tokens(text)` and `will_fit(text)`. Then run them against
+      three sample documents of different lengths and verify the results with
+      the automated checks.
+    hint: >
+      Use `len(text) // 4` for the token estimate. For `will_fit`, compare the
+      result against `MAX_DOC_TOKENS = 1848` (2 048 − 200 overhead). The checks
+      test boundary cases — a document of exactly MAX_DOC_CHARS (7 392 chars)
+      should return True; MAX_DOC_CHARS + 4 characters or more returns False
+      (integer division increments every 4 chars, so +1 through +3 still round
+      down to the same token count).
+    narration: >
+      Time to put this into practice. The notebook for Exercise 1 is in the exercises
+      folder. Your job is to implement two functions: `estimate_tokens`, which divides
+      character count by four and returns an integer, and `will_fit`, which calls
+      `estimate_tokens` and compares the result to the maximum allowed tokens. Read the
+      docstring carefully — it tells you exactly what each function should accept and
+      return. Once you have written the implementations, run the automated checks at the
+      bottom of the notebook. They test a range of inputs including edge cases at the
+      exact boundary. A document of exactly the maximum number of characters should
+      return True — it fits. One character longer should return False. Pay attention to
+      those boundary conditions; they matter in real pipelines. This is a short exercise
+      by design because the concept is simple. The goal is just to make the measurement
+      code feel natural before you use it in the splitting exercises later this week.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Every LLM has a fixed context window; text beyond it is dropped or raises an error"
+      - "Silent truncation is worse than an error — the model answers confidently with missing data"
+      - "Estimate token count cheaply: `len(text) // 4` for English prose"
+      - "Always call `will_fit()` before sending a document to a model"
+      - "Next lesson: how to split a document into clean, overlapping chunks"
+    narration: >
+      Let's lock in what you just learned. LLMs do not have unlimited memory — they have
+      a fixed context window, and anything past that limit either causes an error or, more
+      dangerously, gets silently dropped. You now know how to estimate token count from
+      character count without any extra libraries, and you have a simple `will_fit`
+      function you can drop into any pipeline. The rule from here on is: measure before
+      you send. If a document does not fit, it must be split before it goes anywhere near
+      a model call. In Lesson 2, you will learn exactly how to do that splitting cleanly —
+      finding natural sentence boundaries so you never cut a thought in half.

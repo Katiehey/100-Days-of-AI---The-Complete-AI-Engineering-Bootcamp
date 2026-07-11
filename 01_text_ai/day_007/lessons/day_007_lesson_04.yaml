@@ -1,0 +1,360 @@
+day: "007"
+lesson: "04"
+title: "The Map Phase: Summarize Every Chunk"
+
+slides:
+
+  - type: title
+    heading: "The Map Phase: Summarize Every Chunk"
+    subheading: "Apply summarize_chunk() to every element in the list — the first half of Map-Reduce"
+    narration: >
+      Welcome to Lesson 4. In the last lesson you built summarize_chunk — a clean,
+      focused function that takes one string and returns one summary string. Now you
+      have to answer the next question: you do not have one chunk, you have a list of
+      them. What do you do with a list? You map over it. This lesson introduces the Map
+      step of the Map-Reduce pattern: applying the same operation to every element in a
+      list and collecting the results. By the end you will have a function called
+      map_summaries that calls summarize_chunk on each chunk and returns a list of
+      intermediate summaries. That list is the bridge between splitting and the final
+      reduce step in Lesson 5.
+
+  - type: concept
+    label: "Map-Reduce"
+    heading: "Map-Reduce: A Two-Phase Pattern for Big Inputs"
+    body: >
+      Map-Reduce is a pattern for processing inputs that are too large to handle in one
+      step. You split the problem, process each piece independently (Map), then combine
+      the results into one answer (Reduce). Both phases are necessary; neither is useful
+      without the other.
+    bullets:
+      - "**Map:** apply the same function to every element in a list → list of results"
+      - "**Reduce:** combine that list of results into a single output"
+      - "Classic use: word counts across millions of files — count each file (Map), sum counts (Reduce)"
+      - "Today's use: summarize each chunk (Map), merge summaries (Reduce — Lesson 5)"
+    narration: >
+      Map-Reduce is one of the most important patterns in computing. Google published
+      the original paper in 2004 describing how they used it to index the web, and the
+      idea has been influential ever since. The core insight is simple: if a problem is
+      too big to solve in one step, split it into independent pieces, solve each piece
+      the same way, then combine the results. The word Map comes from mathematics —
+      applying a function to every element of a set to produce a new set. The word
+      Reduce comes from combining many values down to one. In the classic example, you
+      have millions of text files and you want a word frequency count. It would take
+      forever to do it on one machine in sequence. Instead, you send each file to a
+      different worker that counts words in that file alone — that is the Map step. Then
+      a second stage sums all the counts together — that is the Reduce step. Your
+      summarization pipeline follows exactly this shape. Your input is a long document.
+      You have already built the splitting logic. The Map step summarizes each chunk.
+      The Reduce step, which you will write in Lesson 5, merges those summaries into one.
+
+  - type: concept
+    label: "The Map step"
+    heading: "Map Means: Same Function, Every Element, New List"
+    body: >
+      In Python, mapping a function over a list means calling that function once for
+      each element and collecting the return values in a new list. The result list
+      is always the same length as the input list.
+    bullets:
+      - "Input: list of N chunk strings"
+      - "Operation: call summarize_chunk(chunk) for each one"
+      - "Output: list of N summary strings — one per chunk, in the same order"
+      - "Each call is independent — the function does not know about the other chunks"
+    narration: >
+      Let's be precise about what Map means in Python before you write any code.
+      You have a list of strings — the chunks produced by chunk_text in Lesson 2. You
+      want to apply summarize_chunk to each of those strings and get back a list of
+      summary strings of exactly the same length. Element zero in the output corresponds
+      to element zero in the input, element one to element one, and so on. The key word
+      is independent: each call to summarize_chunk knows nothing about the other chunks.
+      It receives one string, it sends one message to the model, it returns one string.
+      There is no shared state between calls. That independence is what makes the pattern
+      powerful — in principle you could run all the calls in parallel, because none of
+      them depends on the result of any other. Today you will run them sequentially,
+      which is simpler to follow and debug. But the pattern is the same either way.
+      A for loop over the list is the most readable Python expression of the Map step.
+
+  - type: how_it_works
+    label: "How map_summaries works"
+    heading: "map_summaries: A for Loop Over the Chunk List"
+    body: >
+      map_summaries accepts a list of chunk strings and returns a list of summary
+      strings. It calls summarize_chunk on each element, prints a progress line so
+      you can see it working, and appends the result to an accumulator list.
+    bullets:
+      - "Initialise an empty list: summaries = []"
+      - "Loop over the chunks with enumerate() to track position"
+      - "Print progress: chunk index and total count — long documents take time"
+      - "Call summarize_chunk(chunk) and append the result to summaries"
+      - "Return summaries — same length as the input list"
+    narration: >
+      The mechanics are straightforward: an empty list, a for loop, an append, a
+      return. Let's pay attention to the details that matter in practice. First, you
+      use enumerate to get both the index and the chunk. That lets you print a progress
+      line — chunk 1 of 5, chunk 2 of 5, and so on. This matters because each call to
+      summarize_chunk makes a network request to Ollama, which takes a few seconds.
+      Without a progress line you have no idea whether the code is working or hanging.
+      You learned in Day 5 that visibility is one of the three pillars of trustworthy
+      software. A progress line to standard output is the minimum visibility this
+      function should have. Second, you append to the accumulator list inside the loop
+      rather than building it with a list comprehension. A list comprehension would also
+      work, but the for loop makes it easier to add logging or error handling later —
+      you can see exactly where each call happens. Third, the function does not call
+      chunk_text itself. It receives an already-split list. That is the separation of
+      concerns pattern from Lesson 3: one function splits, one function maps, one
+      function reduces. Each does exactly one thing.
+
+  - type: code
+    label: "map_summaries implementation"
+    heading: "map_summaries: The Map Phase in Code"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      SUMMARIZE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "The user will send you a passage of text — possibly an excerpt from a "
+          "larger document. Summarize it in 2–3 sentences of plain prose. "
+          "Do not add headings, bullet points, or information that is not present "
+          "in the passage. Use only what is written."
+      )
+
+
+      def summarize_chunk(chunk: str) -> str:
+          """Summarize a single text chunk using a focused system prompt."""
+          messages = [
+              {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+              {"role": "user",   "content": chunk},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      def map_summaries(chunks: list[str]) -> list[str]:
+          """
+          Apply summarize_chunk() to every chunk and return a list of summaries.
+
+          Args:
+              chunks: A list of text strings produced by chunk_text().
+                      Each string must already fit the model's context window.
+
+          Returns:
+              A list of summary strings, one per chunk, in the same order.
+              len(result) == len(chunks) is always true.
+          """
+          summaries = []
+          total = len(chunks)
+          for i, chunk in enumerate(chunks, start=1):
+              print(f"  Summarizing chunk {i}/{total}...")
+              summary = summarize_chunk(chunk)
+              summaries.append(summary)
+          return summaries
+
+
+      # --- Smoke test ---
+      sample_chunks = [
+          (
+              "The Amazon rainforest covers over 5.5 million square kilometres and "
+              "spans nine countries in South America. It is often described as the "
+              "lungs of the Earth because it produces roughly 20 percent of the world's "
+              "oxygen through photosynthesis. The forest is home to an estimated "
+              "10 percent of all species on Earth."
+          ),
+          (
+              "Deforestation of the Amazon has accelerated in recent decades, driven "
+              "by agricultural expansion, logging, and infrastructure development. "
+              "Scientists warn that the forest is approaching a tipping point beyond "
+              "which large portions could irreversibly convert to savanna. Once that "
+              "transition begins, it cannot be reversed on a human timescale."
+          ),
+      ]
+
+      intermediate_summaries = map_summaries(sample_chunks)
+
+      print(f"\nMap phase complete. Produced {len(intermediate_summaries)} summaries.\n")
+      for i, s in enumerate(intermediate_summaries, start=1):
+          print(f"[Chunk {i} summary]\n{s}\n")
+    narration: >
+      Here is the complete code. At the top you see the same imports, model constant,
+      system prompt, and summarize_chunk function from Lesson 3 — nothing has changed
+      there. The new code is map_summaries. The function signature declares that it
+      accepts a list of strings and returns a list of strings. That type hint tells
+      anyone reading the code exactly what flows in and what flows out. Inside, you
+      initialise summaries as an empty list and capture the total chunk count so the
+      progress line can show how far along you are. The loop uses enumerate with
+      start=1 so that the progress line reads chunk 1 of 2, not chunk 0 of 1 — a
+      small detail that makes the output much more readable. Inside the loop you call
+      summarize_chunk, capture the result in a local variable called summary, and then
+      append it to the list. Using a named variable instead of appending the call
+      directly — summaries.append(summarize_chunk(chunk)) — makes it easier to add a
+      log line or inspect the value when you are debugging. At the bottom the smoke
+      test uses two short paragraphs about the Amazon rainforest. When you run it you
+      should see the two progress lines print, then the two summaries. Verify that
+      each summary is two to three sentences of plain prose with no bullet points or
+      headings — that is the system prompt doing its job.
+
+  - type: code
+    label: "Plugging map_summaries into the full pipeline"
+    heading: "The Pipeline So Far: Measure → Split → Map"
+    code: |
+      import ollama
+
+      MODEL = "llama3.2"
+
+      # --- Constants from Lessons 1 and 2 ---
+      CONTEXT_WINDOW_TOKENS = 2048
+      CHARS_PER_TOKEN = 4
+      PROMPT_OVERHEAD_TOKENS = 200
+      MAX_DOC_TOKENS = CONTEXT_WINDOW_TOKENS - PROMPT_OVERHEAD_TOKENS
+      MAX_DOC_CHARS = MAX_DOC_TOKENS * CHARS_PER_TOKEN  # ~7 400 chars
+
+      SUMMARIZE_SYSTEM_PROMPT = (
+          "You are a precise summarization assistant. "
+          "The user will send you a passage of text — possibly an excerpt from a "
+          "larger document. Summarize it in 2–3 sentences of plain prose. "
+          "Do not add headings, bullet points, or information that is not present "
+          "in the passage. Use only what is written."
+      )
+
+
+      # --- Lesson 1 functions ---
+      def estimate_tokens(text: str) -> int:
+          return len(text) // CHARS_PER_TOKEN
+
+
+      def will_fit(text: str) -> bool:
+          return estimate_tokens(text) <= MAX_DOC_TOKENS
+
+
+      # --- Lesson 2 function ---
+      def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[str]:
+          if not text:
+              return []
+          if overlap >= chunk_size:
+              raise ValueError(
+                  f"overlap ({overlap}) must be less than chunk_size ({chunk_size})"
+              )
+          step = chunk_size - overlap
+          chunks, cursor = [], 0
+          while cursor < len(text):
+              chunks.append(text[cursor : cursor + chunk_size])
+              cursor += step
+          return chunks
+
+
+      # --- Lesson 3 function ---
+      def summarize_chunk(chunk: str) -> str:
+          """Summarize a single text chunk using a focused system prompt."""
+          messages = [
+              {"role": "system", "content": SUMMARIZE_SYSTEM_PROMPT},
+              {"role": "user",   "content": chunk},
+          ]
+          response = ollama.chat(model=MODEL, messages=messages)
+          return response["message"]["content"]
+
+
+      # --- Lesson 4 function ---
+      def map_summaries(chunks: list[str]) -> list[str]:
+          """Apply summarize_chunk() to every chunk; return list of summaries."""
+          summaries = []
+          total = len(chunks)
+          for i, chunk in enumerate(chunks, start=1):
+              print(f"  Summarizing chunk {i}/{total}...")
+              summary = summarize_chunk(chunk)
+              summaries.append(summary)
+          return summaries
+
+
+      # --- Full pipeline: Measure → Split → Map ---
+      def pipeline_map_phase(doc: str) -> list[str]:
+          """
+          Run the first three stages of the summarization pipeline.
+
+          Returns a list of per-chunk summaries ready for the Reduce step.
+          If the document already fits the context window, returns a one-element list.
+          """
+          if will_fit(doc):
+              print("Document fits context window — summarizing directly.")
+              return [summarize_chunk(doc)]
+
+          chunks = chunk_text(doc, chunk_size=MAX_DOC_CHARS, overlap=MAX_DOC_CHARS // 10)
+          print(f"Document split into {len(chunks)} chunks. Starting Map phase...")
+          return map_summaries(chunks)
+
+
+      # --- Run it ---
+      long_doc = (
+          "Renewable energy adoption has accelerated globally over the past decade. "
+          "Solar and wind installations now account for the majority of new power "
+          "capacity added each year in most major economies. "
+      ) * 200  # ~12 000 chars — forces chunking
+
+      intermediate = pipeline_map_phase(long_doc)
+
+      print(f"\nMap phase done. {len(intermediate)} intermediate summaries produced.")
+      print("(These will be combined in the Reduce phase — Lesson 5.)")
+    narration: >
+      This slide assembles everything you have built over the last four lessons into
+      one coherent pipeline. The functions at the top — estimate_tokens, will_fit,
+      chunk_text, summarize_chunk — are unchanged from their original lessons. The
+      new function is pipeline_map_phase, which chains them together. It first checks
+      whether the document fits the context window. If it does, it summarizes the whole
+      document in one call and wraps the result in a one-element list, because the Reduce
+      step in Lesson 5 will always expect a list. If the document is too long, it splits
+      it into chunks with chunk_text and then calls map_summaries to produce one summary
+      per chunk. Notice that pipeline_map_phase does not call the Reduce step itself.
+      It stops at the list of intermediate summaries and returns them. This is deliberate:
+      each stage of the pipeline is a separate, testable unit. If something goes wrong
+      you can inspect the intermediate summaries directly and diagnose whether the problem
+      is in the splitting, the summarization, or the reduction. The print statement at the
+      bottom reminds you — and anyone reading the output — that the list of intermediate
+      summaries is not the final answer. It is the input to Lesson 5.
+
+  - type: exercise
+    heading: "Exercise 4: Map Summaries Over Chunks"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement map_summaries(chunks) so that it
+      calls summarize_chunk() on each element of chunks and returns a list of summary
+      strings. The automated checks verify: the return value is a list; the list has
+      the same length as the input list; every element of the list is a non-empty
+      string; and calling map_summaries on an empty list returns an empty list without
+      raising an exception.
+    hint: >
+      Initialise summaries = []. Loop over chunks with enumerate(chunks, start=1) so
+      you can print a progress line. Call summarize_chunk(chunk) and append the result.
+      Return summaries. For the empty-list case, the for loop simply never executes and
+      you return [] — no special handling needed.
+    narration: >
+      Open exercise_04.ipynb in the exercises folder. The summarize_chunk function and
+      its system prompt are already provided — you do not need to rewrite those. Your
+      task is to implement map_summaries. The function signature and docstring are there;
+      fill in the body. There are four automated checks. The first confirms the return
+      value is a list — not a generator, not a tuple, a list. The second checks that
+      the list has the same number of elements as the input chunk list, which verifies
+      you are not accidentally skipping any chunks. The third iterates over every element
+      and confirms it is a non-empty string, guarding against a case where you append
+      None or an empty string. The fourth passes an empty list and verifies the function
+      returns an empty list without raising any exception — a clean edge case to handle.
+      When all four checks pass, you have a correct Map phase. The reduction step in
+      Lesson 5 will take exactly the list your function produces.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Map-Reduce is a two-phase pattern: Map applies one function to every element of a list; Reduce combines the results into one"
+      - "map_summaries calls summarize_chunk() on each chunk and returns a list of intermediate summaries the same length as the input"
+      - "A progress line inside the loop gives you visibility — each Ollama call takes time, and silence looks like a hang"
+      - "Keeping pipeline stages separate (split / map / reduce) makes each one independently testable and debuggable"
+      - "Next: the Reduce phase — a second model call that collapses the list of intermediate summaries into one final, coherent summary"
+    narration: >
+      Let's lock in what you built. You now understand the Map-Reduce pattern and you
+      have implemented the Map half of it. map_summaries takes a list of chunk strings,
+      calls summarize_chunk on every one, and returns a list of intermediate summary
+      strings. The pipeline now has three complete stages: measure with will_fit, split
+      with chunk_text, and map with map_summaries. What you have at the end of those
+      three stages is a list of short summaries — one for each chunk of the original
+      document. That list is the bridge to the final stage. In Lesson 5 you will write
+      the Reduce step: a second model call that takes all those intermediate summaries,
+      combines them into a single prompt, and produces one coherent final summary. When
+      Lesson 5 is done, you will have a complete, working summarizer that can handle
+      documents of any length — the project deliverable for Day 7.
