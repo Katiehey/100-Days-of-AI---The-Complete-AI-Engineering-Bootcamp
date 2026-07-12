@@ -1,0 +1,294 @@
+day: "011"
+lesson: "04"
+title: "Building a Search Index"
+
+slides:
+
+  - type: title
+    heading: "Building a Search Index"
+    subheading: "Pre-compute once, search many times — efficiently"
+    narration: >
+      Welcome to Lesson 4. In Lesson 3 you learned how to measure similarity
+      between two vectors using cosine similarity. That is powerful on its own,
+      but it only gets you one comparison at a time. In the real world you have
+      a corpus — maybe dozens of documents, maybe thousands of text chunks — and
+      you want to find which one is most relevant to a given query. Doing that
+      well requires a search index. An index is the data structure that makes
+      repeated search fast and cheap. In this lesson you'll build one from
+      scratch, understand exactly why the pre-computation step matters, and write
+      the search function that queries it. Everything here is pure Python — no
+      external vector database yet. That comes later in the course.
+
+  - type: concept
+    label: "The indexing insight"
+    heading: "Pre-Compute the Documents, Not the Query"
+    body: >
+      A semantic search index stores (text, embedding) pairs computed ahead of
+      time. At query time only the query needs to be embedded; the documents
+      are never re-embedded.
+    bullets:
+      - "Index time: embed every document once → store as a list of (text, vector) pairs"
+      - "Query time: embed the query once → compare against every stored vector"
+      - "Documents may number in the thousands; the query is always just one"
+      - "Without pre-computation: embedding 1,000 docs per query = 1,000 wasted model calls"
+    narration: >
+      This is the core insight of the lesson, so take a moment with it. When
+      you want to search a corpus of documents, you have two choices. Option one:
+      every time a query arrives, embed the query and every document, then compare
+      them all. Option two: embed all the documents once up front, store the
+      vectors, and then at query time only embed the query. The second option is
+      obviously better — but why? Because documents don't change, or they change
+      infrequently. A query, on the other hand, is different every time. So you
+      do the expensive work — embedding each document — exactly once, and you pay
+      only the cost of a single embedding call per query. If your corpus has a
+      thousand chunks and each embedding call takes 50 milliseconds, option one
+      costs 50 seconds per query. Option two costs 50 milliseconds per query. The
+      ratio is exactly the size of your corpus. As the corpus grows, the advantage
+      of pre-computation grows with it. This is what a search index is: the
+      pre-computed store of (text, embedding) pairs that makes repeated querying
+      fast.
+
+  - type: concept
+    label: "Index structure"
+    heading: "What the Index Looks Like"
+    body: >
+      At its simplest an index is a list of dicts — one entry per document chunk.
+      Each entry holds the original text and its vector.
+    bullets:
+      - "Entry shape: `{\"text\": str, \"embedding\": list[float]}`"
+      - "The list is ordered but not sorted — search scans every entry"
+      - "Build once from a list of strings; query as many times as needed"
+      - "For small corpora (< 10,000 entries) a plain list is fast enough"
+    narration: >
+      There is no magic data structure needed to build a working search index
+      in Python. A list of dictionaries is sufficient. Each dictionary has two
+      keys: text holds the original string — the chunk of document you want
+      to be able to retrieve — and embedding holds the 768-element vector you
+      computed for it. The list can have as many entries as you have document
+      chunks. When a query arrives you scan through every entry in the list,
+      compute the cosine similarity between the query vector and that entry's
+      stored vector, and keep track of the best score. That linear scan — every
+      entry compared once — is called an exhaustive search or brute-force search.
+      It scales to tens of thousands of entries comfortably on a modern laptop.
+      For truly large corpora you would use a dedicated vector database with
+      an approximate nearest-neighbour algorithm, but that is a later topic.
+      For today's work — and for most real projects at the start — a plain Python
+      list is all you need, and understanding it at this level gives you the
+      foundation to understand more advanced approaches later.
+
+  - type: how_it_works
+    heading: "Two Phases: Build Then Query"
+    label: "Build and query"
+    body: >
+      The workflow separates cleanly into two phases that you should never mix:
+      building the index and querying the index.
+    bullets:
+      - "**Build phase** — call `build_index(texts)`: embeds each text, returns a list of entries"
+      - "**Query phase** — call `search(index, query, top_k)`: embeds the query, scores every entry, returns top results"
+      - "The build phase runs once (or when documents change); the query phase runs on demand"
+      - "Keeping phases separate lets you save and reload the index without re-embedding"
+    narration: >
+      The two-phase structure is deliberate and worth naming explicitly. The
+      build phase takes a list of raw text strings — your document chunks — and
+      produces the index: a list of entry dicts, each with the text and its
+      vector. This is the expensive step. You call it once when you first set up
+      your system, or when your document collection changes. The query phase takes
+      the pre-built index plus a query string and returns the top matching entries.
+      This is cheap: one embedding call for the query, then a loop over the stored
+      vectors. Because the phases are separate functions, you can build the index,
+      save it to disk with `json.dump`, shut down, come back later, load it with
+      `json.load`, and query it immediately without rebuilding. The documents are
+      not re-embedded. This is exactly the property that makes search systems
+      practical. If you mix the two phases — embedding documents inside the query
+      function — you lose all the performance benefit and the saved-index trick
+      becomes impossible. Keep them separate. It's a small architectural decision
+      that pays dividends immediately.
+
+  - type: code
+    label: "Building the index"
+    heading: "Implementing `build_index`"
+    code: |
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+
+      def embed(text: str) -> list[float]:
+          """Return the embedding vector for a piece of text."""
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+
+      def build_index(texts: list[str]) -> list[dict]:
+          """Embed each text and return a list of index entries.
+
+          Args:
+              texts: The document chunks to index.
+
+          Returns:
+              A list of dicts, each with keys 'text' and 'embedding'.
+          """
+          index = []
+          for text in texts:
+              vector = embed(text)
+              index.append({"text": text, "embedding": vector})
+          return index
+
+
+      # --- Example usage ---
+      documents = [
+          "Python is a high-level programming language.",
+          "Dogs are loyal and friendly animals.",
+          "Machine learning models learn from data.",
+          "The Eiffel Tower is located in Paris, France.",
+          "Neural networks are inspired by the human brain.",
+      ]
+
+      index = build_index(documents)
+      print(f"Index built: {len(index)} entries")
+      print(f"Entry keys : {list(index[0].keys())}")
+      print(f"Vector dim : {len(index[0]['embedding'])}")
+    narration: >
+      Here is the complete build function. It is deliberately simple: loop over
+      every text in the input list, call `embed` to get the vector, append a
+      dict with both the text and the vector to the index list, and return the
+      finished list. Notice that this function is synchronous and sequential —
+      it embeds one document at a time. For the corpus sizes you will work with
+      today that is fine. When you run the example at the bottom you'll see
+      three lines printed: the number of entries confirming all five documents
+      were indexed, the keys of each entry dict confirming the structure is
+      right, and the vector dimension confirming you're getting 768-element
+      vectors. The `embed` helper comes directly from the pattern established in
+      Lessons 1 and 2. Nothing here is new code in the sense of new concepts —
+      you are combining `ollama.embeddings` from Lesson 2 with a plain Python
+      loop and a list of dicts from Day 2. The combination is what makes it a
+      search index. This is a recurring theme in AI engineering: powerful
+      systems are often composites of simple pieces you already know.
+
+  - type: code
+    label: "Querying the index"
+    heading: "Implementing `search`"
+    code: |
+      import math
+
+
+      def dot(a: list[float], b: list[float]) -> float:
+          return sum(x * y for x, y in zip(a, b))
+
+
+      def magnitude(v: list[float]) -> float:
+          return math.sqrt(sum(x * x for x in v))
+
+
+      def cosine_similarity(a: list[float], b: list[float]) -> float:
+          """Cosine similarity in [-1, 1]; higher means more similar."""
+          if magnitude(a) == 0.0 or magnitude(b) == 0.0:
+              return 0.0
+          return dot(a, b) / (magnitude(a) * magnitude(b))
+
+
+      def search(
+          index: list[dict],
+          query: str,
+          top_k: int = 3,
+      ) -> list[dict]:
+          """Search the index for the most similar entries to the query.
+
+          Args:
+              index:  Pre-built index from build_index().
+              query:  The natural-language search query.
+              top_k:  Number of top results to return.
+
+          Returns:
+              A list of dicts with keys 'text', 'embedding', and 'score',
+              sorted by score descending.
+          """
+          query_vec = embed(query)
+          scored = []
+          for entry in index:
+              score = cosine_similarity(query_vec, entry["embedding"])
+              scored.append({"text": entry["text"], "score": score})
+          scored.sort(key=lambda e: e["score"], reverse=True)
+          return scored[:top_k]
+
+
+      # --- Try a query ---
+      results = search(index, "What is machine learning?", top_k=2)
+      for r in results:
+          print(f"Score {r['score']:.4f}  |  {r['text']}")
+    narration: >
+      Now for the query side. The search function takes the pre-built index, a
+      query string, and an optional top_k count — defaulting to 3, meaning
+      return the three best matches. Inside the function, the first thing it
+      does is embed the query. Just once. Then it loops over every entry in the
+      index, computes the cosine similarity between the query vector and that
+      entry's stored vector, and builds a list of dicts that hold the text and
+      the score. Notice it does not re-embed the document text — it uses the
+      vector already stored in the entry. Once it has scored every entry it
+      sorts by score in descending order and returns the top k. When you run
+      the example query "What is machine learning?" against our small five-document
+      index, you should see the machine learning and neural network entries score
+      highest, while the entry about dogs or Paris scores near zero. The cosine
+      similarity function here is the same implementation from Lesson 1 and
+      Lesson 3 — dot product divided by the product of magnitudes. It returns a
+      float between negative 1 and 1. For text embeddings in the same language
+      model you'll almost never see negative scores, so in practice a score above
+      0.6 is a strong match and anything below 0.3 is likely unrelated.
+
+  - type: exercise
+    heading: "Exercise 4: Build a Document Index"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. You will implement `build_index(texts)`
+      and `search(index, query, top_k)` from scratch, then test them against a
+      provided corpus of ten short documents. Automated checks verify:
+      (1) the index has one entry per document, (2) each entry has 'text' and
+      'embedding' keys with the correct types, (3) searching with a clear query
+      returns the expected document in the top result, and (4) the documents in
+      the index are never re-embedded during a search call.
+    hint: >
+      Build the index by looping over the texts list and appending
+      `{"text": text, "embedding": embed(text)}` for each. In `search`, embed
+      only the query — not the documents. Sort the scored list with
+      `sorted(..., key=lambda e: e["score"], reverse=True)` and slice to top_k.
+    narration: >
+      Time to put this together yourself. The exercise notebook provides a corpus
+      of ten short fact sentences — a mix of science, geography, history, and
+      technology. You implement `build_index` and `search` following the patterns
+      from this lesson. The first two automated checks are structural: they make
+      sure your index has the right number of entries and that each entry has
+      the right keys with the right types. The third check queries the index with
+      a specific natural-language question and asserts that the correct document
+      appears in the top result. The fourth check is the most interesting: it
+      patches the `embed` function to count how many times it is called during
+      a search, and asserts that only one call happens — the query embedding.
+      If your search function accidentally calls embed on the document texts, that
+      check will catch it. Pay attention to that one; it enforces the key
+      architectural rule from this lesson. The bonus challenge asks you to extend
+      the index by adding new documents without rebuilding the whole thing — which
+      is straightforward once you understand that the index is just a list.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "A search index is a list of (text, embedding) pairs — documents are embedded once at build time"
+      - "At query time, only the query is embedded; stored vectors are compared directly"
+      - "Two clean phases: `build_index(texts)` runs once; `search(index, query)` runs per query"
+      - "Linear scan over stored vectors is fast enough for thousands of entries in pure Python"
+      - "Next lesson: putting it all together — a full semantic Q&A system over a real document"
+    narration: >
+      Here is what to take away from this lesson. A semantic search index is a
+      list of entry dicts, each holding a text chunk and its pre-computed
+      embedding vector. Building the index is the expensive step — one model call
+      per document — but you only do it once. Searching the index is cheap — one
+      model call for the query, then pure Python arithmetic against the stored
+      vectors. Keeping build and query as separate functions is an architectural
+      discipline that makes the system fast, reloadable, and easy to reason about.
+      The linear scan you implemented scales to tens of thousands of entries
+      without modification. Put these pieces together and you have a working
+      semantic search engine built from about 30 lines of Python, using only
+      concepts you learned in Days 1 through 11. In Lesson 5, the final lesson
+      of the day, you'll wire everything together into a complete semantic Q&A
+      system: load a real document, chunk it, build an index, take a question,
+      find the relevant chunk, and answer using a local chat model. That is the
+      Day 11 project in miniature — and after this lesson, you have every piece
+      you need.

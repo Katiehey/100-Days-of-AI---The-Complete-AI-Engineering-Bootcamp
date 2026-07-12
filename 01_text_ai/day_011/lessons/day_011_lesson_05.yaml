@@ -1,0 +1,374 @@
+day: "011"
+lesson: "05"
+title: "Semantic Search: Rank and Return"
+
+slides:
+
+  - type: title
+    heading: "Semantic Search: Rank and Return"
+    subheading: "Embed the query, score every entry, return the top-k — the complete pipeline"
+    narration: >
+      Welcome to the final lesson of Day 11. Over the last four lessons you
+      built up every piece of the semantic search puzzle: you learned what
+      embeddings are, how to produce them with Ollama, how to measure similarity
+      with cosine, and how to pre-compute a searchable index. Now you assemble
+      all of those pieces into a single working pipeline. By the end of this
+      lesson you will have a complete semantic Q&A system — load a document,
+      chunk it, build an index, take a natural-language question, find the
+      relevant chunk, and answer using the local chat model. That is not a toy.
+      That is the core of every retrieval-augmented generation system you will
+      ever build.
+
+  - type: concept
+    label: "Query-time search"
+    heading: "What Happens When You Search"
+    body: >
+      At query time, the search pipeline runs four steps in sequence — all in
+      Python, all O(n) in the number of indexed entries.
+    bullets:
+      - "Step 1 — Embed the query: one `ollama.embeddings` call, one vector"
+      - "Step 2 — Score every entry: cosine similarity against each stored vector"
+      - "Step 3 — Sort descending: highest similarity at index 0"
+      - "Step 4 — Return top-k: slice the sorted list to the caller's requested depth"
+    narration: >
+      Let's walk through what actually happens the moment you call your search
+      function with a query string. Step one: you embed the query. One call to
+      the embedding model, one 768-element vector back. This is the only model
+      call at query time — everything else is arithmetic. Step two: you loop
+      over every entry in the index. For each entry you compute the cosine
+      similarity between the query vector and that entry's pre-stored vector.
+      You get a float for each entry. This is O(n) — if you have a thousand
+      entries you do a thousand comparisons. Step three: you sort the scored
+      results in descending order so the best match is first. Step four: you
+      slice to the top-k and return. On a modern laptop this whole process —
+      excluding the model call — completes in milliseconds even for tens of
+      thousands of entries. The model call for the query embedding is the only
+      latency you pay at search time. That is why the pre-computation in Lesson 4
+      matters so much: it shifts all the embedding cost to build time and leaves
+      query time nearly instant.
+
+  - type: concept
+    label: "Scores tell a story"
+    heading: "Reading the Similarity Scores"
+    body: >
+      Cosine similarity returns a float in [−1, 1]. For text embeddings from the
+      same model, the scores cluster in a predictable range.
+    bullets:
+      - "Score > 0.7 — strong topical match; almost certainly relevant"
+      - "Score 0.5–0.7 — related content; useful as supporting context"
+      - "Score 0.3–0.5 — tangentially related; may or may not be useful"
+      - "Score < 0.3 — unrelated; discard"
+      - "Thresholds vary by model and corpus — always validate on your own data"
+    narration: >
+      The scores your search function returns are not just a ranking device —
+      they carry meaning you can act on. A cosine similarity above 0.7 between
+      a query and a document chunk is a strong signal that the chunk is directly
+      relevant to the question. Scores between 0.5 and 0.7 represent related
+      content — the kind you might want to include as supporting context even if
+      it does not directly answer the question. Below 0.3 the similarity is
+      essentially noise for typical use cases. Now, these thresholds are not
+      universal. Different embedding models produce different score distributions,
+      and a dense technical corpus will score differently from a general-knowledge
+      corpus. The numbers I'm giving you are useful starting points, but you
+      should always validate them on your own data. The key practical takeaway is
+      this: you can use the score not just to rank results but to decide whether
+      any result is good enough. If your top result scores 0.2, the corpus does
+      not contain an answer to that question, and you should say so rather than
+      hallucinating one. That is a retrieval-augmented generation safety feature
+      you can implement with a single if-statement.
+
+  - type: how_it_works
+    label: "Full pipeline"
+    heading: "Wiring It End to End"
+    body: >
+      The complete semantic Q&A pipeline chains five functions you already know
+      into one `answer` function: chunk → build → embed query → search → generate.
+    bullets:
+      - "`chunk_text(doc, size, overlap)` — splits document into overlapping windows (Day 7 pattern)"
+      - "`build_index(chunks)` — embeds each chunk once, returns list of entry dicts (Lesson 4)"
+      - "`search(index, query, top_k)` — embeds query, scores all entries, returns top-k (Lesson 4)"
+      - "`ollama.chat(model, messages)` — generates an answer grounded in the retrieved chunks (Day 3)"
+      - "Concatenate top chunks as context in the system prompt — the retrieval-augmented generation pattern"
+    narration: >
+      Here is the full picture. You already have all the pieces — this slide just
+      names them in order. You take a raw document and split it into overlapping
+      chunks using the pattern from Day 7. Overlapping windows matter because a
+      relevant sentence near the boundary of a chunk could otherwise be split
+      across two entries and score poorly in both. You pass those chunks to
+      `build_index`, which embeds each one and stores the text-vector pairs. That
+      index is what you save and reuse. When a question arrives, you call `search`
+      with the index and the question string. Search embeds the question, scores
+      every entry by cosine similarity, sorts descending, and hands you back the
+      top-k chunks — the ones most likely to contain the answer. You concatenate
+      those chunks and put them into the system prompt of a `ollama.chat` call,
+      telling the model to answer using only the provided context. The model reads
+      the context and generates a grounded answer. That is retrieval-augmented
+      generation — RAG — in its simplest form. No framework, no vector database,
+      no magic. Just chunking, indexing, searching, and generating, each in its
+      own clean function.
+
+  - type: code
+    label: "Full pipeline code"
+    heading: "Putting It All Together"
+    code: |
+      import math
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+      CHAT_MODEL  = "llama3.2"
+
+
+      # --- Embedding helper (from Lesson 2) ---
+
+      def embed(text: str) -> list[float]:
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+
+      # --- Similarity helpers (from Lesson 3) ---
+
+      def dot(a: list[float], b: list[float]) -> float:
+          return sum(x * y for x, y in zip(a, b))
+
+      def magnitude(v: list[float]) -> float:
+          return math.sqrt(sum(x * x for x in v))
+
+      def cosine_similarity(a: list[float], b: list[float]) -> float:
+          if magnitude(a) == 0.0 or magnitude(b) == 0.0:
+              return 0.0
+          return dot(a, b) / (magnitude(a) * magnitude(b))
+
+
+      # --- Index helpers (from Lesson 4) ---
+
+      def build_index(texts: list[str]) -> list[dict]:
+          return [{"text": t, "embedding": embed(t)} for t in texts]
+
+      def search(index: list[dict], query: str, top_k: int = 3) -> list[dict]:
+          query_vec = embed(query)
+          scored = [
+              {"text": e["text"], "score": cosine_similarity(query_vec, e["embedding"])}
+              for e in index
+          ]
+          scored.sort(key=lambda e: e["score"], reverse=True)
+          return scored[:top_k]
+
+
+      # --- Chunking helper (Day 7 pattern, simplified) ---
+
+      def chunk_text(text: str, size: int = 300, overlap: int = 50) -> list[str]:
+          step   = size - overlap
+          chunks = []
+          start  = 0
+          while start < len(text):
+              chunks.append(text[start : start + size])
+              start += step
+          return chunks
+
+
+      # --- Full semantic Q&A pipeline ---
+
+      def answer(document: str, question: str, top_k: int = 3) -> str:
+          """Return a grounded answer to *question* using *document* as context.
+
+          Args:
+              document: The raw text to search over.
+              question: A natural-language question.
+              top_k:    Number of top chunks to include as context.
+
+          Returns:
+              The model's answer, grounded in the retrieved chunks.
+          """
+          chunks  = chunk_text(document)
+          index   = build_index(chunks)
+          results = search(index, question, top_k=top_k)
+
+          context = "\n\n---\n\n".join(r["text"] for r in results)
+
+          system_prompt = (
+              "You are a helpful assistant. Answer the user's question using ONLY "
+              "the context below. If the context does not contain enough information "
+              "to answer, say so.\n\n"
+              f"Context:\n{context}"
+          )
+          response = ollama.chat(
+              model=CHAT_MODEL,
+              messages=[
+                  {"role": "system",  "content": system_prompt},
+                  {"role": "user",    "content": question},
+              ],
+          )
+          return response["message"]["content"]
+
+
+      # --- Quick demo ---
+
+      doc = """
+      Python was created by Guido van Rossum and first released in 1991.
+      It emphasises code readability and uses significant indentation.
+      Python supports multiple programming paradigms, including structured,
+      object-oriented, and functional programming.
+
+      Machine learning is a subset of artificial intelligence that enables
+      systems to learn from data without being explicitly programmed.
+      Common ML tasks include classification, regression, and clustering.
+
+      The cosine similarity between two vectors measures the angle between them.
+      It returns 1 for identical directions, 0 for perpendicular, and -1 for opposite.
+      It is widely used in natural language processing to compare text embeddings.
+      """
+
+      question = "Who created Python and when?"
+      print("Question:", question)
+      print("Answer  :", answer(doc, question))
+    narration: >
+      Let's look at the complete implementation. The file starts with the helpers
+      you've seen across Lessons 2 through 4: `embed`, the dot product and
+      magnitude functions, `cosine_similarity`, `build_index`, and `search`.
+      Each one is exactly as you wrote it in its own lesson — no changes. Then
+      there is `chunk_text`, a simplified version of the Day 7 chunking pattern:
+      a while loop that advances a cursor by `size - overlap` each iteration,
+      slicing the text into overlapping windows. The new function here is
+      `answer`. It takes a raw document string and a question, runs them through
+      the full pipeline, and returns a grounded answer string. Read through the
+      body: chunk the document, build the index from the chunks, search the index
+      for the top-k results, join those result texts into a context block separated
+      by horizontal rules, construct a system prompt that instructs the model to
+      answer using only that context, call `ollama.chat`, and return the content.
+      That is retrieval-augmented generation. The demo at the bottom uses a short
+      three-paragraph document and asks "Who created Python and when?" — the model
+      should retrieve the first paragraph and answer correctly. Notice that the
+      model is not relying on its training data here; it is reading the context
+      you provided. If you removed the Python paragraph from the document, the
+      model would say it does not have enough information. That is the grounding
+      property that makes RAG trustworthy.
+
+  - type: code
+    label: "Score threshold guard"
+    heading: "Refusing to Guess: The Score Threshold"
+    code: |
+      MIN_SCORE = 0.35
+
+
+      def answer_safe(
+          document: str,
+          question: str,
+          top_k: int = 3,
+          min_score: float = MIN_SCORE,
+      ) -> str:
+          """Like answer(), but refuses to generate if no chunk clears min_score.
+
+          Returns a refusal string when retrieval confidence is too low, rather
+          than risking a hallucinated answer.
+          """
+          chunks  = chunk_text(document)
+          index   = build_index(chunks)
+          results = search(index, question, top_k=top_k)
+
+          # Gate on the top result's score
+          if not results or results[0]["score"] < min_score:
+              return (
+                  f"I could not find relevant information in the document "
+                  f"(best score: {results[0]['score']:.3f} < {min_score}). "
+                  f"Please rephrase or try a different question."
+              )
+
+          context = "\n\n---\n\n".join(r["text"] for r in results)
+          system_prompt = (
+              "You are a helpful assistant. Answer the user's question using ONLY "
+              "the context below. If the context does not contain enough information "
+              "to answer, say so.\n\n"
+              f"Context:\n{context}"
+          )
+          response = ollama.chat(
+              model=CHAT_MODEL,
+              messages=[
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user",   "content": question},
+              ],
+          )
+          return response["message"]["content"]
+
+
+      # --- Test the guard ---
+      print(answer_safe(doc, "What is the capital of Mars?"))
+      # Expected: refusal string, not a hallucinated answer
+    narration: >
+      The first version of `answer` always calls the chat model, even if the
+      search found nothing relevant. That is a problem: if the corpus does not
+      contain an answer, the model will hallucinate one rather than admit
+      ignorance. This second version, `answer_safe`, adds a single guard before
+      the generation step. After searching, it checks whether the top result's
+      score clears a minimum threshold. If it does not, the function returns a
+      refusal string immediately — no model call, no hallucination. The default
+      threshold here is 0.35, which is a conservative starting point. You adjust
+      it for your corpus after testing with real queries. When you run the test at
+      the bottom — "What is the capital of Mars?" against a document about Python
+      and machine learning — the top score will be well below 0.35 and the
+      function returns the refusal message. This is a one-line if-statement, but
+      it closes an important reliability gap. In any production RAG system you
+      build, this guard should be present. Retrieving confidently is not enough;
+      you also need to know when you cannot retrieve confidently.
+
+  - type: exercise
+    heading: "Exercise 5: Search the Index"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. You will implement
+      `semantic_search(query, index, model, top_k)` — a function that embeds the
+      query, scores every index entry by cosine similarity, sorts descending, and
+      returns the top-k results as dicts with `text` and `score` keys. Automated
+      checks verify: (1) `semantic_search` is callable, (2) results are sorted
+      descending by score, (3) the top result for a known query matches the
+      expected entry with score ≈ 1.0, and (4) `top_k` correctly clips the
+      result list length.
+    hint: >
+      Embed the query with `ollama.embeddings`, then use a list comprehension to
+      score every index entry with `_cosine_similarity`. Sort with
+      `key=lambda e: e["score"], reverse=True` and slice to `top_k`. The bonus
+      challenge asks you to add a `semantic_search_safe` wrapper that returns an
+      empty list when the top score falls below `min_score`.
+    narration: >
+      This is the capstone exercise for Day 11. You implement the query-time half
+      of semantic search from scratch — the part that actually takes a question
+      and finds the closest chunks. The automated checks are designed to test each
+      layer independently using a tiny hand-crafted two-dimensional index so no
+      Ollama call is needed. The first check confirms the function is defined and
+      callable. The second check verifies the results list is sorted correctly —
+      highest score first. The third check uses a query vector that is identical
+      to entry A's vector, so the expected top score is exactly 1.0; this catches
+      any bug in your cosine similarity wiring. The fourth check calls the
+      function with top_k=1 and top_k=2 and asserts the result lengths match,
+      enforcing the slicing contract. The bonus challenge asks you to wrap
+      `semantic_search` in a `semantic_search_safe` function that returns an empty
+      list when the top result's score falls below a `min_score` threshold — a
+      one-line guard that prevents the downstream chat model from hallucinating
+      answers when the corpus contains no relevant information.
+
+  - type: summary
+    heading: "Day 11 Takeaways"
+    bullets:
+      - "Query-time search: embed the query once, score every indexed entry by cosine similarity, sort descending, return top-k — O(n) in corpus size"
+      - "Scores carry meaning: > 0.7 is a strong match; < 0.3 is noise; use a min-score guard to refuse low-confidence retrievals"
+      - "Retrieval-augmented generation (RAG) = chunk → index → search → inject context → generate; all five steps are now in your toolkit"
+      - "Keeping build and query phases separate lets you save, reload, and reuse the index without re-embedding"
+      - "The Day 11 project wires everything into a document Q&A system you run on a real file — build it, run it, ship it"
+    narration: >
+      Let's lock in what you've built today. The semantic search pipeline you
+      now understand end to end is: turn text into vectors with an embedding
+      model, store those vectors in an index, embed an incoming query, compare
+      it against every stored vector using cosine similarity, sort by score
+      descending, and return the top-k results. That is O(n) — linear in corpus
+      size — and fast enough for tens of thousands of entries in pure Python.
+      The scores you get back are not just a ranking; they are a confidence
+      signal. A score above 0.7 means the retrieved chunk is almost certainly
+      relevant. A score below 0.35 means the corpus probably does not contain
+      an answer, and you should say so instead of letting the model guess. The
+      retrieval-augmented generation pattern — find relevant chunks, inject them
+      as context, generate a grounded answer — is the single most important
+      pattern in applied language model engineering right now. You have built
+      it from scratch, with no framework, using only Python concepts from Days 1
+      through 11. The Day 11 project takes exactly this pipeline and runs it on
+      a real document you provide. You will load the file, chunk it, build the
+      index, take three questions from the user, and print grounded answers with
+      their scores. That is a working AI product. Build it, run it, and then
+      commit it — you've earned it.

@@ -1,0 +1,264 @@
+day: "011"
+lesson: "02"
+title: "Getting Embeddings from Ollama"
+
+slides:
+
+  - type: title
+    heading: "Getting Embeddings from Ollama"
+    subheading: "One API call that turns text into a list of numbers"
+    narration: >
+      In Lesson 1 you learned what an embedding is — a vector of numbers that
+      captures meaning. Now you're going to produce one. Ollama ships embedding
+      models alongside chat models, and calling them takes a single Python
+      function. By the end of this lesson you'll have a working function that
+      takes any string and returns its embedding vector, and you'll understand
+      three things that matter a lot in practice: how the call works, why the
+      same text always gives you the same numbers, and why the model you use
+      for embeddings is different from the model you use for chat.
+
+  - type: concept
+    label: "Two kinds of models"
+    heading: "Chat Models vs Embedding Models"
+    body: >
+      Ollama hosts two distinct types of model. They have different jobs and
+      you call them with different functions.
+    bullets:
+      - "**Chat model** — generates text token by token; used with `ollama.chat()`"
+      - "**Embedding model** — encodes text into a fixed-length vector; used with `ollama.embeddings()`"
+      - "You cannot swap them: chat models do not produce reliable embeddings and vice versa"
+      - "Common embedding model: `nomic-embed-text` (768 dimensions, fast, runs locally)"
+    narration: >
+      This is a distinction that trips up a lot of beginners, so let's be
+      precise. A chat model like `llama3.2` is a generative model — it takes a
+      conversation and produces the next token, then the next, building up a
+      response one piece at a time. An embedding model like `nomic-embed-text`
+      does something completely different: it reads your entire input and
+      produces one fixed-length vector that represents the meaning of that text.
+      No generation, no tokens streamed out — just a list of numbers. Because
+      they do different things, they are separate models, and Ollama exposes
+      them through separate functions. You've already used `ollama.chat()` many
+      times. Today you'll meet its counterpart, `ollama.embeddings()`. It's
+      important to keep these mentally separate: when you're doing semantic
+      search or similarity work, you reach for the embedding model. When you
+      want generated text, you reach for the chat model. Mixing them up is one
+      of the most common mistakes in early AI engineering work.
+
+  - type: concept
+    label: "Determinism"
+    heading: "Same Text, Same Vector — Every Time"
+    body: >
+      Embedding models are deterministic: given identical input text and the
+      same model, the output vector is always identical.
+    bullets:
+      - "No randomness, no temperature — the encoder is a fixed mathematical function"
+      - "Call the same model with `\"hello\"` a thousand times → same 768 numbers each time"
+      - "This makes embeddings safe to cache and compare across sessions"
+      - "Contrast with chat models: `temperature > 0` means each response differs"
+    narration: >
+      Determinism is a property you want to understand deeply because it shapes
+      how you build with embeddings. When you call `ollama.chat()` with a
+      temperature above zero, you get a different response every time — that's
+      intentional, it's what makes conversations feel natural. Embedding models
+      work the opposite way. There is no sampling, no randomness. The model is
+      essentially a fixed mathematical function: you give it text, it runs
+      through the neural network layers, and the same text always produces the
+      same output vector. Always. This is extremely useful. It means you can
+      compute an embedding once, store it in a database, and retrieve it later
+      — the stored vector will match any future embedding of the same text
+      perfectly. It also means you can compare embeddings computed at different
+      times or in different sessions without worrying about drift. This
+      determinism is what makes vector databases practical: you index your
+      documents once, and the index stays valid indefinitely, as long as you
+      don't switch embedding models.
+
+  - type: how_it_works
+    label: "The API"
+    heading: "How `ollama.embeddings()` Works"
+    body: >
+      One function call returns a dict. The vector lives at the key
+      `"embedding"` and is a plain Python `list[float]`.
+    bullets:
+      - "`ollama.embeddings(model, prompt)` — two positional arguments"
+      - "Returns `dict` with key `\"embedding\"` → `list[float]`"
+      - "The list length (dimension) is fixed by the model — e.g. 768 for `nomic-embed-text`"
+      - "Pull the model once: `ollama pull nomic-embed-text`"
+      - "**Note:** `ollama.embeddings` is the legacy endpoint; the current API is `ollama.embed(model=..., input=...)` returning `response[\"embeddings\"][0]`. Both work today — for new projects prefer `ollama.embed`."
+    narration: >
+      The function signature is simpler than `ollama.chat()`. You pass two
+      arguments: the model name and the text you want to embed — called
+      `prompt` in Ollama's terminology, though it's really just your input
+      string. The function returns a plain Python dictionary. You pull out the
+      vector by accessing the key `"embedding"`, and what you get back is a
+      standard Python list of floats. Nothing exotic — just a list. You can
+      index it, slice it, pass it to any math function. The length of that list
+      is fixed by which model you chose. With `nomic-embed-text` you always get
+      768 floats. With a different embedding model the dimension might be 384,
+      1024, or 1536 — but for any given model it never changes. The model needs
+      to be pulled before you use it, just like a chat model. One `ollama pull
+      nomic-embed-text` command and it's ready. From then on it runs locally,
+      no internet connection needed, no API key, no cost per call.
+
+  - type: code
+    label: "Basic call"
+    heading: "Fetching Your First Embedding"
+    code: |
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+      def get_embedding(text: str) -> list[float]:
+          """Return the embedding vector for the given text.
+
+          Args:
+              text: The input string to embed.
+
+          Returns:
+              A list of floats representing the embedding vector.
+          """
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+
+      # --- Try it ---
+      vector = get_embedding("The sky is blue.")
+
+      print(f"Type   : {type(vector)}")          # <class 'list'>
+      print(f"Length : {len(vector)}")            # 768
+      print(f"First 5: {vector[:5]}")             # [-0.021, 0.134, ...]
+    narration: >
+      Here is the minimal working implementation. The function `get_embedding`
+      takes a string, calls `ollama.embeddings()` with our chosen model and
+      that string, then pulls the list out of the response dictionary. That's
+      it — four lines of real work, plus the docstring. Notice the constant
+      `EMBED_MODEL` at the top: separating the model name from the function
+      body is a pattern you've seen before with chat models, and it matters
+      here too. If you ever switch embedding models you change one line, not
+      every call site. When you run this, you'll see the type is a plain
+      Python list, the length is 768, and the first few values are small
+      decimal numbers — typically between negative one and positive one. Every
+      number carries a tiny piece of the meaning of your text. Individually
+      they're meaningless; collectively they encode enough semantic information
+      to compare documents, find similar passages, and power search systems.
+      This one function is the building block for everything that follows this
+      week.
+
+  - type: code
+    label: "Determinism check"
+    heading: "Proving Determinism in Code"
+    code: |
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+      def get_embedding(text: str) -> list[float]:
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+
+      # Call the same text twice and compare
+      text = "Embeddings are deterministic."
+
+      vec_a = get_embedding(text)
+      vec_b = get_embedding(text)
+
+      are_identical = vec_a == vec_b
+      print(f"Vectors identical: {are_identical}")   # True
+
+      # Different text → different vector
+      vec_c = get_embedding("Embeddings are stochastic.")
+      is_different = vec_a != vec_c
+      print(f"Different text, different vector: {is_different}")   # True
+    narration: >
+      This snippet is short but it proves something important. We call
+      `get_embedding` twice with the exact same string and compare the two
+      lists with the equality operator. In Python, comparing two lists checks
+      every element, so this is a precise equality test — not approximate.
+      The result is `True`. Every one of the 768 floats matches. Run it ten
+      times, it's `True` every time. The second half of the snippet confirms
+      the flip side: a different input string produces a meaningfully different
+      vector, so the model is actually encoding the content, not just returning
+      a constant. This two-part test — same input equals same output, different
+      input differs — is exactly the property you want to verify when you start
+      working with a new embedding model. It's also a pattern to keep in mind
+      for your exercise notebook: writing assertions that check both sides of a
+      property is stronger than checking just one side.
+
+  - type: concept
+    label: "What the vector is"
+    heading: "What You're Actually Holding"
+    body: >
+      The returned `list[float]` is a point in 768-dimensional space. Its
+      position encodes the semantic content of your text.
+    bullets:
+      - "Each float is a coordinate along one learned dimension of meaning"
+      - "Texts with similar meaning land close together in this space"
+      - "Distance between vectors = dissimilarity of meaning"
+      - "Next lesson: measuring that distance with dot product and cosine similarity"
+    narration: >
+      It's worth pausing on what you're actually holding after that function
+      call. The 768 floats are coordinates — think of each one as a position
+      along a single axis of meaning. The neural network was trained in such a
+      way that texts with similar meanings end up at similar coordinates, and
+      texts with very different meanings end up far apart. So "the cat sat on
+      the mat" and "a feline rested on the rug" will produce vectors that are
+      close to each other, even though no words are shared. "The stock market
+      closed up two percent" will produce a vector that is far from both of
+      them. This geometry — proximity equals similarity — is what makes the
+      embedding space useful. You don't need to parse language or write keyword
+      rules. You compute two vectors and measure how close they are. The next
+      lesson will show you exactly how to measure that closeness using dot
+      product and cosine similarity, both of which are just a few lines of
+      Python. For now, hold onto the intuition: you have a list of numbers, and
+      those numbers are a geometric address for the meaning of your text.
+
+  - type: exercise
+    heading: "Exercise 2: Fetch an Embedding"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. You will implement `get_embedding(text)`
+      using `ollama.embeddings()`, then answer three automated checks:
+      (1) the return type is `list`, (2) the vector has the expected length for
+      `nomic-embed-text`, and (3) calling the function twice with the same input
+      produces identical vectors.
+    hint: >
+      The response from `ollama.embeddings()` is a dict. The vector is at
+      `response["embedding"]`. Pull the model first with
+      `ollama pull nomic-embed-text` if you haven't already.
+    narration: >
+      Head over to exercise 02 now. The notebook walks you through implementing
+      `get_embedding` from scratch — you've seen all the pieces in this lesson,
+      so your task is to put them together cleanly in the function stub. The
+      three automated checks are concrete: first, that the return value is
+      actually a Python list and not something else; second, that the list has
+      exactly 768 elements, confirming you're hitting the right model and
+      getting a full response; and third, that calling your function twice with
+      the same text returns two lists that are equal element-by-element. That
+      third check is the determinism property you just saw demonstrated in code.
+      If any check fails, the notebook will tell you exactly which one, so you
+      can debug precisely rather than guessing. Once all three checks are green,
+      you're done. The bonus challenge asks you to fetch embeddings for three
+      different sentences and print a summary of each vector — length, minimum
+      value, and maximum value — which is good intuition-building for the
+      similarity work coming in Lesson 3.
+
+  - type: summary
+    heading: "What You've Learned"
+    bullets:
+      - "`ollama.embeddings(model, prompt)` returns a dict; the vector is at `response[\"embedding\"]` as a `list[float]`"
+      - "Embedding models are separate from chat models — use `nomic-embed-text`, not `llama3.2`"
+      - "Embeddings are deterministic: same text + same model = identical vector every time"
+      - "Next lesson: measuring how close two vectors are with dot product and cosine similarity"
+    narration: >
+      Let's lock in what this lesson covered. You now have a working
+      `get_embedding` function that takes any string and returns its embedding
+      vector as a plain Python list. You know the two-argument call pattern for
+      `ollama.embeddings()`, how to pull out the vector from the response dict,
+      and that the vector length is fixed by the model — 768 for
+      `nomic-embed-text`. You understand that embedding models and chat models
+      are different tools for different jobs, and you've verified with your own
+      code that the same text always produces the same vector. The natural next
+      question is: now that I have two vectors, how do I measure how similar
+      they are? That's Lesson 3. You'll implement dot product and cosine
+      similarity from scratch in pure Python — no external libraries — and use
+      them to compare sentences. It's the piece that turns a list of numbers
+      into something you can reason about.

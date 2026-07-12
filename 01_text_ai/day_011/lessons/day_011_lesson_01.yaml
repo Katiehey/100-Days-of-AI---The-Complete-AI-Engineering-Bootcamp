@@ -1,0 +1,232 @@
+day: "011"
+lesson: "01"
+title: "What Is an Embedding?"
+
+slides:
+
+  - type: title
+    heading: "What Is an Embedding?"
+    subheading: "Turning meaning into numbers — so math can work on language"
+    narration: >
+      Welcome to Day 11 and the start of a new section: embeddings and semantic
+      search. Over the last five days you learned to prompt, classify, extract,
+      and template your way through text. All of that was language-in, language-out.
+      Today you cross a different kind of threshold. You're going to learn how
+      to turn language into numbers — specifically, into vectors — in a way that
+      preserves meaning. Once you can do that, ordinary math becomes a search
+      engine, a recommendation engine, and a duplicate detector. This lesson is
+      the conceptual foundation. If you leave today understanding what an embedding
+      is and why it works, the rest of the week will click immediately.
+
+  - type: concept
+    label: "The core problem"
+    heading: "Computers Don't Understand Words"
+    body: >
+      Text is symbols. Computers handle numbers. To do any math on language
+      you need a way to convert words and sentences into numbers without
+      losing the meaning.
+    bullets:
+      - "Naive encoding: assign each word an integer (cat=1, dog=2, car=3)"
+      - "Problem: cat=1, dog=2 implies cat is closer to dog than car=3 — but numerically 1 and 2 are adjacent by accident"
+      - "We need an encoding where closeness in number-space reflects closeness in meaning"
+    narration: >
+      Here's the problem in its simplest form. You want to compare two sentences
+      and ask: are these about the same thing? A computer can compare numbers,
+      but it can not compare strings meaningfully. So you need to turn strings
+      into numbers. The naive approach is to assign each word an integer — cat
+      gets 1, dog gets 2. But now the model thinks cat and dog are close, and
+      dog and car are far apart, purely because of the arbitrary numbers you
+      chose. That's wrong. Cat and dog are semantically close; car is unrelated.
+      The encoding should reflect that relationship, not invent a different one
+      by accident. This is the core problem that embeddings solve. They are a
+      way of encoding text into numbers such that the numeric distances between
+      those numbers track the semantic distances between the meanings. That one
+      property unlocks a huge range of applications.
+
+  - type: concept
+    label: "Embeddings defined"
+    heading: "A Vector That Captures Meaning"
+    body: >
+      An **embedding** is a fixed-length list of numbers (a vector) produced by
+      a model trained to put semantically similar texts near each other in that
+      numeric space.
+    bullets:
+      - "Fixed length: every piece of text — a word, a sentence, a paragraph — produces a vector of exactly the same size (e.g. 384 numbers)"
+      - "Learned: the numbers come from a neural network trained on billions of text pairs"
+      - "Meaningful distances: 'king' and 'queen' are close; 'king' and 'carburetor' are far"
+    narration: >
+      So what exactly is an embedding? It's a fixed-length list of floating-point
+      numbers. When you pass any piece of text into an embedding model, you get
+      back a vector — say 384 numbers for a small model, or 1536 for a larger one.
+      Every piece of text you encode gets the same number of dimensions, regardless
+      of how long or short the text is. That fixed length is important: it means
+      you can compare any two vectors directly. The numbers themselves come from a
+      neural network that was trained on enormous amounts of text. During training
+      it learned to position similar-meaning texts close together and different-meaning
+      texts far apart. You don't design those numbers yourself — you just call the
+      model and it hands them back. The magic is in what the training has baked in:
+      relationships between concepts, synonyms, topics, sentiment — all of it encoded
+      in how close the vectors are to each other in that high-dimensional space.
+
+  - type: concept
+    label: "Vector space intuition"
+    heading: "Meaning Lives in a High-Dimensional Space"
+    body: >
+      Think of each embedding as a point in space. Texts with similar meanings
+      land near each other. This turns "find similar texts" into "find nearby
+      points" — a pure math problem.
+    bullets:
+      - "2D intuition: 'happy', 'joyful', 'elated' cluster together; 'angry', 'furious' cluster elsewhere"
+      - "Real embeddings: 384–3072 dimensions, but the same clustering principle holds"
+      - "Distance = dissimilarity; direction = topic or sentiment axis"
+    narration: >
+      The easiest way to build intuition here is to imagine a 2D map, even though
+      real embeddings use hundreds of dimensions. Picture a flat plane. You drop a
+      point for every piece of text you embed. Texts about happiness — happy, joyful,
+      elated, cheerful — all land in roughly the same neighbourhood because the model
+      has learned they appear in similar contexts. Texts about anger land in a
+      different neighbourhood. Texts about cars land somewhere else entirely. The
+      distance between two points on this map corresponds to the semantic distance
+      between the two pieces of text. Small distance means similar meaning. Large
+      distance means different meaning. In the real version of this space you have
+      hundreds or thousands of dimensions instead of two, so you can't visualise it
+      directly — but the same principle applies. Finding texts with similar meaning
+      is now just finding the closest points in that space, which is straightforward
+      geometry. That's why embeddings are so powerful: they reduce a language problem
+      to a math problem.
+
+  - type: how_it_works
+    label: "The mechanics"
+    heading: "How You Get an Embedding in Practice"
+    body: >
+      Ollama ships embedding models alongside chat models. One API call returns
+      the vector. You pass text in; you get a list of floats back.
+    bullets:
+      - "Model: `nomic-embed-text` (via Ollama — free, local, no API key)"
+      - "Call: `ollama.embeddings(model=..., prompt=...)` returns `{\"embedding\": [...]}`"
+      - "Vector length: 768 floats for nomic-embed-text"
+    narration: >
+      Mechanically, getting an embedding is a single function call. Ollama, which
+      you've been using since Day 3, ships with embedding models alongside chat
+      models. The one you'll use this week is called nomic-embed-text. It's
+      small, fast, runs fully locally, and produces a 768-dimensional vector.
+      You call `ollama.embeddings`, pass the model name and the text you want
+      to embed, and you get back a dict with a key called embedding. That
+      value is a plain Python list of 768 floating-point numbers. No API key,
+      no billing, no network round-trip to a cloud service. The entire embedding
+      computation happens on your machine. This matters because you'll be embedding
+      hundreds or thousands of texts in the exercises this week, and a paid API
+      would make that expensive very quickly. Local models keep the zero-cost
+      constraint that runs throughout this course.
+
+  - type: code
+    label: "First embedding"
+    heading: "Calling the Embedding Model"
+    code: |
+      import ollama
+
+      MODEL = "nomic-embed-text"
+
+      def embed(text: str) -> list[float]:
+          """Return the embedding vector for a piece of text."""
+          response = ollama.embeddings(model=MODEL, prompt=text)
+          return response["embedding"]
+
+      # Try it
+      vec = embed("The cat sat on the mat.")
+      print(f"Vector length : {len(vec)}")       # 768
+      print(f"First 5 values: {vec[:5]}")
+      print(f"Type of each  : {type(vec[0])}")   # <class 'float'>
+    narration: >
+      Here is the complete working code to get your first embedding. The function
+      is just four lines: call `ollama.embeddings` with the model name and the
+      prompt, then return the list under the "embedding" key. The rest is
+      exploratory print statements so you can see what you actually got back.
+      When you run this you'll see that the vector has 768 elements, each one
+      a floating-point number. The specific values don't mean anything in isolation
+      — they only become useful when you compare one vector to another. Notice
+      that the function signature is typed: it takes a string and returns a list
+      of floats. That's the pattern from Day 2 applied here. It's a small thing
+      but it makes the downstream code easier to reason about, especially when
+      you start passing vectors into comparison functions. Run this code now and
+      confirm you see a 768-element vector before moving on. If Ollama is not
+      running, start it with `ollama serve` in a terminal, then pull the model
+      with `ollama pull nomic-embed-text`.
+
+  - type: code
+    label: "Measuring similarity"
+    heading: "Cosine Similarity: Is Close Really Close?"
+    code: |
+      # cosine_similarity is a function you will derive and implement in Lesson 3.
+      # For now, treat it as a black box: two vectors in, one score out.
+
+      # Compare three sentences
+      s1 = embed("I love machine learning.")
+      s2 = embed("Deep learning is fascinating.")
+      s3 = embed("The quarterly earnings report is due Friday.")
+
+      print(cosine_similarity(s1, s2))   # high — both about ML
+      print(cosine_similarity(s1, s3))   # low  — unrelated topics
+    narration: >
+      Now that you can get vectors, you need a way to measure how close two
+      vectors are. The standard tool is cosine similarity. It measures the angle
+      between two vectors: if they point in exactly the same direction the score
+      is 1.0; if they are perpendicular it is 0; if they point in opposite
+      directions it is minus 1. For text embeddings the score almost always lands
+      between 0 and 1, and higher is more similar. You'll derive and implement
+      `cosine_similarity` from scratch in Lesson 3 — the formula and every line
+      of code. For now, treat it as a provided black box and focus on what the
+      scores tell you. When you run this with the three example sentences you'll
+      see a noticeably higher score between the first two — both are about machine
+      learning — and a noticeably lower score between the first and third, which
+      are about completely different topics. That difference is the embedding model
+      doing its job: mapping semantic similarity faithfully into numeric space.
+
+  - type: exercise
+    heading: "Exercise 1: Spot the Similarity"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. You'll implement a function that takes
+      two strings and returns their cosine similarity score using local embeddings.
+      Then run it on five pairs of sentences — some similar, some unrelated — and
+      verify that the scores match your intuition about which pairs are close.
+    hint: >
+      Embed both strings with `ollama.embeddings`, then apply cosine similarity.
+      The automated checks will verify that similar-meaning pairs score at or above 0.65
+      and unrelated pairs score below 0.4.
+    narration: >
+      Now it's your turn. The exercise notebook has a function called
+      `sentence_similarity` that you need to complete. It takes two strings and
+      should return a float between negative 1 and 1 representing how semantically
+      similar they are. You've just seen all the pieces: the embed function and the
+      cosine similarity calculation. Put them together. Once your function works,
+      the notebook will run it on five pairs of sentences with automated checks.
+      Two pairs are semantically similar — think synonyms or paraphrases. Two are
+      unrelated. One is a boundary case. The checks have thresholds: similar pairs
+      must score at or above 0.65, unrelated pairs must score below 0.4. If a pair falls
+      in the wrong band, your embedding call or your similarity calculation has a
+      bug. Work through it methodically: embed one sentence, print the vector length
+      to confirm it's 768, then embed the second, then compute the similarity and
+      print the score before running the automated checks. The exercise should take
+      about ten minutes once you understand what the pieces are.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "An embedding is a fixed-length vector of floats that encodes the meaning of text"
+      - "Similar meanings produce similar vectors; distance in vector space reflects semantic distance"
+      - "Cosine similarity converts two vectors into a single score in [-1, 1]; higher means more similar"
+      - "Ollama's `nomic-embed-text` gives you free, local, 768-dim embeddings in one function call"
+      - "Next lesson: building semantic search — find the most relevant chunk in a document using embeddings"
+    narration: >
+      Let's lock in what you've learned. Embeddings are fixed-length numeric
+      vectors that capture the meaning of text. The key property — the one that
+      makes everything else possible — is that similar meanings produce vectors
+      that are close together in that high-dimensional space. You measure closeness
+      with cosine similarity: one line of arithmetic on two lists of floats. And
+      you get those vectors for free using Ollama's nomic-embed-text model running
+      locally on your machine. Everything this week builds on these three things:
+      embed, compare, act on the result. In Lesson 2 you'll take that combination
+      and build semantic search — the ability to find the most relevant passage in
+      a document given a natural-language question, without any keyword matching.
+      It's one of the most practically useful things you can build with an LLM
+      stack, and it follows directly from what you just learned.

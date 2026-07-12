@@ -1,0 +1,275 @@
+day: "011"
+lesson: "03"
+title: "Cosine Similarity"
+
+slides:
+
+  - type: title
+    heading: "Cosine Similarity"
+    subheading: "Measuring the angle between two vectors — with nothing but stdlib math"
+    narration: >
+      In Lesson 2 you fetched your first embedding: a plain Python list of 768
+      floats sitting in memory. The natural next question is what to do with it.
+      The answer is comparison. If two texts mean similar things, their vectors
+      point in a similar direction through that 768-dimensional space. Cosine
+      similarity is how you measure that direction match. It gives you a single
+      number between negative one and positive one, and it tells you, objectively,
+      how semantically close two pieces of text are. You are going to derive the
+      formula from scratch, implement it in pure Python using only the standard
+      library, and verify it on real embeddings. No external packages, no magic.
+
+  - type: concept
+    label: "The intuition"
+    heading: "Direction, Not Distance"
+    body: >
+      Two vectors can be far apart in space but still point the same way.
+      Cosine similarity ignores length and measures only the angle between them.
+    bullets:
+      - "Angle = 0° → similarity = 1.0 — vectors point the same direction (identical meaning)"
+      - "Angle = 90° → similarity = 0.0 — vectors are orthogonal (unrelated meaning)"
+      - "Angle = 180° → similarity = −1.0 — vectors point opposite directions"
+      - "Embedding vectors are never truly negative-one — in practice the range is roughly 0 to 1"
+    narration: >
+      Here is the key intuition. Imagine two arrows pinned at the origin of a
+      coordinate system. If they point the same way, the angle between them is
+      zero degrees and their cosine is one — maximum similarity. If they are at
+      right angles to each other, the cosine is zero — unrelated. If one points
+      left and the other points right, the cosine is negative one — maximum
+      dissimilarity. Now here is why this is better than measuring straight-line
+      distance between the tips of the arrows. If you scale one arrow to be ten
+      times longer, the tips move far apart, but the angle between the arrows
+      hasn't changed at all. Cosine similarity sees through that. It only cares
+      about direction, which is exactly what you want for embeddings: the model
+      might produce a longer vector for a longer sentence, but what matters is
+      not the length, it's which way the vector is pointing in meaning space. In
+      practice, embeddings from `nomic-embed-text` are already normalised to
+      roughly unit length, so you will rarely see negative similarities — most
+      real scores land between zero and one. But the formula handles all cases,
+      and you will understand why the formula works because you are building it
+      yourself.
+
+  - type: concept
+    label: "The formula"
+    heading: "Dot Product Divided by Product of Magnitudes"
+    body: >
+      Given vectors **a** and **b**, cosine similarity is defined as:
+    bullets:
+      - "Dot product: a · b = Σ aᵢ × bᵢ  (multiply element-wise, then sum)"
+      - "Magnitude: |a| = √(Σ aᵢ²)  (square each element, sum, take square root)"
+      - "Cosine similarity: cos(θ) = (a · b) / (|a| × |b|)"
+      - "Range: −1 (opposite) to 0 (orthogonal) to 1 (identical direction)"
+    narration: >
+      Let's put the formula on the table so you can see every part of it. The
+      dot product of two vectors is computed by multiplying their corresponding
+      elements one by one and then summing all those products. So for a pair of
+      three-dimensional vectors you would multiply the first elements together,
+      the second elements together, the third elements together, and add up all
+      three results. The magnitude of a vector is its length in that high-dimensional
+      space: square every element, sum the squares, take the square root. You
+      are computing a Euclidean length, the same thing you learned in high school
+      geometry, just extended to 768 dimensions instead of two or three. The
+      cosine similarity is the dot product divided by the product of the two
+      magnitudes. When the magnitudes are both one — the unit-vector case — the
+      denominator is one and cosine similarity equals the dot product directly.
+      That is why normalised vectors are convenient. But the formula works for
+      any non-zero vectors, and you will guard against the zero-vector edge case
+      in your implementation. Every piece of this formula is arithmetic that you
+      know: multiply, sum, square root, divide. That is all there is to it.
+
+  - type: how_it_works
+    label: "stdlib math"
+    heading: "Python Tools You Already Have"
+    body: >
+      You need exactly three items from the Python standard library — all
+      available without installing anything.
+    bullets:
+      - "`math.sqrt(x)` — square root of a float"
+      - "`sum(iterable)` — built-in; sums any iterable of numbers"
+      - "List comprehension + `zip()` — element-wise operations over two lists"
+    narration: >
+      You already know every Python construct you need for this implementation.
+      You have `sum()`, the built-in that totals any iterable. You have `zip()`,
+      which pairs up elements from two lists so you can process them together in
+      a comprehension. You have `math.sqrt()` from the standard library. That is
+      the complete toolkit. You do not need NumPy. You do not need SciPy. You do
+      not need any package you haven't already seen. This matters for two reasons.
+      First, it proves the formula is simple arithmetic, not some black-box
+      library call. Second, it keeps your dependencies minimal, which is an
+      engineering discipline in itself — do not reach for a heavy dependency when
+      the standard library can do the job. After this lesson you will understand
+      cosine similarity well enough to explain it to someone else, which is the
+      right level of understanding for a working engineer. And when you later use
+      a library like `numpy` that implements it in one line, you will know exactly
+      what that line is doing under the hood.
+
+  - type: code
+    label: "Implementation"
+    heading: "Cosine Similarity in Pure Python"
+    code: |
+      import math
+
+      def dot_product(a: list[float], b: list[float]) -> float:
+          """Sum of element-wise products of two equal-length vectors."""
+          return sum(ai * bi for ai, bi in zip(a, b))
+
+
+      def magnitude(v: list[float]) -> float:
+          """Euclidean length of a vector."""
+          return math.sqrt(sum(x * x for x in v))
+
+
+      def cosine_similarity(a: list[float], b: list[float]) -> float:
+          """Cosine similarity between two non-zero vectors.
+
+          Args:
+              a: First embedding vector (list of floats).
+              b: Second embedding vector, same length as a.
+
+          Returns:
+              Float in range [-1, 1]. Returns 0.0 if either vector has
+              zero magnitude (degenerate case).
+          """
+          mag_a = magnitude(a)
+          mag_b = magnitude(b)
+          if mag_a == 0.0 or mag_b == 0.0:
+              return 0.0
+          return dot_product(a, b) / (mag_a * mag_b)
+
+
+      # --- Quick sanity check with toy vectors ---
+      identical = [1.0, 2.0, 3.0]
+      opposite  = [-1.0, -2.0, -3.0]
+      orthogonal = [0.0, 0.0, 1.0]
+      reference  = [1.0, 0.0, 0.0]
+
+      print(cosine_similarity(identical, identical))   # 1.0
+      print(cosine_similarity(identical, opposite))    # -1.0
+      print(cosine_similarity(reference, orthogonal))  # 0.0
+    narration: >
+      Here is the full implementation, and it is only a handful of lines.
+      Notice that it is split into three separate functions rather than one
+      monolithic block. `dot_product` does one thing: element-wise multiply
+      and sum. `magnitude` does one thing: compute the Euclidean length.
+      `cosine_similarity` assembles them, handles the degenerate zero-vector
+      case, and returns the result. Splitting the logic this way means you can
+      read, test, and reason about each step independently. The zero-magnitude
+      guard matters: if someone passes in a vector of all zeros — which can
+      happen if the embedding model fails silently — you would get a division by
+      zero. Returning zero point zero in that case is a safe and sensible choice.
+      The toy sanity check at the bottom is not the real test; it is a quick
+      visual check that the formula is right before you plug in real embeddings.
+      Identical vectors should give you one, opposite vectors negative one,
+      orthogonal vectors zero. Run it and confirm all three. When those pass,
+      you know the arithmetic is correct.
+
+  - type: code
+    label: "Real embeddings"
+    heading: "Comparing Real Sentences"
+    code: |
+      import math
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+
+      def get_embedding(text: str) -> list[float]:
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+
+      def dot_product(a: list[float], b: list[float]) -> float:
+          return sum(ai * bi for ai, bi in zip(a, b))
+
+
+      def magnitude(v: list[float]) -> float:
+          return math.sqrt(sum(x * x for x in v))
+
+
+      def cosine_similarity(a: list[float], b: list[float]) -> float:
+          mag_a = magnitude(a)
+          mag_b = magnitude(b)
+          if mag_a == 0.0 or mag_b == 0.0:
+              return 0.0
+          return dot_product(a, b) / (mag_a * mag_b)
+
+
+      # Three sentences: two related, one unrelated
+      sentences = [
+          "The cat sat on the mat.",
+          "A feline rested on the rug.",
+          "The stock market closed up two percent.",
+      ]
+
+      embeddings = [get_embedding(s) for s in sentences]
+
+      for i in range(len(sentences)):
+          for j in range(i + 1, len(sentences)):
+              score = cosine_similarity(embeddings[i], embeddings[j])
+              print(f"[{score:.4f}]  '{sentences[i][:30]}' vs '{sentences[j][:30]}'")
+    narration: >
+      Now you use the function on real embeddings. Three sentences: two that are
+      semantically similar — a cat on a mat, a feline on a rug — and one that is
+      completely unrelated, about the stock market. You embed all three, then
+      compute pairwise cosine similarities. The nested loop pattern iterates
+      over every distinct pair without repeating any pair in reverse, which is a
+      useful idiom to know. When you run this, you should see a noticeably higher
+      score between the cat sentences than between either of them and the stock
+      market sentence. The exact numbers will depend on the model, but typical
+      scores might be around zero point nine for the related pair and closer to
+      zero point three or zero point four for the unrelated pairs. The point is
+      not the exact number — it is that the ranking is right. The model has never
+      seen the word "feline" defined as "cat," yet the embeddings reflect that
+      semantic equivalence. That is the power of the embedding space, and cosine
+      similarity is the tool that makes it legible. You now have everything you
+      need to do real semantic comparison.
+
+  - type: exercise
+    heading: "Exercise 3: Compute Cosine Similarity"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement `cosine_similarity(a, b)`
+      using only stdlib `math` and built-in Python. Automated checks verify:
+      (1) identical vectors return 1.0, (2) opposite vectors return −1.0,
+      (3) orthogonal vectors return 0.0, (4) a real pair of semantically similar
+      sentences scores higher than a semantically unrelated pair.
+    hint: >
+      Break it into two helper functions first: `dot_product(a, b)` using `zip`
+      and `sum`, then `magnitude(v)` using `math.sqrt`. Compose them in
+      `cosine_similarity`. Guard against zero-magnitude vectors before dividing.
+    narration: >
+      Head over to exercise 03. You have seen the complete implementation in this
+      lesson, so your task is to write it cleanly from scratch in the function
+      stubs provided — no copy-pasting. The first three automated checks are
+      mathematical: they use toy vectors where the correct answer is known exactly,
+      so there is no ambiguity. One point zero, negative one point zero, zero
+      point zero. If you get those wrong, the arithmetic in your implementation
+      is off and you should recheck the formula. The fourth check is the
+      interesting one: it fetches real embeddings from Ollama and confirms that
+      your function assigns a higher similarity score to a related pair of
+      sentences than to an unrelated pair. That check is looser — it does not
+      demand an exact value, just the right relative ordering — but it is also
+      the most meaningful test because it verifies the function works on real
+      data, not toy numbers. The bonus challenge asks you to find the most similar
+      and least similar pair from a list of five sentences, which is a small
+      preview of the search logic you will build in Lesson 4.
+
+  - type: summary
+    heading: "What You've Learned"
+    bullets:
+      - "Cosine similarity measures the angle between two vectors and ranges from −1 to 1; 1 means identical direction"
+      - "Formula: dot product of a and b, divided by the product of their magnitudes — pure arithmetic"
+      - "Implementation needs only stdlib `math`, `sum()`, `zip()`, and list comprehensions"
+      - "Next lesson: brute-force semantic search — embed a query and rank a list of documents by cosine similarity"
+    narration: >
+      Let's lock in the lesson. Cosine similarity is a single number that tells
+      you how closely two vectors are aligned in direction. You derived the
+      formula from first principles: dot product on top, product of magnitudes
+      on the bottom. You implemented it in pure Python using only tools from the
+      standard library — no new packages to install. And you verified it against
+      both toy vectors, where the answers are exact, and real embeddings, where
+      the answers reflect genuine semantic relationships. This one function is
+      the engine behind most similarity and search systems you will build in this
+      course. In Lesson 4 you take it further: given a query and a list of
+      documents, you will embed everything, score every document with cosine
+      similarity, sort by score, and return the top results. That is brute-force
+      semantic search, and it works surprisingly well even without a vector
+      database.
