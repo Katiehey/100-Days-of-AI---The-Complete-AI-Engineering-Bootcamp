@@ -1,0 +1,331 @@
+day: "010"
+lesson: "03"
+title: "Prompt Template Classes"
+
+slides:
+
+  - type: title
+    heading: "Prompt Template Classes"
+    subheading: "Wrapping string.Template in a dataclass to make prompts self-documenting"
+    narration: >
+      Welcome to Lesson 3. In Lesson 2 you learned that string.Template is a clean
+      way to define a prompt once and fill it many times. But a bare Template object
+      has a problem: it is just a string wrapped in a class. If you hand one to a
+      colleague, they have no idea what variables it expects, what it is for, or
+      whether they have filled it correctly. In this lesson you will fix that by
+      wrapping string.Template in a dataclass called PromptTemplate. Four fields —
+      name, template_str, required_vars, and description — turn a dumb string
+      container into a self-documenting, validatable, reusable first-class object.
+      By the end you will have a class you can carry through every remaining lesson
+      of this day.
+
+  - type: concept
+    label: "The gap in bare Templates"
+    heading: "What string.Template Does Not Tell You"
+    body: >
+      A bare string.Template is opaque. You cannot inspect it to discover what
+      variables are required, what the template is called, or what it is meant to
+      produce. That opacity causes three real problems as your prompt library grows.
+    bullets:
+      - "No name — you must read the variable name to guess what the template does"
+      - "No required_vars — a missing key only surfaces at substitution time, not at definition"
+      - "No description — future readers (or future you) must decode the template text"
+    narration: >
+      Think back to the module-level template constants from Lesson 2. They were
+      named things like SUMMARISE_TMPL or CLASSIFY_TMPL. That naming convention
+      helps, but it only lives in the variable name, which disappears when you pass
+      the Template to a function or store it in a list. The Template object itself
+      carries no metadata. If you call template.substitute and forget one variable,
+      you get a KeyError at that exact moment — not when you first defined the
+      template. In a system that has thirty prompt templates loaded at startup, a
+      missing variable only surfaces at the moment a specific code path runs, which
+      might be deep in a user session. And there is no standard way to ask a bare
+      Template "what variables do you require?" Python's re module can parse the
+      template pattern, but that is not part of the public API. These gaps are
+      exactly what a thin wrapper class can close — with very little code.
+
+  - type: concept
+    label: "Dataclass as wrapper"
+    heading: "Four Fields That Close the Gap"
+    body: >
+      A PromptTemplate dataclass holds the Template plus the metadata that a bare
+      Template omits. All four fields work together: name identifies it, description
+      explains it, required_vars documents the contract, and template_str holds the
+      actual text.
+    bullets:
+      - "name: str — unique identifier for logging, dispatch, and error messages"
+      - "template_str: str — the raw dollar-sign template text (fed to string.Template)"
+      - "required_vars: list[str] — the variables this template must receive"
+      - "description: str — one sentence explaining what the template produces"
+    narration: >
+      Let me walk through each field and explain why it earns its place. The name
+      field gives the template an identity that survives being passed around as a
+      function argument or stored in a dictionary. When a validation error occurs
+      you can say "template 'summarise_brief' is missing required variable 'audience'"
+      instead of just "KeyError: audience". The description field is the docstring
+      for your prompt — one sentence that explains what the filled template is meant
+      to produce, so a reader does not have to reverse-engineer the template text.
+      The required_vars field is the public contract: it is the list of variable names
+      the caller must supply. You can validate completeness before calling substitute,
+      which means you catch missing variables at the point where you build your
+      pipeline configuration, not at the moment an end-user request triggers the
+      substitution. The template_str field holds the raw text with dollar-sign
+      placeholders — the same text you would pass to string.Template directly. All
+      four fields together make the PromptTemplate self-documenting: you can read it
+      like a specification, not decode it like a puzzle.
+
+  - type: how_it_works
+    label: "Design"
+    heading: "PromptTemplate: The Class Contract"
+    body: >
+      PromptTemplate is a Python dataclass. It stores the four fields and exposes
+      two methods: validate() checks that a given mapping covers all required_vars,
+      and render() calls string.Template.substitute() and returns the filled string.
+    bullets:
+      - "validate(values: dict) -> None — raises ValueError listing every missing variable"
+      - "render(values: dict) -> str — validates first, then substitutes and returns the prompt"
+      - "The internal Template is built lazily from template_str — no import needed at call sites"
+      - "All logic stays inside the class — callers only call render()"
+    narration: >
+      The class has two public methods and that is all. validate takes a dictionary
+      of variable values and checks whether every name in required_vars is present as
+      a key. If anything is missing, it raises a ValueError that lists every missing
+      name at once — not just the first one. That is a better experience than
+      string.Template.substitute, which stops at the first missing key. The render
+      method calls validate first, then delegates to string.Template.substitute on
+      the template_str. This means every successful render is guaranteed to have
+      passed validation. There is no way to call substitute directly and bypass the
+      check. The internal Template object can be built inside render rather than
+      stored as a field — that keeps __init__ clean and avoids carrying a mutable
+      object that callers might accidentally mutate. For callers, the entire
+      interface is one method: render. They never touch string.Template directly.
+      This is the separation of concerns from Lesson 1 applied one level higher:
+      the class owns the template machinery; the caller owns the model interaction.
+
+  - type: code
+    label: "The class"
+    heading: "Implementing PromptTemplate"
+    code: |
+      from dataclasses import dataclass
+      from string import Template
+
+
+      @dataclass
+      class PromptTemplate:
+          """A self-documenting, validatable prompt template."""
+
+          name: str
+          template_str: str
+          required_vars: list[str]
+          description: str
+
+          def validate(self, values: dict) -> None:
+              """Raise ValueError listing every required variable not in values."""
+              missing = [v for v in self.required_vars if v not in values]
+              if missing:
+                  raise ValueError(
+                      f"PromptTemplate '{self.name}' is missing required "
+                      f"variable(s): {missing}"
+                  )
+
+          def render(self, values: dict) -> str:
+              """Validate values, then return the fully substituted prompt string."""
+              self.validate(values)
+              return Template(self.template_str).substitute(values)
+
+
+      # ── Define a template ────────────────────────────────────────────────────────
+
+      SUMMARISE = PromptTemplate(
+          name="summarise_brief",
+          description="Summarise a text passage in a fixed number of sentences.",
+          required_vars=["text", "max_sentences"],
+          template_str=(
+              "Summarise the following text in exactly $max_sentences sentence(s).\n"
+              "Be concise and factual. Do not add information not in the text.\n\n"
+              "$text"
+          ),
+      )
+
+      # ── Use it ──────────────────────────────────────────────────────────────────
+
+      prompt = SUMMARISE.render({"text": "RAG combines retrieval with generation.", "max_sentences": 1})
+      print(prompt)
+    narration: >
+      Here is the full implementation — and notice how short it is. The dataclass
+      decorator generates __init__, __repr__, and equality for free from the four
+      field annotations. The validate method uses a list comprehension to collect
+      every missing variable name in one pass, then raises a single ValueError that
+      names the template and lists all missing keys. That is strictly better than
+      getting one KeyError per run. The render method calls validate first, builds a
+      fresh Template from template_str, then calls substitute. The caller never
+      imports string.Template. At the bottom you can see a real definition: SUMMARISE
+      is a PromptTemplate with all four fields filled in. The description reads like
+      a sentence in plain English. The required_vars list is the explicit contract.
+      Call SUMMARISE.render with both keys and you get the filled prompt string.
+      Forget max_sentences and you get a ValueError immediately naming the missing
+      variable and the template that expected it. Compare this experience to a bare
+      Template — the improvement in clarity costs about fifteen lines of code.
+
+  - type: code
+    label: "In practice"
+    heading: "PromptTemplate with Ollama and a Template Registry"
+    code: |
+      import ollama
+      from dataclasses import dataclass
+      from string import Template
+
+      MODEL = "llama3.2"
+
+
+      @dataclass
+      class PromptTemplate:
+          name: str
+          template_str: str
+          required_vars: list[str]
+          description: str
+
+          def validate(self, values: dict) -> None:
+              missing = [v for v in self.required_vars if v not in values]
+              if missing:
+                  raise ValueError(
+                      f"PromptTemplate '{self.name}' missing: {missing}"
+                  )
+
+          def render(self, values: dict) -> str:
+              self.validate(values)
+              return Template(self.template_str).substitute(values)
+
+
+      # ── Template registry ────────────────────────────────────────────────────────
+
+      TEMPLATES: dict[str, PromptTemplate] = {}
+
+      def register(pt: PromptTemplate) -> PromptTemplate:
+          """Add a PromptTemplate to the registry and return it unchanged."""
+          TEMPLATES[pt.name] = pt
+          return pt
+
+
+      CLASSIFY = register(PromptTemplate(
+          name="classify_single",
+          description="Classify text into exactly one of the given categories.",
+          required_vars=["text", "categories"],
+          template_str=(
+              "Classify the text below as exactly one of: $categories.\n"
+              "Reply with the label only — no punctuation, no explanation.\n\n"
+              "$text"
+          ),
+      ))
+
+
+      # ── Caller ──────────────────────────────────────────────────────────────────
+
+      def classify(text: str, categories: list[str]) -> str:
+          """Render the classify_single template and call the local model."""
+          prompt = CLASSIFY.render({
+              "text": text,
+              "categories": ", ".join(categories),
+          })
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"].strip()
+
+
+      # ── Tests (no model required) ────────────────────────────────────────────────
+
+      def test_render_contains_required_vars():
+          result = CLASSIFY.render({"text": "Great product!", "categories": "positive, negative"})
+          assert "Great product!" in result
+          assert "positive" in result
+          print("✅ render output contains all substituted values")
+
+      def test_validate_raises_on_missing_key():
+          try:
+              CLASSIFY.validate({"text": "hello"})          # categories missing
+              print("❌ should have raised ValueError")
+          except ValueError as e:
+              assert "categories" in str(e)
+              print("✅ validate raises ValueError naming the missing variable")
+
+      test_render_contains_required_vars()
+      test_validate_raises_on_missing_key()
+    narration: >
+      This is the full production pattern. The class definition is the same as before
+      — condensed a little for screen space. The interesting addition is the registry.
+      TEMPLATES is a plain dictionary keyed by template name. The register function
+      adds a PromptTemplate to that dictionary and returns it unchanged, so you can
+      chain it around a definition without needing an extra line. CLASSIFY is defined
+      and registered in one expression. The classify function — the caller — renders
+      the template by passing a dict with text and the joined category string, then
+      calls ollama.chat with the rendered prompt. Notice what the caller does not do:
+      it does not build any string. It does not know about dollar signs or Template
+      objects. It passes data in, gets a string out, and sends that string to the
+      model. At the bottom are two test functions that verify the PromptTemplate
+      logic without touching Ollama at all. The first confirms that render produces
+      output containing the substituted values. The second confirms that validate
+      raises a ValueError that names the missing variable. Both tests are pure
+      Python — no network, no model, no latency. This is exactly the testability
+      property that Lesson 1 introduced as the goal.
+
+  - type: exercise
+    heading: "Exercise 3: Build a PromptTemplate"
+    prompt: >
+      Open exercises/exercise_03.ipynb. The PromptTemplate dataclass and its
+      validate() and render() methods are already scaffolded for you. Your task is
+      to implement build_prompt_template(name: str, template_str: str,
+      description: str) -> dict — a factory function that auto-extracts the
+      required_vars from the dollar-sign placeholders in template_str, constructs a
+      PromptTemplate instance, and returns it as a plain dict via
+      dataclasses.asdict(). The automated checks verify that the returned dict has
+      all four keys, that required_vars is correctly extracted from the template
+      string, that validate() raises ValueError naming the missing variable, and
+      that render() returns the correctly substituted string.
+    hint: >
+      Use re.findall(r'\$\{?(\w+)\}?', template_str) to extract placeholder names
+      from both the bare $name and braced ${name} forms. Wrap the result in
+      sorted(set(...)) to produce a stable, deduplicated list. Then construct a
+      PromptTemplate with those required_vars and call dataclasses.asdict() to
+      convert it to a plain dict. Note: auto-extraction is a convenience for the
+      factory — when declaring required_vars by hand on a PromptTemplate you are
+      still the author responsible for keeping the list in sync with the template.
+    narration: >
+      Your turn. The exercise notebook scaffolds the PromptTemplate class for you
+      — your job is the factory function that builds one from a name, a template
+      string, and a description. The interesting design choice here is auto-extraction:
+      rather than declaring required_vars by hand, build_prompt_template reads them
+      directly out of the dollar-sign placeholders in template_str. This is a
+      convenient pattern for a factory. When you declare a PromptTemplate directly,
+      as in the lesson code slides, you remain responsible for keeping required_vars
+      in sync manually — that explicitness is part of the self-documenting contract.
+      The factory trades that explicitness for convenience in contexts where you are
+      programmatically generating templates from strings. Both approaches are valid;
+      the exercise shows you the automated one so you understand the tradeoff. Work
+      through the five checks in order. When all are green, come back here for the
+      summary.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "A bare string.Template carries no name, no contract, and no description — it is opaque"
+      - "PromptTemplate wraps Template with four fields: name, template_str, required_vars, description"
+      - "validate() catches all missing variables at once and names them — better than a bare KeyError"
+      - "render() validates first, then substitutes — callers never touch string.Template directly"
+      - "Next: organising multiple PromptTemplates into a reusable prompt-library module"
+    narration: >
+      Three things to lock in from this lesson. First: the gap in a bare
+      string.Template is not a bug, it is a missing layer. The Template class was
+      designed as a low-level building block, not as a complete prompt-management
+      solution. The PromptTemplate dataclass adds that layer with about fifteen
+      lines of code. Second: the validate method's single most important property
+      is that it collects all missing variables before raising, not just the first
+      one. That one design decision dramatically shortens the feedback loop when a
+      new template is misconfigured. Third: the pattern of validate-then-render
+      inside a class means every caller gets the same guarantee — no partially
+      filled prompt ever reaches the model. The caller's only job is to call render
+      with a dict of values. The class handles everything else. In Lesson 4 you will
+      see how to organise a collection of PromptTemplates into a prompt-library
+      module with a clean public interface, making this pattern usable across an
+      entire project.

@@ -1,0 +1,273 @@
+day: "010"
+lesson: "01"
+title: "Why Hard-Coded Prompts Break"
+
+slides:
+
+  - type: title
+    heading: "Prompt Templates"
+    subheading: "Why hard-coded prompts break — and what to do instead"
+    narration: >
+      Welcome to Day 10. You've been building prompts since Day 3, and by now you
+      have a working toolkit: system prompts, few-shot examples, structured output,
+      chunking, classification, extraction. That's a lot. But there's a subtle
+      problem lurking in almost every prompt you've written so far — a habit that
+      feels natural in small scripts but becomes a serious liability the moment your
+      code grows. Today you'll name that problem, understand exactly why it hurts,
+      and learn the fix. The fix is called a parameterized template, and it's the
+      foundation for everything you'll build in the rest of this section.
+
+  - type: concept
+    label: "The anti-pattern"
+    heading: "The Prompt-as-String Anti-Pattern"
+    body: >
+      When you embed variable data directly inside an f-string prompt, the prompt
+      and the data are fused into one inseparable blob. That fusion is the
+      prompt-as-string anti-pattern — and it quietly violates three engineering
+      properties you need.
+    bullets:
+      - "Unmaintainable — change the prompt structure and you must hunt every f-string"
+      - "Untestable — you cannot test the template logic without running the model"
+      - "Unversionable — git diffs mix prompt wording changes with data changes"
+    narration: >
+      Let's be concrete about what the prompt-as-string anti-pattern actually is.
+      Every time you write something like f"Summarize this text: {doc}" or
+      f"Classify the following as {', '.join(labels)}: {user_input}", you are
+      fusing three distinct things into one string: the instruction, the variable
+      inputs, and any formatting. That fusion feels harmless on day one. By day
+      thirty, when you have twenty different prompts scattered across five files,
+      each one a slightly different f-string, it becomes a maintenance nightmare.
+      You want to change the instruction for all your summarizers? You have to
+      find every f-string. You want to write a unit test that checks whether your
+      prompt includes the right labels? You have to call the model to find out.
+      You want to review what changed in a git diff? Good luck — the diff mixes
+      your rewording with a completely different user input. Each of these is a
+      real engineering cost, and they compound as your codebase grows.
+
+  - type: concept
+    label: "Three failure modes"
+    heading: "Unmaintainable, Untestable, Unversionable"
+    body: >
+      Each failure mode has a concrete symptom you will hit in production:
+    bullets:
+      - "**Unmaintainable:** prompt logic scattered across the codebase in one-off f-strings"
+      - "**Untestable:** the only way to check the rendered prompt is to call the LLM"
+      - "**Unversionable:** git diffs conflate wording changes with input data changes"
+    narration: >
+      Let's walk through each failure mode so you understand the real-world pain,
+      not just the abstract principle. Unmaintainability hits you when a requirement
+      changes. Say your product manager decides every prompt should remind the model
+      to respond in plain English. If your prompts are twenty scattered f-strings,
+      you need to edit twenty places — and miss one, and you have an inconsistent
+      product. Untestability hits you when you try to do quality assurance. A
+      parameterized template is a pure function: you pass in inputs and get back a
+      string. You can assert that the string contains the right pieces without
+      touching the network. With a raw f-string in application code, the prompt
+      construction is tangled with the model call — there is no seam to test
+      against. Unversionability hits you when you do code review or try to
+      understand history. A good git diff should tell a clear story: either you
+      changed the prompt wording, or you changed what data you're passing in — not
+      both at once. When the template and the data are fused, every git commit is
+      ambiguous. These aren't hypothetical problems. They're the exact pain that
+      prompt engineering teams hit at scale, and they're completely avoidable.
+
+  - type: code
+    label: "The anti-pattern in code"
+    heading: "What the Anti-Pattern Looks Like"
+    code: |
+      # Day 3-style: works, but everything is fused into one f-string
+
+      import ollama
+
+      MODEL = "llama3.2"
+
+      def summarize(doc: str) -> str:
+          prompt = f"Summarize the following text in one sentence:\n\n{doc}"
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+      def classify(text: str, labels: list[str]) -> str:
+          label_str = ", ".join(labels)
+          prompt = f"Classify this as one of [{label_str}]. Reply with the label only.\n\n{text}"
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"].strip()
+
+      # Problem: to change the instruction, you edit inside the function.
+      # Problem: to test the prompt text, you must call ollama.chat().
+      # Problem: git log shows "updated summarize()" — but changed what?
+    narration: >
+      Here's exactly what the anti-pattern looks like — and this is code you've
+      probably written yourself in the past few days, so don't feel bad. The
+      summarize function builds its prompt by jamming the instruction and the
+      document into a single f-string inline. Same story for classify: the labels
+      and the text get interpolated directly. This code works. You can call it and
+      get a response. But notice what's impossible to do cleanly: if you want to
+      test whether the instruction says "one sentence", you have to call the model.
+      If you want to change "in one sentence" to "in two sentences" across every
+      summarizer in your codebase, you have to grep for f-strings and edit each
+      one. If a colleague looks at a git diff that changes this function, they see
+      the instruction change and a data change mixed together. Each of these is a
+      tax on your productivity, and it compounds over time. The fix is surprisingly
+      simple.
+
+  - type: how_it_works
+    label: "The fix"
+    heading: "Parameterized Templates: Separate Structure from Data"
+    body: >
+      A parameterized template is a plain function that accepts the variable parts
+      as arguments and returns the fully rendered string. Structure lives in the
+      function body; data enters via parameters. The function is pure: same inputs,
+      same output, every time.
+    narration: >
+      The fix is to pull the prompt construction into a dedicated function — one
+      whose only job is to accept the variable data as explicit parameters and
+      return the rendered string. That function is your template. It has no side
+      effects. It does not call the model. It is completely deterministic: given
+      the same inputs, it returns the same string. That single property unlocks
+      everything. You can now test the template in isolation with a plain assert
+      statement. You can change the instruction wording in one place and every
+      caller gets the update. And your git history separates "changed the template"
+      commits from "changed what data we pass" commits. The pattern is not new or
+      exotic — it's just applying the same separation-of-concerns principle you'd
+      apply to any other function. Prompts are just strings, and strings deserve
+      the same engineering discipline as everything else.
+
+  - type: code
+    label: "The fix in code"
+    heading: "Parameterized Templates in Practice"
+    code: |
+      # Separate the template (structure) from the caller (data + model call)
+
+      import ollama
+
+      MODEL = "llama3.2"
+
+
+      # ── Template functions ────────────────────────────────────────────────────
+      # Pure functions: accept data, return a rendered string. No model calls.
+
+      def summarize_prompt(doc: str) -> str:
+          """Return the fully rendered summarization prompt."""
+          return (
+              "Summarize the following text in one sentence.\n"
+              "Be concise and factual.\n\n"
+              f"{doc}"
+          )
+
+      def classify_prompt(text: str, labels: list[str]) -> str:
+          """Return the fully rendered classification prompt."""
+          label_str = ", ".join(labels)
+          return (
+              f"Classify the text below as exactly one of: {label_str}.\n"
+              "Reply with the label only — no punctuation, no explanation.\n\n"
+              f"{text}"
+          )
+
+
+      # ── Callers ───────────────────────────────────────────────────────────────
+      # Callers own the model interaction; they receive the rendered prompt.
+
+      def summarize(doc: str) -> str:
+          prompt = summarize_prompt(doc)
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+      def classify(text: str, labels: list[str]) -> str:
+          prompt = classify_prompt(text, labels)
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"].strip()
+
+
+      # ── Tests (no model needed) ───────────────────────────────────────────────
+
+      def test_summarize_prompt_contains_doc():
+          doc = "Photosynthesis converts sunlight into energy."
+          rendered = summarize_prompt(doc)
+          assert doc in rendered
+          assert "one sentence" in rendered
+          print("✅ summarize_prompt contains doc and instruction")
+
+      def test_classify_prompt_contains_labels():
+          rendered = classify_prompt("I love this!", ["positive", "negative"])
+          assert "positive" in rendered
+          assert "negative" in rendered
+          print("✅ classify_prompt contains all labels")
+
+      test_summarize_prompt_contains_doc()
+      test_classify_prompt_contains_labels()
+    narration: >
+      Here's the refactored version. Notice the structural change: there are now
+      two layers. The template functions — summarize_prompt and classify_prompt —
+      are pure. They receive data as arguments and return a fully rendered string.
+      No ollama import needed, no network, no side effects. The callers —
+      summarize and classify — now delegate prompt construction to the templates
+      and then handle the model interaction. And crucially, at the bottom of the
+      file you can see two test functions that verify the templates without
+      touching the model at all. test_summarize_prompt_contains_doc passes in a
+      known string and asserts that the rendered prompt contains both the document
+      and the phrase "one sentence". If you change the instruction wording, this
+      test catches it immediately. No API call, no latency, no cost. This is the
+      separation of concerns that makes prompt code maintainable, testable, and
+      reviewable. The template is pure; the caller handles the side effect.
+
+  - type: exercise
+    heading: "Exercise 1: Spot the Hard-Coded Prompt"
+    prompt: >
+      You are given a module containing three functions that each build prompts
+      using raw f-strings. Your task is to refactor each one into a parameterized
+      template function plus a caller function, following the pattern from this
+      lesson. Then add at least one assertion test per template that verifies the
+      rendered prompt without calling the model.
+    hint: >
+      Start by identifying every place a variable is interpolated into the string.
+      Each interpolated variable becomes a parameter of your template function.
+      The instruction text (everything that does not change) stays in the function
+      body as a plain string. Your test should pass a known value and assert that
+      the rendered result contains it.
+    narration: >
+      Your turn. Open the exercise notebook for Day 10 Exercise 1. You'll find a
+      module with three prompt-building functions that all use the anti-pattern —
+      they embed variable data directly in f-strings and mix the prompt construction
+      with the model call. Your job is to split each one into a pure template
+      function and a caller, then write one assertion test per template. The
+      automated checks will verify that your template functions are callable with
+      the expected arguments, that they return strings containing the right pieces,
+      and that your callers still work end-to-end. Remember: the template tests
+      should not call ollama. If you find yourself importing ollama inside a test,
+      you have not separated the layers cleanly. Take your time with this — the
+      pattern feels slightly verbose at first, but once it clicks you'll apply it
+      automatically.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "The prompt-as-string anti-pattern fuses instruction, structure, and data into one f-string"
+      - "This makes prompts unmaintainable (scattered edits), untestable (model required), and unversionable (noisy diffs)"
+      - "A parameterized template is a pure function: accepts variable data as args, returns a rendered string"
+      - "Pure templates can be tested with plain assertions — no model call, no network, no cost"
+    narration: >
+      Let's lock in what you learned in this lesson. The prompt-as-string
+      anti-pattern is the habit of embedding variable data directly in an f-string
+      inside a function that also calls the model. It's the default way people write
+      prompts, and it feels fine in a small script. But it quietly removes three
+      properties you need as your codebase grows: maintainability, testability, and
+      clean version history. The fix is a parameterized template — a pure function
+      whose only job is to accept the variable parts as arguments and return the
+      rendered string. Pure functions are testable without the model. They're
+      the single source of truth for the prompt's structure. And they make git
+      history meaningful. In Lesson 2, you'll go further: you'll see how to
+      organize a collection of templates into a prompt library module, so that
+      your entire project shares one consistent, versioned source of truth for
+      every prompt it uses.

@@ -1,0 +1,434 @@
+day: "010"
+lesson: "04"
+title: "Template Registry & Versioning"
+
+slides:
+
+  - type: title
+    heading: "Template Registry & Versioning"
+    subheading: "Name, store, and evolve prompt templates without breaking what already works"
+    narration: >
+      Welcome to Lesson 4. In the previous lessons you learned how to write
+      parameterized templates, use string.Template, and organise them into a prompt
+      library module. Those skills give you clean, testable prompts. But there's still
+      a question that every production system eventually hits: how do you manage
+      multiple versions of the same template? How do you look up a template by name
+      at runtime? And how do you make sure that an older version keeps working even
+      after you improve the newer one? The answer is a template registry — a small
+      dictionary-based structure that you'll build in this lesson. By the end you'll
+      have a registry you can load from disk, save back to disk, and query by name
+      and version number.
+
+  - type: concept
+    label: "The versioning problem"
+    heading: "Why Template Versions Matter"
+    body: >
+      A prompt template is a dependency. Code that calls it depends on its exact
+      wording and placeholders. When you improve a template you risk silently
+      changing the behaviour of every caller — including callers you've already
+      tested and shipped.
+    bullets:
+      - "Same template name, different wording → different model behaviour"
+      - "Callers pinned to the old wording break silently when you overwrite it"
+      - "The fix: never mutate an existing version — add a new one instead"
+      - "summarize_v1 and summarize_v2 can coexist; callers choose which to use"
+    narration: >
+      Think about what happens when you tweak a prompt. You spent an afternoon
+      experimenting and found that adding "Be concise." to your summarizer cuts
+      the average response length in half. Great. So you edit the template. Now
+      every piece of code that calls that template gets the new behaviour
+      automatically — including a batch pipeline that ran fine yesterday and whose
+      outputs were already reviewed and approved. The pipeline re-runs with the new
+      template, produces shorter summaries, and the downstream system that counted
+      on a certain length starts behaving differently. Nobody changed the pipeline
+      code. Nobody ran the pipeline's tests. The only thing that changed was a
+      template string that felt safe to edit. This is the classic mutable-shared-state
+      bug, applied to prompts. The fix is the same as it is everywhere else in
+      engineering: make old versions immutable and give new versions new names. If
+      your existing callers pin to summarize_v1, they keep getting summarize_v1
+      forever. You ship summarize_v2, test it independently, and migrate callers one
+      at a time. Nothing breaks unless you choose to change it.
+
+  - type: concept
+    label: "Registry design"
+    heading: "A Registry Dict Keyed by name_vN"
+    body: >
+      The registry is a plain Python dict. Each key is a string combining the
+      template name and version number. Each value stores the template text and its
+      expected placeholder names.
+    bullets:
+      - "Key format: 'name_vN' — e.g. 'summarize_v1', 'classify_v2'"
+      - "Value: a dict with 'template' (the text) and 'placeholders' (list of names)"
+      - "Lookup is O(1): registry['summarize_v1'] returns the entry immediately"
+      - "Persistence: save the whole dict to JSON with json.dump; load with json.load"
+    narration: >
+      The registry doesn't need to be a class or a database. A plain Python
+      dictionary is exactly the right data structure. The key is a string that
+      encodes both the template name and the version — something like summarize_v1
+      or classify_v2. That underscore-v-number suffix is a simple convention with
+      a big payoff: the key is human-readable, sortable, and directly usable as a
+      filename-safe string if you ever want to write each template to its own file.
+      The value is another dict with two fields: template holds the raw text with
+      its dollar-sign placeholders, and placeholders holds the list of variable
+      names you expect a caller to supply. That second field is documentation baked
+      into the data structure — any caller can inspect it to know what arguments
+      they need to pass before they try to do a substitution. The whole registry
+      serialises cleanly to JSON because it is nothing but nested dicts, lists, and
+      strings. That means you get persistence and auditability for free using the
+      json module you already know from Day 2.
+
+  - type: how_it_works
+    label: "Immutability rule"
+    heading: "The Golden Rule: Never Mutate an Existing Version"
+    body: >
+      Once a key is in the registry, its value must never change. To improve a
+      template, register a new key with the next version number. This is the single
+      discipline that makes the registry safe to share across callers.
+    bullets:
+      - "register('summarize_v1', ...) — OK on first call"
+      - "register('summarize_v1', ...) again — raises ValueError (version exists)"
+      - "register('summarize_v2', ...) — OK; v1 is untouched"
+      - "Callers that pin to 'summarize_v1' are unaffected by v2 being added"
+    narration: >
+      The immutability rule is the single most important thing in this lesson,
+      so say it out loud: once a version is registered, it is frozen. The register
+      function should check whether the key already exists and raise a ValueError
+      if it does. Not a warning — an error. This is not aggressive; it is correct.
+      A silent overwrite is the worst possible failure mode because it changes
+      behaviour without any signal. The ValueError forces whoever is trying to
+      overwrite to make an explicit decision: either they meant to create a new
+      version, in which case they should increment the number, or they made a
+      mistake and the error just saved them. Notice how this mirrors the immutable
+      string philosophy from Day 2: strings cannot be changed in-place; you produce
+      a new string. Templates cannot be changed in-place; you produce a new version.
+      Both rules exist for the same reason — they prevent the class of bugs where
+      you think you're reading the old value but you're actually reading the mutated
+      one. Once you build this discipline into your register function, the registry
+      enforces the rule automatically. You never have to remember it manually.
+
+  - type: how_it_works
+    label: "pathlib.Path"
+    heading: "A Readable Alternative to String Paths: pathlib.Path"
+    body: >
+      The code slides in this lesson use pathlib.Path instead of plain strings for
+      file paths. pathlib is a standard-library module (no pip install) that wraps
+      a path string in an object with methods for common operations — no string
+      concatenation or os.path calls required.
+    bullets:
+      - "Path('prompt_registry.json') — construct a path object from a string"
+      - ".exists() — returns True if the file is present on disk"
+      - ".stat().st_size — file size in bytes without opening the file"
+      - ".resolve() — returns the absolute path as a Path object (useful for logging)"
+      - "open(path) works with a Path object exactly like open(path_str)"
+    narration: >
+      You have been opening files with open('filename.json') since Day 2 — a plain
+      string works fine. pathlib.Path wraps that string in an object that knows how
+      to answer common questions about a file without you writing the boilerplate
+      yourself. For example, to check whether a file exists you call path.exists()
+      instead of os.path.exists(path_str). To log the absolute path you call
+      path.resolve() instead of os.path.abspath(path_str). To report the file size
+      you call path.stat().st_size instead of os.stat(path_str).st_size. These are
+      all things you could do with the os module, but pathlib bundles them into a
+      readable, chainable interface. The critical thing to know is that open()
+      accepts a Path object just as it accepts a string — so every json.dump and
+      json.load call you have already written works unchanged when you replace a
+      string path with a Path object. In the code slides that follow, REGISTRY_PATH
+      is a Path object. You will see it passed directly to open(), and you will see
+      .exists(), .stat().st_size, and .resolve() used for defensive checks and
+      logging. You do not need to memorise the full pathlib API — these four
+      attributes are all that Day 10 uses.
+
+  - type: code
+    label: "Registry implementation"
+    heading: "Building the Template Registry"
+    code: |
+      import json
+      from string import Template
+      from pathlib import Path
+
+      # The registry is a plain dict: {"name_vN": {"template": str, "placeholders": list}}
+      _registry: dict[str, dict] = {}
+
+
+      def register(key: str, template_text: str, placeholders: list[str]) -> None:
+          """Add a new template version to the registry.
+
+          Args:
+              key:           Registry key in 'name_vN' format (e.g. 'summarize_v1').
+              template_text: The raw template string with $placeholder syntax.
+              placeholders:  Names of every placeholder the template expects.
+
+          Raises:
+              ValueError: If the key already exists — versions are immutable.
+          """
+          if key in _registry:
+              raise ValueError(
+                  f"Template '{key}' already exists. "
+                  "Create a new version instead of mutating an existing one."
+              )
+          _registry[key] = {
+              "template": template_text,
+              "placeholders": placeholders,
+          }
+
+
+      def get_template(key: str) -> Template:
+          """Look up a key and return a string.Template ready for substitution.
+
+          Raises:
+              KeyError: If the key is not in the registry.
+          """
+          entry = _registry[key]          # raises KeyError if missing
+          return Template(entry["template"])
+
+
+      def list_versions(name: str) -> list[str]:
+          """Return all registered keys whose name prefix matches, sorted."""
+          prefix = f"{name}_v"
+          return sorted(k for k in _registry if k.startswith(prefix))
+
+
+      # ── Persistence ──────────────────────────────────────────────────────────────
+
+      def save_registry(path: str | Path) -> None:
+          """Write the full registry to a JSON file for auditing and persistence."""
+          with open(path, "w") as fh:
+              json.dump(_registry, fh, indent=2)
+
+
+      def load_registry(path: str | Path) -> None:
+          """Load a registry JSON file, merging entries into the live registry.
+
+          Raises:
+              ValueError: If any loaded key would overwrite an existing entry.
+          """
+          with open(path) as fh:
+              data: dict[str, dict] = json.load(fh)
+          for key, entry in data.items():
+              register(key, entry["template"], entry["placeholders"])
+    narration: >
+      Let's walk through this implementation carefully because every line is doing
+      something deliberate. The module-level underscore-registry dict is private by
+      convention — callers use the register and get_template functions, not the
+      dict directly. The register function checks for the key first. If it's already
+      there, it raises a ValueError with an explicit message telling the caller what
+      to do instead. That message is important — a good error message is
+      documentation. get_template wraps the raw string in a string.Template object
+      before returning it, so the caller gets something they can call substitute on
+      immediately. Notice that get_template lets the natural KeyError propagate if
+      the key doesn't exist — that's the same fast-failure philosophy from Lesson 2's
+      substitute versus safe_substitute discussion. list_versions gives you a sorted
+      list of all versions for a given name, which is useful for auditing and for
+      picking the latest one programmatically. The two persistence functions use the
+      json module from Day 2: save writes the whole dict with indent=2 for human
+      readability, and load calls register for each entry — which means load also
+      enforces immutability. You cannot load a JSON file that tries to overwrite an
+      already-live key.
+
+  - type: code
+    label: "Registry in use"
+    heading: "Registering, Loading, and Calling Templates"
+    code: |
+      import ollama
+      from pathlib import Path
+
+      MODEL = "llama3.2"
+      REGISTRY_PATH = Path("prompt_registry.json")
+
+      # ── Register templates (first run only) ───────────────────────────────────
+
+      register(
+          "summarize_v1",
+          "Summarize the following text in $max_sentences sentences.\n\n$text",
+          ["text", "max_sentences"],
+      )
+
+      register(
+          "summarize_v2",
+          (
+              "Summarize the following text in exactly $max_sentences sentences.\n"
+              "Be concise and use plain language.\n\n"
+              "$text"
+          ),
+          ["text", "max_sentences"],
+      )
+
+      register(
+          "classify_v1",
+          "Classify the text as one of: $labels.\nReply with the label only.\n\n$text",
+          ["text", "labels"],
+      )
+
+      # ── Save to disk ──────────────────────────────────────────────────────────
+
+      save_registry(REGISTRY_PATH)
+      print(f"Registry saved to {REGISTRY_PATH}")
+
+      # ── Look up and call a template ───────────────────────────────────────────
+
+      def run_template(key: str, model: str = MODEL, **kwargs) -> str:
+          """Fill the named template and call the local model."""
+          tmpl = get_template(key)                  # Template object
+          prompt = tmpl.substitute(**kwargs)         # raises KeyError on missing arg
+          response = ollama.chat(
+              model=model,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+      # Call v1 — original wording, callers pinned to this are unaffected by v2
+      result_v1 = run_template(
+          "summarize_v1",
+          text="Neural networks learn by adjusting weights via backpropagation.",
+          max_sentences="1",
+      )
+      print("v1:", result_v1)
+
+      # Call v2 — improved wording
+      result_v2 = run_template(
+          "summarize_v2",
+          text="Neural networks learn by adjusting weights via backpropagation.",
+          max_sentences="1",
+      )
+      print("v2:", result_v2)
+
+      # ── Audit: what versions of 'summarize' exist? ────────────────────────────
+      print("summarize versions:", list_versions("summarize"))
+      # → ['summarize_v1', 'summarize_v2']
+    narration: >
+      Here's the registry in real use. The first block registers three templates.
+      Notice that summarize_v1 and summarize_v2 coexist — v2 adds "exactly" and
+      "Be concise", but v1 is untouched. Any caller that currently passes
+      "summarize_v1" to run_template will keep getting the original wording
+      indefinitely, even as you add v3, v4, and beyond. The run_template helper
+      is a single-entry-point function that maps a registry key to a model call.
+      It retrieves the Template object from the registry, fills it using keyword
+      arguments forwarded from the caller, and passes the rendered prompt to
+      ollama.chat. The double-asterisk kwargs pattern lets callers pass any
+      placeholder values without run_template needing to know the template's
+      schema in advance. If a required placeholder is missing, Template.substitute
+      raises a KeyError immediately — which is exactly what you want. After saving
+      the registry, the JSON file on disk is a complete audit log: every template,
+      every version, every placeholder list, all in one human-readable file you
+      can diff in git. That's versioning without any extra tooling.
+
+  - type: code
+    label: "Round-trip + load"
+    heading: "Loading a Saved Registry in a New Session"
+    code: |
+      # Simulate a fresh Python session: _registry starts empty
+      # (In a real script you import the module and call load_registry at startup)
+
+      from pathlib import Path
+      import json
+
+      REGISTRY_PATH = Path("prompt_registry.json")
+
+      # Clear the in-memory registry to simulate a fresh interpreter process
+      # before reloading — without this, load_registry raises ValueError because
+      # the keys registered above are still present.
+      _registry.clear()
+
+      # Load persisted registry — enforces immutability during load
+      load_registry(REGISTRY_PATH)
+      print("Loaded keys:", list(_registry.keys()))
+
+      # Verify a specific template survived the round-trip
+      entry = _registry["summarize_v2"]
+      assert "max_sentences" in entry["placeholders"], "placeholder list missing"
+      assert "$text" in entry["template"], "template body missing $text"
+      print("Round-trip verified ✅")
+
+      # Attempting to register summarize_v1 again raises ValueError — immutability holds
+      try:
+          register(
+              "summarize_v1",
+              "A completely different prompt text.",
+              ["text"],
+          )
+          print("ERROR: should have raised")
+      except ValueError as e:
+          print(f"Correctly blocked overwrite: {e}")
+
+      # Add a brand-new version — this is always allowed
+      register(
+          "summarize_v3",
+          "In $max_sentences sentences, give the key point of:\n\n$text",
+          ["text", "max_sentences"],
+      )
+      print("After adding v3:", list_versions("summarize"))
+      # → ['summarize_v1', 'summarize_v2', 'summarize_v3']
+    narration: >
+      This slide closes the loop on persistence. In a new Python session the
+      registry starts empty. Your application calls load_registry at startup,
+      passing the path to the JSON file saved in the previous session. load_registry
+      reads the file and calls register for each entry. Because register enforces
+      immutability, the load itself is safe: if two processes tried to load
+      conflicting registries the error would surface immediately rather than
+      silently corrupting state. After loading you can verify the round-trip with
+      plain assertions — check that the placeholder list survived, check that the
+      template body still contains the expected dollar-sign tokens. These assertions
+      are the kind of checks you'd put in a startup test that runs before your
+      application begins serving requests. The try-except block at the bottom
+      demonstrates the immutability guarantee in action: trying to register
+      summarize_v1 with different text raises a ValueError and prints the
+      human-readable message. The final block shows that adding a genuinely new
+      version — summarize_v3 — works without friction. Immutability doesn't block
+      progress; it just forces progress to be explicit.
+
+  - type: exercise
+    heading: "Exercise 4: Registry Round-Trip"
+    prompt: >
+      Open exercises/exercise_04.ipynb. You will implement a single function —
+      registry_round_trip(templates: list[dict]) -> list[dict] — that encapsulates
+      the full registry lifecycle internally: (1) build an in-memory registry dict
+      from the input list, enforcing the immutability rule by raising ValueError if
+      any key appears more than once; (2) save the registry to a temporary JSON
+      file using json.dump; (3) reload it into a fresh dict using json.load; and
+      (4) return the reloaded entries as a list of dicts sorted by key. The
+      automated checks verify that duplicate keys raise ValueError, that all entries
+      survive the round-trip, that each returned dict contains the key, template,
+      and placeholders fields, and that the list is sorted by key.
+    hint: >
+      Build the internal registry first — a plain dict keyed by the 'key' field
+      of each input dict. Check for duplicate keys before inserting and raise
+      ValueError if one is found. Save with json.dump(registry, fh, indent=2).
+      Reload with json.load into a separate fresh dict. Return the reloaded entries
+      as a sorted list of dicts, adding 'key' back into each entry since the JSON
+      dict uses it as the key rather than a field.
+    narration: >
+      Time to build it yourself. The exercise notebook gives you a single function
+      stub — registry_round_trip — that handles the complete register, persist,
+      reload, and return cycle in one place. This keeps the exercise focused on the
+      round-trip concept without requiring you to wire five separate functions
+      together. Work through the four steps in order: enforce immutability first,
+      then save to a temp file, then reload into a fresh dict, then return the
+      sorted list. The round-trip check is the most satisfying: after reloading, the
+      function returns entries whose placeholder lists exactly match the originals —
+      proof that json.dump and json.load faithfully preserve the full structure.
+      When all five checks show a green tick, come back here for the lesson summary.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "A registry dict keyed by 'name_vN' gives every template a stable, addressable identity"
+      - "Never mutate an existing version — register raises ValueError if a key already exists"
+      - "json.dump / json.load round-trip the registry to disk for persistence and auditing"
+      - "Next: putting it all together — Day 10's project builds a full templated prompt engine"
+    narration: >
+      Three things to carry into the project. First: the naming convention
+      name-underscore-v-number is simple, but its simplicity is the point. It
+      encodes name and version in a single string that is human-readable, sortable,
+      JSON-serialisable, and filesystem-safe. You can add metadata fields to the
+      registry entry later — author, created-at, description — without changing
+      the key scheme. Second: the immutability rule is enforced in code, not just
+      policy. The register function raises a ValueError. That means the rule cannot
+      be accidentally violated by a developer who doesn't know about it. Encoding
+      constraints in code is always stronger than encoding them in documentation.
+      Third: persistence is free. The registry is nothing but nested dicts, lists,
+      and strings, so json.dump serialises it without any custom serialiser. The
+      saved file is both the persistence layer and the audit log — one human-readable
+      JSON file in version control tells the complete history of every template your
+      system has ever used. In Lesson 5 you'll compose everything from today into
+      the Day 10 capstone: a full templated prompt engine that registers templates,
+      loads them at startup, and drives Ollama calls through a clean single-entry-point API.

@@ -1,0 +1,281 @@
+day: "010"
+lesson: "02"
+title: "Python String Templates"
+
+slides:
+
+  - type: title
+    heading: "Python String Templates"
+    subheading: "stdlib string.Template — safe, readable prompt construction"
+    narration: >
+      Welcome to Lesson 2. In Lesson 1 you saw the engineering case for separating
+      templates from data. In this lesson you meet a practical hazard f-strings
+      introduce when your prompt contains JSON, code blocks, or markdown: every
+      literal { and } must be doubled to {{ and }}, and one missed double-brace
+      raises a SyntaxError or silently garbles the output. string.Template sidesteps
+      this entirely by using dollar-sign placeholders — a class that has lived in
+      Python's standard library since version 2.4. By the end of this lesson you will
+      know the two placeholder forms, the two substitution methods, and exactly when
+      to reach for a Template instead of an f-string.
+
+  - type: concept
+    label: "Why Template?"
+    heading: "The Problem with F-Strings in Prompt Engineering"
+    body: >
+      F-strings evaluate immediately at the line they appear. That makes them
+      perfect for short, single-use interpolations — but awkward for prompt
+      templates that need to be defined once and filled in many times later.
+    bullets:
+      - "F-strings: defined and filled at the same moment — no reuse"
+      - "Any literal { or } in the text must be escaped as {{ or }}"
+      - "JSON examples, code snippets, and LLM output specs are full of { }"
+      - "string.Template: dollar-sign placeholders, defined once, filled on demand"
+    narration: >
+      Think about the prompt you built in Lesson 1 — the one with a JSON schema
+      example embedded inside it. Every brace in that JSON had to be doubled. That
+      is manageable for one prompt, but imagine maintaining a library of twenty
+      prompts, each containing JSON examples, code blocks, and markdown tables.
+      Every time a colleague edits the JSON example they have to remember the
+      doubling rule. If they forget, the code raises a KeyError at runtime, not
+      at the moment they made the typo. string.Template sidesteps this entirely.
+      Its placeholders use dollar signs — a character that almost never appears in
+      JSON, code, or markdown. The template text is plain Python string, readable
+      in isolation, and the substitution happens in a separate method call. That
+      separation of definition from execution is the core benefit.
+
+  - type: concept
+    label: "Placeholder syntax"
+    heading: "Two Placeholder Forms: $name and ${name}"
+    body: >
+      string.Template recognises two placeholder forms. Both are replaced by the
+      same substitution methods — the only difference is where you need a boundary.
+    bullets:
+      - "$variable — works when followed by whitespace or end of string"
+      - "${variable} — use when the placeholder is immediately followed by letters or digits"
+      - "Both forms are case-sensitive: $Topic is not $topic"
+      - "Literal dollar sign: $$ → becomes a single $"
+    narration: >
+      The bare form — dollar sign then a name made of letters, digits, and
+      underscores — works perfectly when the placeholder is surrounded by spaces
+      or punctuation. For example: "Summarise $topic in three sentences." The
+      name ends naturally at the space. But consider: "Write a $topicSummary" —
+      Python sees the whole word "topicSummary" as the variable name. If you only
+      want "topic", you need the braced form: "${topic}Summary". The braces mark
+      exactly where the variable name ends and the surrounding text resumes. That
+      is the only reason the braced form exists. For everything else, the bare form
+      is shorter and just as readable. One more thing to know: two consecutive
+      dollar signs produce a single literal dollar sign in the output. That escape
+      matters if your prompt needs to mention prices, shell variables, or LaTeX.
+
+  - type: how_it_works
+    label: "Two methods"
+    heading: "substitute() vs safe_substitute()"
+    body: >
+      Template offers two substitution methods with different behaviour when a
+      placeholder has no matching key in the mapping.
+    bullets:
+      - "substitute(mapping) — raises KeyError for any missing placeholder"
+      - "safe_substitute(mapping) — leaves missing placeholders untouched in the output"
+      - "Use substitute() when all keys must be present — fail loudly on gaps"
+      - "Use safe_substitute() when partial filling is intentional or keys vary"
+    narration: >
+      Most of the time you want substitute. If you build a prompt template that
+      expects a "language" variable and you forget to pass it, you want an
+      immediate KeyError telling you exactly which variable was missing. That is
+      the fast-feedback behaviour of substitute. safe_substitute exists for two
+      legitimate patterns. The first is staged construction: you fill some
+      placeholders now and leave others for a second pass later — the unresolved
+      ones survive intact as dollar-sign tokens. The second is defensive display:
+      you are showing a template preview in a UI and the user has not filled all
+      fields yet — safe_substitute gives you a readable partial result rather than
+      an exception. The naming can feel backwards at first. "Safe" sounds better,
+      so you might reach for it by default. Resist that. If a placeholder is
+      missing and you use safe_substitute, your prompt silently contains a raw
+      "$variable" string that gets sent to the model — producing garbage output
+      with no error. Use substitute as your default; use safe_substitute only
+      when partial substitution is a deliberate design choice.
+
+  - type: code
+    label: "Basic usage"
+    heading: "Creating and Filling a Template"
+    code: |
+      from string import Template
+
+      # Define the template once — plain string, dollar-sign placeholders
+      CLASSIFY_TMPL = Template("""
+      You are a text classifier.
+
+      Categories: $categories
+
+      Text to classify:
+      \"\"\"
+      $text
+      \"\"\"
+
+      Reply with exactly one category name and nothing else.
+      """)
+
+      # Fill it with substitute() — raises KeyError if any key is missing
+      prompt = CLASSIFY_TMPL.substitute(
+          categories="positive, negative, neutral",
+          text="The product arrived on time and works perfectly.",
+      )
+
+      print(prompt)
+    narration: >
+      Here is the minimal pattern. Import Template from the string module —
+      no pip install required, it is pure stdlib. Assign the template to a
+      module-level constant using all-caps by convention. The template text is a
+      plain triple-quoted string. Notice there are no doubled braces anywhere,
+      even though the text contains triple-quote characters. The dollar-sign
+      placeholders — categories and text — stand out clearly. To fill the
+      template you call substitute and pass keyword arguments, or a dictionary,
+      or both. The result is an ordinary Python string ready to drop into an
+      ollama.chat messages list. If you misspell a keyword — for example passing
+      "category" instead of "categories" — substitute raises a KeyError immediately
+      and shows you the missing name. That is exactly the feedback you want during
+      development.
+
+  - type: code
+    label: "Braced form + safe_substitute"
+    heading: "Braced Placeholders and Partial Filling"
+    code: |
+      from string import Template
+
+      # Braced form: ${name} — needed when placeholder adjoins other word chars
+      EXTRACT_TMPL = Template("""
+      Extract all ${entity_type}s from the text below.
+      Return a JSON array of strings — no other text.
+
+      Text:
+      \"\"\"
+      $text
+      \"\"\"
+      """)
+
+      # Stage 1 — fix the entity type now, leave $text for later
+      partial = EXTRACT_TMPL.safe_substitute(entity_type="email address")
+      print(partial)
+      # Output still contains $text — that placeholder is untouched
+
+      # Stage 2 — fill the remaining placeholder
+      stage2_tmpl = Template(partial)
+      final_prompt = stage2_tmpl.substitute(
+          text="Contact us at hello@example.com or support@corp.io."
+      )
+      print(final_prompt)
+    narration: >
+      This example shows both the braced form and a genuine use of safe_substitute.
+      The placeholder is dollar-sign entity-underscore-type followed immediately by
+      the letter s — "entity_types". Without braces Python would try to look up
+      a variable named "entity_types" with the s included. The braced form tells
+      Python the variable name ends before the s. In Stage 1, safe_substitute fills
+      entity_type and deliberately leaves dollar-text alone — we do not have the
+      user's text yet. The result, stored in "partial", is itself a valid template
+      string because the remaining placeholder is untouched. In Stage 2 we wrap
+      partial in a new Template and call substitute with the text. This two-stage
+      pattern is useful when your application builds prompts in layers: a config
+      layer sets model-level parameters, and a request layer fills in the per-call
+      content. Each layer only touches the keys it knows about.
+
+  - type: code
+    label: "Template in practice"
+    heading: "Prompt Template Library with Ollama"
+    code: |
+      import ollama
+      from string import Template
+
+      MODEL = "llama3.2"
+
+      SUMMARISE_TMPL = Template("""
+      Summarise the following text in $max_sentences sentences.
+      Use plain language suitable for a $audience audience.
+
+      Text:
+      \"\"\"
+      $text
+      \"\"\"
+      """)
+
+      def summarise(text: str, max_sentences: int = 3, audience: str = "general") -> str:
+          """Fill the template and call the local model."""
+          prompt = SUMMARISE_TMPL.substitute(
+              text=text,
+              max_sentences=max_sentences,
+              audience=audience,
+          )
+          response = ollama.chat(
+              model=MODEL,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+      if __name__ == "__main__":
+          sample = (
+              "Retrieval-Augmented Generation (RAG) combines a retrieval system "
+              "with a generative model. The retrieval step fetches relevant "
+              "documents from a knowledge base. The generative model then "
+              "conditions its output on those documents."
+          )
+          print(summarise(sample, max_sentences=2, audience="technical"))
+    narration: >
+      This is a realistic prompt-library pattern. The template is a module-level
+      constant — defined once, reused across every call. The summarise function
+      accepts the content variables as typed parameters with sensible defaults,
+      calls substitute to produce the final prompt string, then passes it to
+      ollama.chat as a user message. The function caller never touches a template
+      directly. They call summarise with plain Python arguments. If a new parameter
+      is needed — say a "tone" variable — you add it to the template, add it to
+      the function signature with a default, and pass it in substitute. Nothing
+      else changes. Compare this to an f-string version: you would have to hunt
+      down every place the string appears and update it in sync. The template
+      approach keeps the prompt text and the call signature as the only two places
+      to update.
+
+  - type: exercise
+    heading: "Exercise 2: Build a Template"
+    prompt: >
+      Open exercises/exercise_02.ipynb. You will implement
+      render_template(template_str: str, variables: dict) -> str — a function
+      that wraps string.Template.substitute() to fill a prompt template string
+      using a variables dictionary. The function must raise KeyError immediately
+      when a required placeholder has no matching key in variables, so that missing
+      keys are never silently forwarded to the model. The automated checks verify
+      that basic $variable substitution works, that the braced ${variable} form
+      works when a placeholder adjoins other characters, that KeyError is raised on
+      a missing key, and that all placeholders in a multi-variable template are
+      fully replaced.
+    hint: >
+      Create a Template object from template_str and call .substitute(variables)
+      on it — that is the complete implementation. Do not use safe_substitute:
+      using substitute ensures that a forgotten variable produces a loud KeyError
+      immediately rather than silently forwarding a raw $token to the model.
+    narration: >
+      Your turn. The exercise notebook gives you a stub for render_template and
+      five automated checks. The function body is intentionally short — the design
+      choice is which substitution method to use, and why. Work through the checks
+      in order: confirm that basic substitution works, that the braced form handles
+      a placeholder that adjoins other characters, that a missing key raises
+      immediately, and that a three-variable template leaves no dollar-sign tokens
+      in the output. When all five checks pass you have a solid grasp of
+      string.Template substitution. Come back here for the summary when you are done.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "string.Template uses $name and ${name} — no brace-doubling, safe inside JSON/code"
+      - "substitute() raises KeyError on missing keys — use it as your default"
+      - "safe_substitute() leaves missing placeholders intact — use for staged filling only"
+      - "Define templates as module-level constants; fill them inside functions that callers use"
+      - "Next: organising a prompt library as a Python module with named builder functions"
+    narration: >
+      Three things to lock in before Lesson 3. First: the dollar-sign syntax of
+      string.Template is not just aesthetic — it is what lets you embed JSON,
+      code, and markdown inside a prompt template without any escaping at all.
+      Second: substitute is your default. It gives you immediate, explicit failures
+      when a variable is missing. safe_substitute is a deliberate choice for staged
+      workflows, not a safer default. Third: the pattern of module-level template
+      constants filled by narrow helper functions is the foundation of a maintainable
+      prompt library. In Lesson 3 you will take that pattern further, organising
+      multiple templates and builder functions into a single prompt-library module
+      with a clean public interface.

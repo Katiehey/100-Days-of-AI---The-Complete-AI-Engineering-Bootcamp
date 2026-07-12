@@ -1,0 +1,351 @@
+day: "010"
+lesson: "05"
+title: "Rendering Templates into LLM Calls"
+
+slides:
+
+  - type: title
+    heading: "Rendering Templates into LLM Calls"
+    subheading: "The render-then-call pattern — separating prompt construction from model invocation"
+    narration: >
+      Welcome to Lesson 5, the final lesson of Day 10. Over the last four
+      lessons you've built every piece of a prompt-template system: you know
+      why hard-coded f-strings break, how string.Template fills placeholders
+      safely, how to package templates into a library module, and how to
+      version them in a registry. There is one step left — the step that
+      connects all of that infrastructure to an actual model call. That step
+      is the render-then-call pattern, and it's the topic of this lesson.
+      By the end you'll have a single clean function that accepts a template
+      key and a dict of variables, renders the filled prompt, and hands it
+      to ollama.chat — with template construction and model invocation kept
+      completely separate. That separation is what makes the whole system
+      composable, testable, and easy to extend.
+
+  - type: concept
+    label: "The core idea"
+    heading: "Render First, Call Second"
+    body: >
+      The render-then-call pattern splits one tangled operation into two
+      distinct, independently testable steps. Step one: render a filled
+      prompt string from a template and a dict of variables. Step two: pass
+      that string as the user message in an ollama.chat() call.
+    bullets:
+      - "render(variables) → plain string — no model involved, fully testable"
+      - "ollama.chat(messages) → model response — no template logic inside"
+      - "The two steps are coupled by a single string, nothing else"
+      - "Change the template without touching the call; change the model without touching the template"
+    narration: >
+      Here is the core insight of this lesson stated as plainly as possible.
+      Right now, if you write a prompt with an f-string and immediately pass
+      it to ollama.chat, those two actions are merged into one line. You
+      cannot test one without triggering the other, and you cannot swap out
+      the template without also touching the call logic. The render-then-call
+      pattern breaks that merge. Rendering means taking a template and a dict
+      of variable values and producing a plain Python string — nothing more.
+      No network call, no model, no API key. That string is the boundary
+      between your prompt-engineering code and your model-calling code. Once
+      you have the string, you pass it as the content of a user message in a
+      call to ollama.chat. The model call doesn't know or care where the
+      string came from — it just sees a user message. This separation has
+      real engineering value. You can write a unit test that calls render and
+      asserts on the output string without ever starting Ollama. You can
+      swap in a different template just by changing the key you pass to the
+      render function. You can swap in a different model just by changing the
+      model argument you pass to ollama.chat. The two concerns are decoupled.
+
+  - type: concept
+    label: "What render produces"
+    heading: "render() Returns a String You Can Inspect"
+    body: >
+      The render step uses string.Template.substitute under the hood. Its
+      output is a fully filled, human-readable string — the exact text the
+      model will see as the user turn. You can log it, assert on it in tests,
+      or print it for debugging before the model ever sees it.
+    bullets:
+      - "Template: 'Summarize in $max_sentences sentences.\n\n$text'"
+      - "Variables: {\"text\": \"...\", \"max_sentences\": \"2\"}"
+      - "render() output: 'Summarize in 2 sentences.\\n\\nNeural networks...'"
+      - "That rendered string becomes messages=[{\"role\": \"user\", \"content\": <here>}]"
+    narration: >
+      Let's be concrete about what render actually produces. You start with a
+      template string — say, "Summarize in dollar-sign-max_sentences sentences,
+      then a couple of newlines, then dollar-sign-text." You call render with
+      a dict that maps max_sentences to the string "2" and text to the actual
+      document content. Render calls substitute on the string.Template, which
+      fills in the placeholders and returns a plain Python string. If your text
+      was "Neural networks learn by adjusting weights via backpropagation," then
+      the rendered output is exactly "Summarize in 2 sentences." followed by two
+      newlines followed by "Neural networks learn by adjusting weights via
+      backpropagation." That string is something you can read, print, log, and
+      write a test assertion about. It is the prompt. When you pass it to
+      ollama.chat, you put it in the content field of a message with role user.
+      The model sees the same string a human would see if they pasted it into a
+      chat interface. There is nothing hidden, nothing implicit. What you render
+      is what the model reads.
+
+  - type: how_it_works
+    label: "Pattern mechanics"
+    heading: "How render-then-call Flows Through the Code"
+    body: >
+      The pattern maps naturally onto the registry you built in Lesson 4. A
+      single helper function — call it render_and_call — chains three
+      operations: look up the template, substitute variables, invoke the model.
+    bullets:
+      - "get_template(key) → Template object (from the registry)"
+      - "tmpl.substitute(**variables) → filled string (render step)"
+      - "ollama.chat(model, [{\"role\": \"user\", \"content\": filled_string}]) → response (call step)"
+      - "response[\"message\"][\"content\"] → the model's reply as a plain string"
+    narration: >
+      Let me walk you through how the pieces connect. The registry from Lesson
+      4 stores template text indexed by a name-version key like summarize_v1.
+      get_template returns a string.Template object ready for substitution. You
+      call substitute on it with the variable dict — that is the render step and
+      it produces a plain string. You then build the messages list that
+      ollama.chat expects: a single dict with role user and the rendered string
+      as content. If your day's template library also includes a system prompt
+      for this template, you can prepend it as a system message before the user
+      message — the same pattern you learned in Day 6. Finally, ollama.chat
+      returns a response dict and you read response["message"]["content"] to get
+      the model's reply. Notice that each of the three operations is a single
+      function call with a clear return type. The flow is linear and explicit.
+      There is no hidden state, no implicit coupling. You could log the rendered
+      string between steps two and three — in fact you should, because then your
+      logs contain the exact prompt the model saw, which is invaluable for
+      debugging when the model returns an unexpected answer.
+
+  - type: code
+    label: "render_and_call"
+    heading: "Implementing render_and_call"
+    code: |
+      import logging
+      import ollama
+      from string import Template
+
+      logger = logging.getLogger(__name__)
+
+      MODEL = "llama3.2"
+
+      # ── Registry (simplified from Lesson 4) ──────────────────────────────────────
+
+      _registry: dict[str, dict] = {}
+
+
+      def register(key: str, template_text: str, placeholders: list[str]) -> None:
+          if key in _registry:
+              raise ValueError(f"Template '{key}' already exists.")
+          _registry[key] = {"template": template_text, "placeholders": placeholders}
+
+
+      def get_template(key: str) -> Template:
+          entry = _registry[key]          # KeyError if missing
+          return Template(entry["template"])
+
+
+      # ── The render-then-call pattern ──────────────────────────────────────────────
+
+      def render(key: str, variables: dict[str, str]) -> str:
+          """Render a registry template with the given variables.
+
+          Args:
+              key:       Registry key in 'name_vN' format.
+              variables: Mapping of placeholder names to string values.
+
+          Returns:
+              The fully filled prompt string, ready to send to a model.
+
+          Raises:
+              KeyError:  If 'key' is not in the registry or a placeholder is missing.
+          """
+          tmpl = get_template(key)
+          filled = tmpl.substitute(**variables)
+          logger.debug("render(%r) → %d chars", key, len(filled))
+          return filled
+
+
+      def render_and_call(
+          key: str,
+          variables: dict[str, str],
+          model: str = MODEL,
+          system_prompt: str | None = None,
+      ) -> str:
+          """Render a template, call the local model, return its reply.
+
+          Args:
+              key:           Registry key for the template to render.
+              variables:     Placeholder values to fill into the template.
+              model:         Ollama model name (default: llama3.2).
+              system_prompt: Optional system message prepended before the user turn.
+
+          Returns:
+              The model's reply as a plain string.
+          """
+          # Step 1 — render: template + variables → filled string
+          user_message = render(key, variables)
+
+          # Step 2 — build the messages list
+          messages: list[dict] = []
+          if system_prompt:
+              messages.append({"role": "system", "content": system_prompt})
+          messages.append({"role": "user", "content": user_message})
+
+          logger.info("Calling %s with template %r", model, key)
+
+          # Step 3 — call: filled string → model response
+          response = ollama.chat(model=model, messages=messages)
+          reply = response["message"]["content"]
+
+          logger.debug("Reply: %d chars", len(reply))
+          return reply
+    narration: >
+      Here is the full implementation. Let's read it top to bottom. The render
+      function is the pure construction step — it takes a registry key and a
+      variable dict, looks up the template, calls substitute, logs how many
+      characters the filled string contains, and returns it. No model call, no
+      network, no side effects beyond the log line. You can call render in a
+      unit test and assert on the returned string without Ollama running at all.
+      The render_and_call function chains render with a model call. It calls
+      render to get the filled string, builds a messages list — optionally
+      prepending a system message if one was supplied — and calls ollama.chat.
+      Notice that the messages list is just the list-of-dicts format you learned
+      on Day 3. Nothing special about it. The model doesn't know it came from a
+      template; it just sees a user message. The two log lines are important in
+      a production context: the debug log in render records the exact size of
+      the prompt, and the info log in render_and_call records which model and
+      template key were used. If a model call produces a bad answer, you can
+      grep your logs for the template key and immediately see the prompt that
+      caused it. The system_prompt parameter is optional — for templates that
+      don't need a standing instruction, you just omit it and the messages list
+      contains only the user turn.
+
+  - type: code
+    label: "Pattern in use"
+    heading: "Using render_and_call with the Registry"
+    code: |
+      # Register a few templates
+      register(
+          "summarize_v1",
+          "Summarize the following text in $max_sentences sentences.\n\n$text",
+          ["text", "max_sentences"],
+      )
+
+      register(
+          "translate_v1",
+          "Translate the following text to $language.\n\n$text",
+          ["text", "language"],
+      )
+
+      register(
+          "classify_v1",
+          "Classify the text as one of: $labels.\nReply with the label only.\n\n$text",
+          ["text", "labels"],
+      )
+
+      sample = (
+          "The Python programming language was created by Guido van Rossum "
+          "and first released in 1991."
+      )
+
+      # ── render only (no model call) — useful in tests ─────────────────────────────
+      filled = render("summarize_v1", {"text": sample, "max_sentences": "2"})
+      print("Rendered prompt:\n", filled)
+      # → "Summarize the following text in 2 sentences.\n\nThe Python programming..."
+
+      # ── render + call ─────────────────────────────────────────────────────────────
+      summary = render_and_call(
+          "summarize_v1",
+          {"text": sample, "max_sentences": "2"},
+      )
+      print("Summary:", summary)
+
+      translation = render_and_call(
+          "translate_v1",
+          {"text": sample, "language": "French"},
+      )
+      print("French:", translation)
+
+      label = render_and_call(
+          "classify_v1",
+          {"text": sample, "labels": "history, technology, science"},
+          system_prompt="You are a concise classifier. Reply with the label only.",
+      )
+      print("Label:", label.strip())
+    narration: >
+      This slide puts the pattern into real use. Three templates are registered
+      first — summarize, translate, and classify, each at version one. Notice
+      that registering them is just a one-time setup step; in a real application
+      you'd do this at startup, or call load_registry to pull them from a JSON
+      file saved in Lesson 4. The first real call is to render alone — no model,
+      just fill the template and print the result. That single line is something
+      you can put in a test file. You assert that the output contains "2
+      sentences" and the sample text, and your test will pass without Ollama
+      running. The next three blocks call render_and_call with different keys and
+      variable dicts. Each call looks the same from the outside: a template key
+      and a dict. The summarize call gets a two-sentence summary. The translate
+      call gets the text in French. The classify call includes a system prompt
+      that reinforces the one-label constraint. In all three cases the calling
+      code does not contain any template strings. The prompts live in the registry.
+      The calling code only knows the key and the values to fill in. If the
+      product team asks you to rephrase the summarize prompt, you register
+      summarize_v2 and change the key in one place. Nothing else changes.
+
+  - type: exercise
+    heading: "Exercise 5: Template-Driven LLM Call"
+    prompt: >
+      Open exercises/exercise_05.ipynb. You will implement
+      call_with_template(template_str: str, variables: dict, system_prompt: str,
+      model: str) -> str — a function that accepts a raw template string (not a
+      registry key), renders it with variables using string.Template.substitute(),
+      builds a messages list (optionally prepending a system message), calls
+      ollama.chat(), and returns the model's reply. The automated checks verify
+      that: (1) the function is callable; (2) a missing placeholder raises KeyError
+      rather than being forwarded silently to the model; (3) a full round-trip
+      through the model returns a non-empty string; (4) passing an empty
+      system_prompt omits the system message from the messages list.
+    hint: >
+      The render step is one line: Template(template_str).substitute(**variables).
+      Do not catch the KeyError that substitute raises — let it propagate so callers
+      get an immediate, informative error. Build the messages list as a plain
+      Python list of dicts, appending the system message only when system_prompt
+      is a non-empty string. Pass the list to ollama.chat and return
+      response["message"]["content"]. Keep the render step and the ollama.chat
+      call visually separate — a blank line between them is enough to make the
+      two-step pattern clear.
+    narration: >
+      Your turn. The exercise notebook gives you a single function stub —
+      call_with_template — that combines the render and call steps in one place.
+      Unlike the lesson's render_and_call, this version accepts a raw template
+      string rather than a registry key, which makes it self-contained and easy to
+      test with any template string you like. Work through the implementation in the
+      two-step order the docstring describes: render first, then call. The first
+      check confirms the function is callable. The second checks that a missing
+      placeholder raises before the model is ever contacted. The third does a real
+      round-trip through Ollama, so the model needs to be running. The fourth
+      confirms that an empty system_prompt correctly omits the system turn. When all
+      four checks are green, you have demonstrated the render-then-call pattern and
+      the Day 10 project is ready for you.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "render(key, variables) fills a template and returns a plain string — no model involved, fully testable"
+      - "render_and_call chains render with ollama.chat, keeping prompt construction and model invocation separate"
+      - "The boundary between the two steps is a single string: inspect it, log it, or assert on it in tests"
+      - "Next: Day 10 project — build a full templated prompt engine that registers, persists, renders, and calls"
+    narration: >
+      Let's lock in what you learned in this lesson. The render-then-call
+      pattern is a discipline more than a data structure. It says: produce
+      the prompt as an explicit, inspectable string before you hand it to the
+      model. That one rule buys you three things. First, testability — you
+      can write tests that call render and assert on the output string without
+      touching the model at all. Second, debuggability — your logs can contain
+      the exact prompt the model saw, which is almost always the first thing
+      you want when debugging an unexpected model response. Third, flexibility
+      — the template and the model call are decoupled by a string boundary, so
+      you can change either side independently. Combined with the registry from
+      Lesson 4, the versioning from Lesson 4, the library pattern from Lesson 3,
+      and the string.Template mechanics from Lesson 2, you now have a complete
+      prompt-template system built entirely from the tools and concepts you
+      already know. The Day 10 project puts all of it together: you'll build a
+      templated prompt engine that loads a registry from disk at startup, exposes
+      a single render_and_call entry point, and drives several real Ollama calls
+      through it. Everything you need is already in your toolkit. Let's build it.

@@ -1,0 +1,26 @@
+{
+  "summarize_v1": {
+    "template_str": "Summarise the following text in exactly $max_sentences sentence(s).\nBe concise and factual. Do not add information not present in the text.\n\n$text",
+    "required_vars": [
+      "text",
+      "max_sentences"
+    ],
+    "description": "Summarise a text passage in a fixed number of sentences."
+  },
+  "classify_v1": {
+    "template_str": "Classify the text below as exactly one of: $categories.\nReply with the category label only \u2014 no punctuation, no explanation.\n\n$text",
+    "required_vars": [
+      "text",
+      "categories"
+    ],
+    "description": "Classify text into exactly one of the given categories."
+  },
+  "extract_v1": {
+    "template_str": "Extract all ${entity_type}s from the text below.\nReturn a JSON array of strings \u2014 no other text.\n\n$text",
+    "required_vars": [
+      "entity_type",
+      "text"
+    ],
+    "description": "Extract all instances of a named entity type as a JSON array."
+  }
+}
