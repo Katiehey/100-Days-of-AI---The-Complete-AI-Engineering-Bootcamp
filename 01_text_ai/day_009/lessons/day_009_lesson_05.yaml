@@ -1,0 +1,434 @@
+day: "009"
+lesson: "05"
+title: "Multi-Section Documents"
+
+slides:
+
+  - type: title
+    heading: "Multi-Section Documents"
+    subheading: "Section-aware extraction — split, target, and assemble"
+    narration: >
+      Welcome to the final lesson of Day 9. You now have a complete extraction
+      toolkit: a three-step pipeline, a schema design playbook, few-shot grounding,
+      and a validation-and-repair loop. Those techniques work perfectly when a
+      document is one cohesive block of text with one schema. But many real
+      documents are not like that. A resume has a summary section, a skills section,
+      a work history section, and an education section — each with different fields,
+      different structure, and different extraction logic. Treating the whole resume
+      as one flat blob means one unwieldy schema, confused field mappings, and poor
+      extraction quality. The better approach is to split the document into its
+      named sections first, run a focused extractor on each section, and then
+      assemble all the results into one master dictionary. That is section-aware
+      extraction, and it is what you will build in this lesson.
+
+  - type: concept
+    label: "The problem with flat extraction"
+    heading: "One Schema Cannot Serve Many Sections"
+    body: >
+      A flat extraction sends the entire document to the model and expects a single
+      JSON object covering every section at once. On structured multi-section
+      documents this approach breaks down in predictable ways.
+    bullets:
+      - "One giant schema: fields from different sections compete in one prompt — the model confuses context"
+      - "Field pollution: a 'description' field in skills means something different from 'description' in work history"
+      - "Accuracy drops: the model must hold the entire document in focus while filling dozens of fields"
+      - "Harder to retry: a single ValidationError in any field invalidates the whole extraction"
+    narration: >
+      Imagine trying to extract a resume with one flat Pydantic model that covers
+      the candidate's contact details, their skills, their three most recent jobs
+      with bullet-point responsibilities, and their educational background. That
+      model would have thirty or forty fields. The system prompt embeds the full
+      JSON Schema — a wall of field names and descriptions the model must navigate
+      simultaneously while reading the entire document. Under that load, models
+      make more mistakes: they misplace values, confuse a skill listed under work
+      history with one in the skills section, or skip fields entirely because the
+      relevant text was far away from where the model's attention settled. And if
+      Pydantic finds one type error in one field, the whole object fails validation,
+      so the repair loop has to regenerate everything even though ninety percent of
+      the extraction was correct. The root cause is scope mismatch: you are asking
+      the model to be precise over a large, heterogeneous document all at once.
+      The fix is to reduce scope. Give each section its own focused schema and
+      its own focused model call.
+
+  - type: concept
+    label: "Section-aware extraction"
+    heading: "Split First, Extract Per Section, Assemble"
+    body: >
+      Section-aware extraction treats each labelled part of a document as an
+      independent extraction unit. The pipeline has three stages that build on
+      everything you have learned today.
+    bullets:
+      - "**Split:** detect section boundaries and produce a dict mapping label → text"
+      - "**Extract:** for each section, run a dedicated extractor with a focused schema"
+      - "**Assemble:** collect all section results into one master dict keyed by section name"
+    narration: >
+      The section-aware approach has three clean stages, and every one of them
+      maps directly to something you already know. Stage one is splitting. You
+      scan the document for section headers — lines like "SKILLS", "EXPERIENCE",
+      or "EDUCATION" — and slice the text around them. The output is a plain
+      Python dictionary where each key is the section name and each value is
+      the raw text that belongs to that section. Stage two is extraction. For
+      each section you call an extractor with a schema that was designed for
+      that section alone. The skills section gets a schema with a list of skill
+      strings. The work experience section gets a schema with a list of
+      WorkExperience nested models. Each model call is focused, short, and easy
+      to validate and retry independently. Stage three is assembly. You collect
+      each section's result — either a Pydantic object or a plain dict from
+      model_dump — into one master dictionary. That master dict is your complete
+      structured representation of the document. The sections are isolated during
+      extraction and unified at the end. Isolation makes each step simpler and
+      more reliable. Unification gives you the complete picture.
+
+  - type: how_it_works
+    label: "The splitter"
+    heading: "Splitting a Document Into Labelled Sections"
+    body: >
+      A section splitter scans the document line by line, detects header lines
+      that match a known list of section names, and collects all subsequent
+      lines under that header until the next header is found. The result is a
+      dict mapping section label to section text.
+    code: |
+      def split_sections(
+          document: str,
+          section_names: list[str],
+      ) -> dict[str, str]:
+          """Split a document into labelled sections by detecting header lines.
+
+          A header line is any line whose stripped, upper-cased content matches
+          one of the names in section_names (case-insensitive). Text before the
+          first recognised header is stored under the key "PREAMBLE".
+
+          Args:
+              document:      The full document text.
+              section_names: List of section headers to detect, e.g.
+                             ["SKILLS", "EXPERIENCE", "EDUCATION"].
+
+          Returns:
+              dict mapping section label (upper-cased) to the text in that
+              section. Sections with no content are omitted.
+          """
+          # Normalise section names for case-insensitive matching
+          name_set = {name.upper() for name in section_names}
+
+          sections: dict[str, list[str]] = {"PREAMBLE": []}
+          current = "PREAMBLE"
+
+          for line in document.splitlines():
+              stripped = line.strip().upper()
+              if stripped in name_set:
+                  current = stripped
+                  sections.setdefault(current, [])
+              else:
+                  sections.setdefault(current, []).append(line)
+
+          # Join lines and drop empty sections
+          return {
+              label: "\n".join(lines).strip()
+              for label, lines in sections.items()
+              if "\n".join(lines).strip()
+          }
+
+      # Quick test
+      doc = """
+      Ada Lovelace
+      ada@babbage.io
+
+      SKILLS
+      Python, mathematics, analytical engines
+
+      EXPERIENCE
+      Translator and annotator at the Royal Society, 1842-1843.
+
+      EDUCATION
+      Tutored privately by Mary Somerville and Augustus De Morgan.
+      """
+
+      sections = split_sections(
+          doc,
+          section_names=["SKILLS", "EXPERIENCE", "EDUCATION"],
+      )
+
+      print(list(sections.keys()))
+      # ['PREAMBLE', 'SKILLS', 'EXPERIENCE', 'EDUCATION']
+      print(sections["SKILLS"])
+      # Python, mathematics, analytical engines
+    narration: >
+      Read through split_sections carefully — it is one of those functions that
+      looks small but does a lot of work. It iterates over every line in the
+      document. For each line it strips whitespace and upper-cases the content,
+      then checks if it is in the set of known section names. If it is, that line
+      is a header: the splitter changes the current section label and moves on. If
+      it is not a header, the line gets appended to the current section's list.
+      Anything before the first recognised header is grouped under the key
+      "preamble" — that is where contact details typically live in a resume. At
+      the end, all the line lists are joined back into strings and any sections
+      with no content are dropped. The return value is a plain dict. Keys are
+      upper-cased section names. Values are the text that belongs to each section,
+      stripped of leading and trailing blank lines. The function makes no assumptions
+      about how many sections there are or what they contain — you pass the list of
+      names you care about and it detects them. This means you can reuse the same
+      splitter for any document type just by changing the section_names argument.
+
+  - type: code
+    label: "Per-section extractors"
+    heading: "A Focused Schema and Extractor for Each Section"
+    code: |
+      import json
+      import logging
+      import ollama
+      from pydantic import BaseModel, Field, ValidationError
+
+      logger = logging.getLogger(__name__)
+      MODEL = "llama3.2"
+
+      # --- Preamble schema: contact details ---
+      class PreambleInfo(BaseModel):
+          name: str = Field(description="Full name of the candidate")
+          email: str | None = Field(
+              default=None,
+              description="Primary email address, or null if not present"
+          )
+
+      # --- Skills schema: flat list ---
+      class SkillsInfo(BaseModel):
+          skills: list[str] = Field(
+              default_factory=list,
+              description="Each technical or professional skill as a short phrase"
+          )
+
+      # --- Experience schema: one or more jobs ---
+      class JobEntry(BaseModel):
+          company: str = Field(description="Name of the employer")
+          role: str = Field(description="Job title or role")
+          period: str | None = Field(
+              default=None,
+              description="Date range of the role (e.g. '2019-2022'), or null if not stated"
+          )
+
+      class ExperienceInfo(BaseModel):
+          jobs: list[JobEntry] = Field(
+              default_factory=list,
+              description="Work history entries in the order they appear"
+          )
+
+      # --- Generic per-section extractor (reuses the retry loop from Lesson 4) ---
+      def extract_section(
+          section_text: str,
+          model_class: type[BaseModel],
+          max_retries: int = 3,
+      ) -> BaseModel:
+          """Run a focused extraction on one section of text.
+
+          Args:
+              section_text: Raw text of a single document section.
+              model_class:  Pydantic BaseModel subclass for this section.
+              max_retries:  Repair loop limit (default 3).
+
+          Returns:
+              A validated model_class instance.
+
+          Raises:
+              ValidationError: If all repair attempts are exhausted.
+          """
+          schema = model_class.model_json_schema()
+          system_prompt = (
+              "Extract structured information from the provided text section.\n"
+              "Return ONLY a JSON object matching this schema — no prose:\n\n"
+              f"{json.dumps(schema, indent=2)}\n\n"
+              "Set optional fields to null if the information is not present."
+          )
+          messages = [
+              {"role": "system", "content": system_prompt},
+              {"role": "user",   "content": section_text},
+          ]
+          last_error: ValidationError | None = None
+
+          for attempt in range(1, max_retries + 1):
+              logger.debug("Section extraction attempt %d/%d", attempt, max_retries)
+              response = ollama.chat(model=MODEL, messages=messages, format="json")
+              raw = response["message"]["content"]
+              try:
+                  result = model_class.model_validate_json(raw)
+                  logger.info("Section extraction succeeded on attempt %d", attempt)
+                  return result
+              except ValidationError as e:
+                  last_error = e
+                  logger.warning("Attempt %d failed: %s", attempt, e.errors())
+                  if attempt < max_retries:
+                      messages.append({"role": "assistant", "content": raw})
+                      messages.append({
+                          "role": "user",
+                          "content": (
+                              f"Your JSON failed validation:\n\n{e}\n\n"
+                              "Return corrected JSON only."
+                          ),
+                      })
+          raise last_error
+    narration: >
+      The key point on this slide is that extract_section is almost identical to
+      the extract_with_retry function from Lesson 4. The repair loop is exactly
+      the same: attempt, catch ValidationError, append the error as a repair turn,
+      retry. The only meaningful difference is that this function accepts a
+      section_text instead of a full document. By the time extract_section runs,
+      the document has already been split, so it sees only the relevant passage —
+      maybe five to ten lines — which gives the model a much tighter focus than
+      the entire document would. The three schemas are each designed for their
+      section. PreambleInfo extracts just name and email. SkillsInfo extracts a
+      flat list of skill strings. ExperienceInfo nests a list of JobEntry objects,
+      each capturing company, role, and period. None of these schemas need to know
+      about the other sections. Each lives in its own scope, handles its own
+      validation, and retries independently. If the experience extraction fails,
+      the preamble and skills results are unaffected. That isolation is the real
+      engineering win of section-aware extraction.
+
+  - type: code
+    label: "Assembly"
+    heading: "Assembling the Master Result Dictionary"
+    code: |
+      def extract_document(
+          document: str,
+          section_names: list[str],
+      ) -> dict[str, dict]:
+          """Split a document into sections and extract each one into a typed result.
+
+          The master dict maps section label → extracted data dict.
+          Sections that fail extraction after all retries are stored as
+          {"error": <error message>} so the caller can triage them.
+
+          Args:
+              document:      Full document text.
+              section_names: Section headers to detect and extract.
+
+          Returns:
+              dict with one key per detected section. Values are plain dicts
+              from model_dump() on the validated Pydantic object, or an error dict.
+          """
+          # Map each section name to its schema (extend this dict for new sections)
+          SECTION_SCHEMAS: dict[str, type[BaseModel]] = {
+              "PREAMBLE": PreambleInfo,
+              "SKILLS":   SkillsInfo,
+              "EXPERIENCE": ExperienceInfo,
+              "EDUCATION": ExperienceInfo,
+          }
+
+          sections = split_sections(document, section_names)
+          master: dict[str, dict] = {}
+
+          for label, text in sections.items():
+              model_class = SECTION_SCHEMAS.get(label)
+              if model_class is None:
+                  logger.warning("No schema registered for section %r — skipping", label)
+                  continue
+
+              try:
+                  result = extract_section(text, model_class)
+                  master[label] = result.model_dump()
+              except ValidationError as e:
+                  logger.error("Section %r failed after all retries: %s", label, e)
+                  master[label] = {"error": str(e)}
+
+          return master
+
+      # --- Run the full pipeline ---
+      resume = """
+      Grace Murray Hopper
+      grace@navy.mil
+
+      SKILLS
+      COBOL, Fortran, compiler design, naval computing, debugging
+
+      EXPERIENCE
+      Director of Navy Programming Languages Group, US Navy, 1967-1977.
+      Senior Consultant, Digital Equipment Corporation, 1977-1992.
+
+      EDUCATION
+      PhD Mathematics, Yale University, 1934.
+      """
+
+      result = extract_document(
+          resume,
+          section_names=["SKILLS", "EXPERIENCE", "EDUCATION"],
+      )
+
+      # Master result dict — one key per section
+      print(result["PREAMBLE"]["name"])             # Grace Murray Hopper
+      print(result["SKILLS"]["skills"])             # ['COBOL', 'Fortran', ...]
+      print(result["EXPERIENCE"]["jobs"][0]["company"])  # US Navy (or similar)
+    narration: >
+      This is the assembly layer that ties everything together. The SECTION_SCHEMAS
+      dictionary is a dispatch table: it maps each section name to the Pydantic
+      class that should handle it. Adding support for a new section is one line in
+      that dict plus a new schema class. The extract_document function calls
+      split_sections to get the labelled text chunks, then iterates over them.
+      For each section it looks up the right schema from SECTION_SCHEMAS, calls
+      extract_section, and stores the result with model_dump — converting the
+      Pydantic object back to a plain dict so the master result is serialisable and
+      easy to pass to downstream code. If a section fails extraction even after all
+      retries, the error is recorded as an error dict rather than crashing the whole
+      pipeline. The caller can inspect master["EXPERIENCE"]["error"] and decide
+      whether to log it, flag it for manual review, or retry it with a different
+      strategy. At the bottom you can see the master result accessed with plain
+      dictionary syntax. The preamble gives you the name, the skills section gives
+      you a list, and the experience section gives you a list of job dictionaries.
+      Three focused model calls, one master dict. That is the complete section-aware
+      extraction pipeline.
+
+  - type: exercise
+    heading: "Exercise 5: Section Splitter"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. You will implement `split_sections(document,
+      section_names)` from scratch, then build three focused schemas — ContactInfo
+      (name, email), TechSkills (languages, tools), and Summary (headline, years_of_experience)
+      — and wire them into an `extract_resume(document)` function that returns a master
+      result dict with one key per section. The automated checks verify the splitter
+      correctly isolates each section, the schemas validate cleanly, and the master
+      dict has the expected keys and types.
+    hint: >
+      In split_sections, normalise section names with .strip().upper() before comparing.
+      Use a setdefault(current, []) pattern to accumulate lines per section, then join
+      and strip at the end. In extract_resume, maintain a SECTION_SCHEMAS dispatch dict
+      and wrap each extract_section call in try/except ValidationError so one failed
+      section does not crash the others. Call model_dump() on each successful result
+      before storing it in the master dict.
+    narration: >
+      Your turn. This exercise is the capstone for Day 9 — it asks you to use every
+      technique from today in one pipeline. First you implement the section splitter.
+      Then you design three schemas: one for contact details in the preamble, one for
+      a technical skills section with separate lists for programming languages and
+      tools, and one for a summary section that extracts a one-line headline and a
+      years of experience integer. Finally you assemble extract_resume, which calls
+      the splitter, dispatches each section to the right extractor, and returns a
+      master dict. The automated checks will test the splitter in isolation first —
+      giving it a multi-section string and asserting that the right text ends up under
+      the right key — before testing the full extraction pipeline. If your splitter
+      works correctly, the rest follows naturally. Focus on getting the boundary
+      detection right: a section starts when a header line is detected and ends
+      when the next header appears. Everything between those two headers belongs to
+      that section. Use the logging calls you learned on Day 5 to watch the pipeline
+      run through each section — it is the clearest way to debug boundary issues.
+
+  - type: summary
+    heading: "Day 9 Takeaways"
+    bullets:
+      - "Section-aware extraction: split a document into labelled sections, run a focused extractor per section, assemble one master result dict"
+      - "The splitter is a simple line-by-line scanner — upper-case comparison, setdefault accumulation, strip at the end"
+      - "Per-section schemas are smaller, more accurate, and retry independently — one failure does not invalidate the rest"
+      - "SECTION_SCHEMAS dispatch dict makes the pipeline extensible: adding a new section is one line plus one schema class"
+      - "Next — Day 10: building a document ingestion pipeline that reads files from disk, splits and extracts each one, and writes structured results to a JSON output file"
+    narration: >
+      You have reached the end of Day 9 and you have built something substantial.
+      You started with the core extraction loop — define a Pydantic schema, embed
+      it in a system prompt, validate with model_validate_json. You added field
+      design discipline: required versus optional, nested models, precise
+      descriptions. You added few-shot grounding so the model has a concrete
+      example to follow. You added the repair loop so validation errors become
+      retries rather than crashes. And now, in this final lesson, you have combined
+      all of that into a section-aware pipeline that handles multi-section
+      documents by splitting them first and extracting each piece with a targeted
+      schema. Every technique you used today is real production engineering. The
+      section splitter, the dispatch table, the error-recording pattern in the
+      assembly step — these are the kinds of decisions you make in a real data
+      engineering pipeline. In Day 10 you will extend this further by reading
+      documents from disk, running the full extraction pipeline on a batch of
+      files, and writing the structured results to a JSON output file. The
+      pipeline you built today becomes the engine inside a real tool. See you there.

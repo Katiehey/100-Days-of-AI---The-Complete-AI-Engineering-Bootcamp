@@ -1,0 +1,335 @@
+day: "009"
+lesson: "03"
+title: "Grounding the Model with Examples"
+
+slides:
+
+  - type: title
+    heading: "Grounding the Model with Examples"
+    subheading: "Few-shot extraction — show the model a worked example before asking it to extract"
+    narration: >
+      You have a Pydantic schema that defines exactly what you want, Field
+      descriptions that tell the model what each field means, and a system prompt
+      that injects the JSON Schema. That is already a solid pipeline. But there
+      is one more lever that consistently makes extraction more accurate: worked
+      examples. Instead of only telling the model what to produce, you show it
+      an input and the correct output, right there in the conversation, before
+      the real text arrives. This technique is called few-shot prompting, and
+      you actually saw the general idea back on Day 6 for prompt engineering.
+      Today you apply it specifically to extraction and see just how much it can
+      improve field coverage and format consistency.
+
+  - type: concept
+    label: "Why examples help"
+    heading: "The Model Learns Your Intent From Examples"
+    body: >
+      A schema and its descriptions explain what to extract in the abstract.
+      A worked example shows the model what a correct extraction looks like in
+      practice — the exact JSON structure, the field names spelled correctly,
+      how to handle optional fields, and how much detail to include. Concrete
+      beats abstract every time.
+    bullets:
+      - "Schema tells the model the shape — examples show the expected fill"
+      - "One example resolves most format ambiguity (two digits vs four, snake_case vs camelCase)"
+      - "Examples anchor the model's confidence — it stops second-guessing edge cases"
+      - "Even one example (one-shot) measurably improves field coverage over zero-shot"
+    narration: >
+      Think about how you would explain a task to a new colleague. You could
+      hand them a specification document and say "fill in the form according
+      to these rules." Or you could hand them the spec and say "here is a
+      completed form from last week, now fill in this new one the same way."
+      Almost everyone performs better with the second approach, and language
+      models are no different. The schema you write in Python tells the model
+      the abstract shape of what you want. A worked example shows it what a
+      good answer looks like concretely: field names in exactly the right case,
+      optional fields set to null rather than omitted, dates in the format you
+      prefer, numbers as integers not strings. Every ambiguity that your Field
+      descriptions did not quite resolve, an example resolves on contact. The
+      cost is small — a few extra lines in the messages list. The benefit is
+      often a jump in extraction accuracy that no amount of description
+      rewriting can match.
+
+  - type: concept
+    label: "Few-shot in the messages list"
+    heading: "Where the Examples Live"
+    body: >
+      On Day 6 you learned that few-shot examples are placed as alternating
+      user/assistant turns in the messages list, before the real input. For
+      extraction the pattern is the same: fabricate one or two (input prose,
+      output JSON) pairs and insert them before the real user message. The
+      model reads them as a demonstration of the task.
+    bullets:
+      - "System message: schema + extraction instructions (as before)"
+      - "User turn 1: example input prose (made-up, representative)"
+      - "Assistant turn 1: the correct JSON output for that example"
+      - "User turn N (real): the actual text to extract"
+      - "One or two examples is enough — more than three gives diminishing returns"
+    narration: >
+      This is the mechanical side of the technique, and it is reassuringly
+      simple because you already know the messages list from Day 3. The system
+      message stays exactly as before: the schema embedded as JSON Schema, the
+      null instruction, and the command to return only valid JSON. What you add
+      is a pair of extra messages before the real input. The first is a user
+      message containing a made-up but realistic piece of input text. The second
+      is an assistant message containing the gold-standard JSON you would want
+      back for that input. You write these yourself — they do not come from the
+      model. Then the real user turn follows. The model sees the demonstration
+      pair, infers the pattern, and applies it to your actual input. One example
+      pair is usually enough to fix format issues. Two example pairs cover more
+      edge cases — one example with all fields present, one with several fields
+      absent. Beyond two, you get diminishing returns and a longer prompt for
+      no meaningful gain.
+
+  - type: concept
+    label: "Writing good examples"
+    heading: "What Makes a Good Extraction Example"
+    body: >
+      A bad example can teach the model bad habits. A good example is realistic,
+      representative, and deliberately chosen to cover the patterns the model is
+      most likely to encounter. Two properties matter most: the examples should
+      use real-looking but fabricated data, and they should together cover the
+      range from fully populated to mostly absent.
+    bullets:
+      - "Use fabricated but realistic text — never real personal data in prompts"
+      - "Example 1: all fields present — shows the happy path with correct formats"
+      - "Example 2: sparse text — shows optional fields returning null, not guessed values"
+      - "Match the prose style of your real inputs — formal docs need formal examples"
+      - "Keep the output JSON exactly as model_json_schema expects — no extra keys"
+    narration: >
+      The examples you write are a form of specification, so the quality of the
+      examples matters. Three common mistakes weaken examples. The first is using
+      output that has extra keys not in your schema — the model may then invent
+      extra keys for the real input. The second is writing examples that are too
+      similar to each other, so the model never sees how to handle a sparse input
+      and defaults to hallucinating values for missing optional fields. The third
+      is using obviously fake data like "John Doe at foo@bar.com" — it works, but
+      more realistic fabricated data gives the model a better stylistic anchor for
+      the kind of inputs you will actually feed it. The fix for all three is
+      deliberate example selection: write one example with everything present and
+      formatted exactly as you want it, and write a second with only the required
+      fields plus one optional field, with everything else set to null. Together
+      those two examples draw a clear boundary between "extract when present" and
+      "return null when absent," which is the single most important distinction in
+      any extraction schema.
+
+  - type: code
+    label: "Building few-shot messages"
+    heading: "A Helper That Injects Example Pairs"
+    code: |
+      import json
+      import ollama
+      from pydantic import BaseModel, Field
+
+      # --- Schema (from Lesson 2) ---
+      class ContactInfo(BaseModel):
+          name: str = Field(description="Full name of the person")
+          email: str = Field(description="Email address, lowercase")
+          phone: str | None = Field(
+              default=None,
+              description="Phone number in any format, or null if not present"
+          )
+          company: str | None = Field(
+              default=None,
+              description="Employer or organisation name, or null if not mentioned"
+          )
+
+      # --- Few-shot helper ---
+      def build_extraction_messages(
+          schema: dict,
+          examples: list[tuple[str, dict]],
+          real_input: str,
+      ) -> list[dict]:
+          """Build the full messages list: system + example pairs + real input.
+
+          Args:
+              schema:      JSON Schema dict from model_json_schema().
+              examples:    List of (input_prose, output_dict) pairs.
+                           Each pair becomes one user/assistant demonstration.
+              real_input:  The actual text to extract from.
+
+          Returns:
+              A messages list ready to pass to ollama.chat().
+          """
+          system_content = (
+              "Extract contact information from the text.\n"
+              "Return ONLY valid JSON matching this schema — no prose, no markdown:\n\n"
+              f"{json.dumps(schema, indent=2)}\n\n"
+              "If a field is not present in the text, set it to null."
+          )
+          messages: list[dict] = [{"role": "system", "content": system_content}]
+
+          # Inject each example as a user/assistant pair
+          for input_prose, output_dict in examples:
+              messages.append({"role": "user", "content": input_prose})
+              messages.append({"role": "assistant", "content": json.dumps(output_dict)})
+
+          # Append the real extraction request
+          messages.append({"role": "user", "content": real_input})
+          return messages
+
+      # --- Example pairs (you write these; they are not real data) ---
+      EXAMPLES: list[tuple[str, dict]] = [
+          (
+              "Hi, I'm Lena Park. Reach me at lena.park@designco.io "
+              "or call +1-415-555-0198. I work at DesignCo.",
+              {
+                  "name": "Lena Park",
+                  "email": "lena.park@designco.io",
+                  "phone": "+1-415-555-0198",
+                  "company": "DesignCo",
+              },
+          ),
+          (
+              "Questions? Email marco@example.org.",
+              {
+                  "name": None,
+                  "email": "marco@example.org",
+                  "phone": None,
+                  "company": None,
+              },
+          ),
+      ]
+
+      # --- Extraction call ---
+      real_text = (
+          "My name is Priya Nair. You can find me at priya@techbridge.com. "
+          "I'm the lead engineer at TechBridge Solutions."
+      )
+
+      schema = ContactInfo.model_json_schema()
+      messages = build_extraction_messages(schema, EXAMPLES, real_text)
+
+      response = ollama.chat(
+          model="llama3.2",
+          messages=messages,
+          format="json",
+      )
+
+      contact = ContactInfo.model_validate_json(response["message"]["content"])
+      print(contact.name)     # Priya Nair
+      print(contact.email)    # priya@techbridge.com
+      print(contact.company)  # TechBridge Solutions
+      print(contact.phone)    # None
+    narration: >
+      Walk through this slide carefully because it introduces a reusable pattern
+      you will use many times. The schema is the same ContactInfo model from
+      Lesson 2. The build_extraction_messages helper takes three arguments: the
+      JSON Schema dict, a list of example pairs, and the real input string. It
+      constructs the system message exactly as before — schema embedded, null
+      instruction included. Then it loops over the example pairs and appends
+      each one as a user turn followed by an assistant turn. Finally it appends
+      the real user message. The two example pairs are worth studying. The first
+      shows a fully populated extraction — all four fields present. The second
+      shows a sparse one — only email is present, everything else is null. Together
+      they model both the happy path and the absent-field path. When the real
+      text arrives, the model has seen exactly what a correct extraction looks
+      like for both cases. Notice that the examples are made-up text, not real
+      personal data. That is intentional — you fabricate examples that represent
+      the range of inputs you expect. The ollama.chat call is unchanged. The only
+      difference from Lesson 2 is the extra pairs in the middle of the messages
+      list.
+
+  - type: how_it_works
+    label: "What changes with examples"
+    heading: "Zero-Shot vs One-Shot vs Two-Shot: What Actually Differs"
+    body: >
+      Few-shot does not change the schema or the model. It changes the context
+      the model reasons from. The model reads the demonstration pairs and infers
+      the pattern — field names, null convention, value format — then applies
+      that inferred pattern to the real input.
+    code: |
+      # Zero-shot: schema only — model must infer everything from descriptions
+      zero_shot = [
+          {"role": "system", "content": system_with_schema},
+          {"role": "user",   "content": real_text},
+      ]
+
+      # One-shot: one example pair added before the real input
+      one_shot = [
+          {"role": "system",    "content": system_with_schema},
+          {"role": "user",      "content": example_input},       # ← example
+          {"role": "assistant", "content": example_json},        # ← correct output
+          {"role": "user",      "content": real_text},
+      ]
+
+      # Two-shot: two example pairs — covers more variation
+      two_shot = [
+          {"role": "system",    "content": system_with_schema},
+          {"role": "user",      "content": example_input_1},
+          {"role": "assistant", "content": example_json_1},
+          {"role": "user",      "content": example_input_2},
+          {"role": "assistant", "content": example_json_2},
+          {"role": "user",      "content": real_text},
+      ]
+      # Rule of thumb: one-shot fixes most format problems; two-shot
+      # covers absent-field vs fully-populated edge cases; three+ rarely helps.
+    narration: >
+      This slide strips the pattern down to its skeleton so you can see exactly
+      what changes between zero-shot, one-shot, and two-shot. The system message
+      is identical in all three cases. The real user message at the end is
+      identical. The only difference is what sits between them. Zero-shot has
+      nothing between the system message and the real input — the model works
+      purely from the schema and descriptions. One-shot inserts one user-assistant
+      pair before the real input. Two-shot inserts two. The model does not
+      receive any special instruction about what those pairs mean. It infers from
+      the conversation structure: "this user gave some text, then I produced some
+      JSON, then the same user gave more text — I should produce JSON again in
+      the same style." That inference is the mechanism. The practical rule of
+      thumb is: start with one example and see if it fixes your accuracy issues.
+      A second example is worth adding when you have a clear edge case — typically
+      the difference between a text that has all fields and one that is sparse.
+      Beyond two, the extra tokens cost more than the marginal accuracy gain.
+
+  - type: exercise
+    heading: "Exercise 3: Few-Shot Address Extractor"
+    prompt: >
+      Open exercise_03.ipynb. You will build an AddressInfo schema (street,
+      city, state, country, postcode — all optional except country) and write
+      a build_address_messages() function that accepts a list of example pairs
+      and a real input string. Supply two example pairs (one fully populated,
+      one with only city and country) and run the extractor against three
+      provided address snippets. Validate each result with Pydantic and confirm
+      that optional fields come back as None rather than being omitted or
+      hallucinated.
+    hint: >
+      Fabricate your example pairs — do not use real addresses. The two examples
+      should contrast: one where all five fields are present, one where only
+      city and country are found. Place the example pairs as user/assistant
+      turns between the system message and the real input. Use format="json" in
+      ollama.chat so the model is constrained to valid JSON, and call
+      model_validate_json on the raw response string.
+    narration: >
+      The exercise reinforces the full pattern in one focused task. You design
+      the AddressInfo schema from scratch, make deliberate required-versus-optional
+      choices for each field, and write Field descriptions that specify what to
+      do when a part of the address is not in the text. Then you construct the
+      messages list using two hand-written example pairs — one showing a complete
+      address, one showing a partial one. Finally you run the extractor against
+      three test snippets and check that the Pydantic validation passes and that
+      optional fields come back as None rather than made-up values. Pay attention
+      to the difference between what you get with no examples versus with two:
+      this is where you will see the impact of few-shot grounding most clearly.
+      Take note of any field that the model still gets wrong — that is your cue
+      to sharpen the Field description for that field.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Few-shot extraction = one or two (input prose, output JSON) example pairs injected as user/assistant turns before the real input"
+      - "Examples resolve format ambiguity that descriptions alone cannot — field name casing, null vs omit, value format"
+      - "Two-shot covers both the fully-populated and the sparse-input cases; more than two rarely helps"
+      - "Next — Lesson 4: validation and retry loops — what to do when the model still returns invalid JSON despite schema and examples"
+    narration: >
+      Few-shot extraction is one of the highest-leverage techniques in your
+      extraction toolkit, and it costs almost nothing to add. You already know
+      the messages list. You already know how to write JSON by hand. Combining
+      the two into a helper function that injects example pairs takes maybe ten
+      extra lines of code and can jump extraction accuracy noticeably on the
+      first try. The two-example rule of thumb is practical: one example to show
+      the happy path, a second to show the sparse path. Together they cover the
+      two situations the model needs to handle most often. Everything else in the
+      pipeline stays the same — same schema, same Pydantic validation, same
+      ollama.chat call with format equals json. In Lesson 4 you will add the
+      last reliability layer: a retry loop that catches validation errors and
+      sends them back to the model for self-correction, so your extractor
+      recovers automatically when the model still gets it wrong.

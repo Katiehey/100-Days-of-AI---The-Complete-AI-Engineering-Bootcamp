@@ -1,0 +1,335 @@
+day: "009"
+lesson: "04"
+title: "Validation and Repair Loops"
+
+slides:
+
+  - type: title
+    heading: "Validation and Repair Loops"
+    subheading: "Feed ValidationError back to the model and let it fix its own output"
+    narration: >
+      You have designed solid schemas, written precise field descriptions, and learned
+      how optional fields keep extraction honest. But no schema and no prompt is
+      perfect every time. Sometimes the model misreads a field, puts a string where
+      you expected an integer, or omits something required. When that happens,
+      Pydantic raises a ValidationError — and that error is not the end of the road.
+      It is the beginning of a repair loop. In this lesson you will learn to catch
+      that error, format it as a message, feed it back to the model as a follow-up
+      user turn, and ask the model to correct its own output. You saw this exact
+      pattern on Day 4 for structured generation. Now you will apply it to
+      extraction, where the source text adds an extra constraint: the fix must
+      still be grounded in the original passage.
+
+  - type: concept
+    label: "Why extraction fails"
+    heading: "When Good Schemas Still Produce Bad Output"
+    body: >
+      Even a well-designed schema with precise Field descriptions will occasionally
+      produce a ValidationError. The causes are predictable and almost always
+      recoverable — which is why a retry loop exists.
+    bullets:
+      - "Wrong type — model returns year as '1984' (string) instead of 1984 (integer)"
+      - "Missing required field — model skips a field it could not find in the text"
+      - "Format mismatch — email returned as 'ada at example dot com' instead of a valid address"
+      - "Hallucinated structure — model adds keys not in the schema or nests incorrectly"
+    narration: >
+      Let's be specific about what actually goes wrong. The most common failure is
+      a type mismatch: the model returns a year as the string "1984" even though your
+      schema says integer. Pydantic tries to coerce it, and if that fails, you get a
+      ValidationError. The second common failure is a missing required field — the
+      model could not find the information in the source text and decided to omit the
+      key entirely rather than guessing, but your schema requires it. The third is a
+      format issue: a phone number written as words, an email with spaces, a date in
+      the wrong format. The fourth, less common but it happens, is hallucinated
+      structure: the model invents keys that are not in your schema, or wraps the
+      whole object in an extra nesting layer. What all four failures have in common
+      is that the model produced something — it is not a total blank — and the error
+      message from Pydantic tells you precisely what was wrong. That specificity is
+      what makes automatic repair possible. You do not need to guess what went wrong.
+      Pydantic already diagnosed it. You just need to relay that diagnosis back to
+      the model.
+
+  - type: concept
+    label: "The repair strategy"
+    heading: "Self-Correction via Error Feedback"
+    body: >
+      The repair loop is the same pattern you used on Day 4 for schema-guided
+      generation: catch the ValidationError, append it as a user turn, ask the model
+      to produce a corrected JSON. The source text stays in the conversation so the
+      model can re-read it.
+    bullets:
+      - "Attempt 1: model → raw JSON → Pydantic validates → ValidationError raised"
+      - "Repair turn: append error details as a new user message"
+      - "Attempt 2: model sees its mistake + the original text → produces corrected JSON"
+      - "Loop up to max_retries — give up cleanly if it still fails"
+    narration: >
+      Here is the repair strategy step by step. On the first attempt, you call the
+      model, get raw JSON, and pass it to model_validate_json. If that raises a
+      ValidationError, you do not throw the conversation away. You append a new user
+      message that says something like: "Your previous response failed validation with
+      this error — please fix it and return the corrected JSON." You include the error
+      details from e.errors() so the model knows exactly what was wrong. Critically,
+      the original source text is still in the conversation history — the model can
+      re-read the passage and try to find the correct value for the field it got wrong.
+      On the second attempt the model is much more likely to succeed because it has a
+      precise diagnosis of its mistake. You wrap this in a loop with a configurable
+      maximum retry count so you never spin forever. If the model still fails after
+      max_retries, you raise the last ValidationError and let the caller decide what
+      to do with it. This is the same self-correction loop you built on Day 4, just
+      applied to extraction where the source text grounds each repair attempt.
+
+  - type: how_it_works
+    label: "Conversation structure"
+    heading: "How the Repair Turn Looks in the Message List"
+    body: >
+      Each attempt is a full round-trip. The repair turn appends both the model's
+      failed output and the error message to the conversation so the model has
+      complete context for its correction.
+    code: |
+      # First attempt — normal extraction messages
+      messages = [
+          {"role": "system", "content": SYSTEM_PROMPT},
+          {"role": "user", "content": source_text},
+      ]
+
+      # Model responds — we add its reply to history
+      raw = response["message"]["content"]
+      messages.append({"role": "assistant", "content": raw})
+
+      # Pydantic raises ValidationError — we feed it back as a user turn
+      error_summary = str(validation_error)   # human-readable error text
+      messages.append({
+          "role": "user",
+          "content": (
+              f"Your JSON failed validation:\n\n{error_summary}\n\n"
+              "Return the corrected JSON only. "
+              "Use the original text above to find the correct values."
+          ),
+      })
+
+      # Second attempt — model now sees: system + text + its bad output + the error
+      response2 = ollama.chat(model=MODEL, messages=messages, format="json")
+    narration: >
+      Look at how the message list grows across a repair attempt. You start with
+      the normal two messages: system prompt and source text. The model responds.
+      You add that response to the list as an assistant turn — this is important,
+      because the model needs to see its own previous output to understand what it
+      got wrong. Then you add a user turn that quotes the validation error and asks
+      for a corrected JSON. Now when you call ollama.chat again, the model sees the
+      complete picture: the extraction instructions in the system prompt, the source
+      text it should extract from, its own previous attempt, the precise error Pydantic
+      found, and the instruction to fix it. With all of that context, the model can
+      usually produce a corrected object on the second attempt. Notice also that you
+      keep format equals json on every call in the loop — you always want grammar-
+      constrained sampling so the model is at least forced to emit valid JSON, even
+      if the schema validation is what you are actually checking.
+
+  - type: code
+    label: "Full repair loop"
+    heading: "extract_with_retry — The Complete Implementation"
+    code: |
+      import json
+      import logging
+      import ollama
+      from pydantic import BaseModel, Field, ValidationError
+
+      logger = logging.getLogger(__name__)
+
+      MODEL = "llama3.2"
+
+      def build_system_prompt(schema: dict) -> str:
+          return (
+              "You are a data extraction assistant.\n"
+              "Extract information from the provided text and return a JSON object "
+              "that matches this schema exactly:\n\n"
+              f"{json.dumps(schema, indent=2)}\n\n"
+              "Return ONLY the JSON object. No prose, no markdown, no explanation. "
+              "Set missing optional fields to null."
+          )
+
+      def extract_with_retry(
+          text: str,
+          model_class: type[BaseModel],  # the class itself, not an instance
+          max_retries: int = 3,
+      ) -> BaseModel:
+          """Extract structured data from text, retrying on ValidationError.
+
+          Args:
+              text: The source text to extract from.
+              model_class: A Pydantic BaseModel subclass defining the target schema.
+              max_retries: Maximum number of correction attempts (default 3).
+
+          Returns:
+              A validated instance of model_class.
+
+          Raises:
+              ValidationError: If all attempts are exhausted without valid output.
+          """
+          schema = model_class.model_json_schema()
+          system_prompt = build_system_prompt(schema)
+
+          messages = [
+              {"role": "system", "content": system_prompt},
+              {"role": "user", "content": text},
+          ]
+
+          last_error: ValidationError | None = None
+
+          for attempt in range(1, max_retries + 1):
+              logger.debug("Extraction attempt %d/%d", attempt, max_retries)
+
+              response = ollama.chat(model=MODEL, messages=messages, format="json")
+              raw = response["message"]["content"]
+              logger.debug("Raw response: %s", raw[:120])
+
+              try:
+                  result = model_class.model_validate_json(raw)
+                  logger.info("Extraction succeeded on attempt %d", attempt)
+                  return result
+
+              except ValidationError as e:
+                  last_error = e
+                  logger.warning(
+                      "Attempt %d failed validation: %s", attempt, e.errors()
+                  )
+
+                  if attempt < max_retries:
+                      # Append failed output + error as context for the next attempt
+                      messages.append({"role": "assistant", "content": raw})
+                      messages.append({
+                          "role": "user",
+                          "content": (
+                              f"Your JSON failed validation with these errors:\n\n"
+                              f"{e}\n\n"
+                              "Return corrected JSON only, matching the schema above. "
+                              "Use the original text to find the right values."
+                          ),
+                      })
+
+          raise last_error
+    narration: >
+      Here is the complete implementation. The function takes the source text, a
+      Pydantic model class, and a max_retries count. It builds the system prompt
+      from the schema, sets up the initial two-message conversation, and enters a
+      for loop that runs up to max_retries times. On each iteration it calls
+      ollama.chat with format equals json, grabs the raw string, and passes it to
+      model_validate_json. If that succeeds, it logs success and returns the result
+      immediately. If it raises a ValidationError, it logs a warning with the error
+      details and, if there are attempts remaining, appends the failed output and the
+      error message as a repair turn before looping. If the loop finishes without a
+      successful validation — meaning even the last attempt failed — it raises the
+      last ValidationError so the caller knows the extraction did not succeed.
+      Notice the logging calls at every decision point. You are following the Day 5
+      pattern: debug at entry and on raw responses, info on success, warning on
+      recoverable failures. This makes the repair loop observable — you can watch
+      it work through your logs without adding any print statements or changing the
+      function's external behaviour.
+
+  - type: code
+    label: "Using the repair loop"
+    heading: "Applying extract_with_retry to a Real Schema"
+    code: |
+      from pydantic import BaseModel, Field
+
+      class JobPosting(BaseModel):
+          title: str = Field(description="Job title exactly as written")
+          company: str = Field(description="Company or organisation offering the role")
+          location: str | None = Field(
+              default=None,
+              description="City or region, or null if fully remote or not stated"
+          )
+          salary_gbp: int | None = Field(
+              default=None,
+              description="Annual salary in GBP as an integer (no currency symbol), "
+                          "or null if not stated"
+          )
+          skills: list[str] = Field(
+              default_factory=list,
+              description="Required technical skills, each as a short phrase"
+          )
+
+      posting = """
+      Senior Python Engineer at DataBridge Ltd — London (hybrid).
+      Salary: £85,000. You will design and maintain data pipelines using Python,
+      Apache Airflow, and PostgreSQL. Strong SQL and REST API experience required.
+      """
+
+      job = extract_with_retry(posting, JobPosting, max_retries=3)
+
+      print(job.title)        # Senior Python Engineer
+      print(job.company)      # DataBridge Ltd
+      print(job.salary_gbp)   # 85000  ← integer, not "£85,000"
+      print(job.skills)       # ['Python', 'Apache Airflow', 'PostgreSQL', 'SQL', ...]
+    narration: >
+      Here is the repair loop in use against a realistic schema. The JobPosting model
+      has a mix of required fields, optional fields, and a list field. The tricky part
+      is salary_gbp: the text says "£85,000" with a currency symbol and comma, but
+      your schema wants a plain integer. A model that returns the salary as a string
+      will fail Pydantic's integer check. Without the repair loop, that means a crash
+      or a missed extraction. With the repair loop, the ValidationError is fed back to
+      the model — something like "salary_gbp: value is not a valid integer, got
+      '£85,000'" — and the model corrects it to 85000 on the next attempt. The
+      skills field is another common source of variation: some models return a
+      comma-separated string instead of a JSON array. Pydantic catches that as a
+      list type mismatch and the repair turn gives the model a chance to return a
+      proper array. Notice that calling extract_with_retry is identical to calling any
+      other extraction function from the caller's perspective — you pass the text and
+      the model class, you get back a validated instance. The retry mechanism is
+      entirely internal. The caller sees clean typed output or a ValidationError; it
+      never needs to know how many attempts were needed.
+
+  - type: exercise
+    heading: "Exercise 4: Robust Extractor with Retry"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. You will implement `extract_with_retry(text,
+      model_class, max_retries)` from scratch, then apply it to extract an `EventRecord`
+      schema (name, date_iso, venue, capacity_int, ticket_price_gbp) from three text
+      snippets — one clean, one with type mismatches, one with a missing required field.
+      The automated checks verify that your function returns a valid instance on clean
+      input, performs at least one repair on the type-mismatch input, and raises
+      ValidationError after max_retries on unrecoverable input.
+    hint: >
+      Build the message list with the system prompt and source text, then loop up to
+      max_retries. On ValidationError, append the failed output as an assistant turn
+      and the error as a user turn before the next iteration. Use str(e) or e.errors()
+      to format the error for the repair message. Remember to keep format="json" on
+      every ollama.chat call inside the loop.
+    narration: >
+      Your turn. The exercise gives you an EventRecord schema with a deliberately
+      tricky integer field — ticket_price_gbp — that the model will sometimes return
+      as a string like "£12.50". Your job is to implement the repair loop so that
+      failure is a retry, not a crash. The automated checks test three cases. First,
+      a clean input where the first attempt should succeed and no repair should happen.
+      Second, a type-mismatch input where the model's first attempt is expected to
+      fail and your loop should repair it. Third, an input where a required field is
+      genuinely missing from the text — there is no value to extract, so the model
+      will keep failing, and your function should raise ValidationError after exhausting
+      all retries. That third case is important: the repair loop is not magic. It can
+      fix mistakes in how the model formatted data it did find. It cannot invent data
+      that was never there. Knowing when to give up is part of the pattern. Write the
+      loop, run the checks, and watch the logs to see the repair turns in action.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Extract-validate-retry: catch ValidationError, feed it back as a user turn, ask the model to fix its output"
+      - "The repair message includes the failed JSON (assistant turn) and the error details (user turn) — full context for self-correction"
+      - "Keep format='json' on every attempt in the loop — guarantee syntactic validity at minimum"
+      - "Give up cleanly: raise the last ValidationError after max_retries so the caller can decide what to do"
+      - "Next — Lesson 5: putting it all together in the day's project, a reusable extraction pipeline"
+    narration: >
+      The extract-validate-retry loop is a first-class engineering pattern, not a
+      hack. It turns the model's occasional mistakes from hard failures into
+      recoverable events. The key insight is that Pydantic gives you a precise,
+      machine-readable diagnosis of exactly what went wrong — and that diagnosis is
+      exactly what the model needs to correct itself. You do not need to write any
+      special error-handling logic per field. You just relay what Pydantic found.
+      The other important insight is knowing when to stop. max_retries is not
+      just about politeness — it is about separating recoverable errors, where the
+      model misformatted something it actually found, from unrecoverable ones, where
+      the information simply is not in the source text. After max_retries you raise
+      and let the caller handle it — log it, skip it, flag it for manual review.
+      That is the right engineering approach. In the final lesson you will bring
+      together everything from today — schema design, optional fields, nested models,
+      and the repair loop — into a single reusable extraction pipeline that is the
+      day's project deliverable.

@@ -1,0 +1,323 @@
+day: "009"
+lesson: "02"
+title: "Designing Extraction Schemas"
+
+slides:
+
+  - type: title
+    heading: "Designing Extraction Schemas"
+    subheading: "Optional vs required, nested models, lists, and Field(description=...) to guide the model"
+    narration: >
+      In the previous lesson you saw how to wire Pydantic into the extraction
+      pipeline — prompt the model, validate the JSON, retry on failure. Now
+      comes the craft: designing the schema itself. The fields you choose, how
+      you mark them optional or required, whether you nest models, and the
+      descriptions you write on each field all directly influence how accurately
+      the model fills in the data. A badly designed schema produces extraction
+      errors that no amount of retrying will fix. A well designed one makes the
+      model's job clear and your output clean. This lesson is about making those
+      deliberate choices.
+
+  - type: concept
+    label: "Required vs Optional"
+    heading: "Not Every Field Is Always Present"
+    body: >
+      In real-world text, some information is reliably present and some is not.
+      Pydantic distinguishes these with default values: a field with no default
+      is required; a field with a default of None is optional. Marking a field
+      optional tells the model it is allowed to return null — and tells Pydantic
+      to accept it.
+    bullets:
+      - "Required field: no default — model MUST return a value or validation fails"
+      - "Optional field: default=None — model returns null when the text lacks the data"
+      - "Optional fields prevent false extraction: the model won't hallucinate a value just to satisfy the schema"
+      - "Rule of thumb: required = always present in your source data; optional = sometimes present"
+    narration: >
+      Here is the first design decision you make for every field: is this always
+      in the text, or only sometimes? Consider a resume. The candidate's name is
+      always there — make it required. Their GitHub profile link is not — make it
+      optional. If you mark GitHub required, the model will hallucinate a URL when
+      none exists, because it feels the pressure of a required field. If you mark
+      it optional with a default of None, the model is free to say "I didn't find
+      this," which is the honest, correct answer. Optional fields are not a sign
+      of a weak schema — they are a sign of an honest one. The rule of thumb is
+      simple: required means you would reject the whole extraction if it were
+      missing; optional means you would accept the extraction and just note the
+      field is absent.
+
+  - type: code
+    label: "Required vs Optional in code"
+    heading: "Optional Fields with Pydantic"
+    code: |
+      from pydantic import BaseModel, Field
+
+      class ResumeBasics(BaseModel):
+          # Required — name is always present; extraction fails if missing
+          name: str = Field(description="Full name of the candidate")
+          email: str = Field(description="Primary contact email address")
+
+          # Optional — these are only sometimes in a resume
+          phone: str | None = Field(
+              default=None,
+              description="Phone number if present, otherwise null"
+          )
+          github_url: str | None = Field(
+              default=None,
+              description="GitHub profile URL if present, otherwise null"
+          )
+          linkedin_url: str | None = Field(
+              default=None,
+              description="LinkedIn profile URL if present, otherwise null"
+          )
+
+      # Pydantic accepts a partial instance — phone/urls can be None
+      basics = ResumeBasics.model_validate({
+          "name": "Ada Lovelace",
+          "email": "ada@example.com",
+          "phone": None,
+          "github_url": "https://github.com/ada",
+          "linkedin_url": None,
+      })
+      print(basics.github_url)   # https://github.com/ada
+      print(basics.phone)        # None  ← accepted, not a validation error
+    narration: >
+      Here is what that looks like in code. The name and email fields have no
+      default, so Pydantic requires them in any validated instance. The phone,
+      github_url, and linkedin_url fields are typed as str-or-None and have a
+      default of None — so Pydantic happily accepts a dict that leaves them out
+      or sets them to null. Notice also that each field has a Field(description)
+      argument. We will talk more about descriptions in a moment, but the habit
+      starts here: every field gets a description. When you call model_validate on
+      a dict that comes back from the model, Pydantic checks the required fields,
+      applies the defaults for anything optional that was omitted, and either
+      returns a clean instance or raises a ValidationError you can log and retry.
+      That is the full flow for optional versus required — two lines of Python
+      difference with a big impact on extraction quality.
+
+  - type: concept
+    label: "Nested models"
+    heading: "Group Related Fields with Nested Models"
+    body: >
+      Flat schemas get unwieldy when an entity has many sub-fields that belong
+      together. Pydantic lets you nest BaseModel inside BaseModel to mirror the
+      natural structure of the data. Nesting also lets you mark a whole group as
+      optional — the nested model is either present or None.
+    bullets:
+      - "Nested model = a BaseModel field whose type is another BaseModel"
+      - "Groups related fields — e.g. all address parts under an Address model"
+      - "The parent field can itself be Optional, making the whole group optional"
+      - "Cleaner JSON output and cleaner Python access: candidate.address.city"
+    narration: >
+      Flat schemas hit a wall quickly. Imagine extracting a resume with a work
+      history section: each job has a company, title, start date, end date, and a
+      list of responsibilities. Stuffing all of that flat into one model is messy
+      — you end up with fields like job1_company, job1_title, job2_company, and
+      so on. Instead you define a WorkExperience model with those five fields, then
+      have the resume model hold a list of WorkExperience objects. This mirrors
+      how the data actually exists in the world. The JSON the model returns is
+      cleaner, the Python you write to access it is cleaner — candidate.work[0].company
+      instead of candidate["job1_company"] — and the model gets a clearer picture
+      of how things group together. Nesting also lets you make the whole group
+      optional: if an education section is optional, you type it as Education-or-None
+      and default it to None, and the whole block disappears cleanly when absent.
+
+  - type: code
+    label: "Nested models in code"
+    heading: "Composing Models Inside Models"
+    code: |
+      from pydantic import BaseModel, Field
+
+      class WorkExperience(BaseModel):
+          company: str = Field(description="Name of the employer")
+          title: str = Field(description="Job title held at this company")
+          start_year: int = Field(description="Four-digit year the role started")
+          end_year: int | None = Field(
+              default=None,
+              description="Four-digit year the role ended, or null if current"
+          )
+          responsibilities: list[str] = Field(
+              default_factory=list,
+              description="Up to five bullet points describing key responsibilities"
+          )
+
+      class Education(BaseModel):
+          institution: str = Field(description="Name of the school or university")
+          degree: str = Field(description="Degree or qualification awarded")
+          graduation_year: int | None = Field(
+              default=None,
+              description="Four-digit graduation year, or null if not yet graduated"
+          )
+
+      class Resume(BaseModel):
+          name: str = Field(description="Full name of the candidate")
+          email: str = Field(description="Primary contact email")
+          # Nested list — each job is a structured object
+          work: list[WorkExperience] = Field(
+              default_factory=list,
+              description="Work history in reverse chronological order"
+          )
+          # Optional nested model — education section may be absent
+          education: Education | None = Field(
+              default=None,
+              description="Highest or most recent education, or null if not listed"
+          )
+
+      # Access is clean and typed
+      resume = Resume.model_validate({
+          "name": "Grace Hopper",
+          "email": "grace@example.com",
+          "work": [
+              {"company": "US Navy", "title": "Rear Admiral",
+               "start_year": 1944, "end_year": 1986,
+               "responsibilities": ["Developed COBOL", "Popularised machine-independent languages"]},
+          ],
+          "education": {"institution": "Yale", "degree": "PhD Mathematics", "graduation_year": 1934},
+      })
+      print(resume.work[0].company)          # US Navy
+      print(resume.education.graduation_year) # 1934
+    narration: >
+      This is the nested model pattern in full. WorkExperience is a standalone
+      BaseModel with its own fields, including a list of responsibility strings
+      and an optional end_year. Education is another standalone model. Resume
+      composes both: a list of WorkExperience objects and an optional Education
+      block. Notice the default_factory=list on list fields — that is important.
+      You should not use default=[] in Python because mutable defaults are shared
+      across all instances. The default_factory=list creates a fresh empty list
+      for each new instance. When you validate a dict against this schema, Pydantic
+      recurses into each nested dict and validates it against the nested model.
+      You get a fully typed, nested Python object. Access it with dot notation all
+      the way down. This is significantly cleaner than trying to index into raw
+      dictionaries, and it makes your downstream code easier to read and test.
+
+  - type: concept
+    label: "Field descriptions"
+    heading: "Field(description=...) — Your Instructions to the Model"
+    body: >
+      The Field description is not just documentation for humans. When you call
+      model_json_schema() and inject it into the system prompt, the model reads
+      every description. A precise description is a direct instruction: what the
+      field means, what format to use, what to do when the data is absent.
+    bullets:
+      - "Vague description → ambiguous extraction (model guesses)"
+      - "Precise description → consistent extraction (model follows instructions)"
+      - "Include: what the field contains, the expected format, and the null rule"
+      - "Example: 'Four-digit graduation year (e.g. 2021), or null if not stated'"
+    narration: >
+      This is the most underrated tool in the schema designer's kit. When your
+      schema goes into the system prompt as JSON Schema, every description
+      property travels with it. The model reads it as part of its instructions.
+      A field named "year" with no description leaves the model to guess — year
+      of what? Two digits or four? Current year if missing? A field named "year"
+      with the description "Four-digit graduation year, for example 2021, or null
+      if the graduation year is not stated in the text" leaves nothing to guess.
+      The model knows exactly what to extract, what format to use, and how to
+      handle the absent case. Think of Field descriptions as a written contract
+      between you and the model. The better the contract, the fewer surprises in
+      the output. In practice, writing good descriptions also forces you to think
+      clearly about what each field actually means — which often reveals ambiguities
+      in the schema design before you run a single extraction.
+
+  - type: how_it_works
+    label: "Schema in prompt"
+    heading: "How the Schema Reaches the Model"
+    body: >
+      model_json_schema() converts a Pydantic model into a JSON Schema dict.
+      json.dumps() serialises it to a string. That string goes into the system
+      prompt so the model can read field names, types, and descriptions before it
+      extracts anything. This is the bridge between your Python schema and the
+      model's instructions.
+    code: |
+      import json
+      import ollama
+      from pydantic import BaseModel, Field
+
+      class ContactInfo(BaseModel):
+          name: str = Field(description="Full name of the person")
+          email: str = Field(description="Email address")
+          phone: str | None = Field(
+              default=None,
+              description="Phone number in any format, or null if not present"
+          )
+
+      schema = ContactInfo.model_json_schema()
+
+      system_prompt = f"""Extract contact information from the text.
+      Return ONLY valid JSON matching this schema — no prose, no markdown:
+
+      {json.dumps(schema, indent=2)}
+
+      If a field is not present in the text, set it to null."""
+
+      response = ollama.chat(
+          model="llama3.2",
+          messages=[
+              {"role": "system", "content": system_prompt},
+              {"role": "user", "content": "Reach me at grace@navy.mil or call 555-0100. I'm Grace Hopper."},
+          ],
+          format="json",
+      )
+
+      raw = response["message"]["content"]
+      contact = ContactInfo.model_validate_json(raw)
+      print(contact.name)   # Grace Hopper
+      print(contact.phone)  # 555-0100
+    narration: >
+      Here is the full pipeline condensed to one slide. You define the schema,
+      call model_json_schema to get the JSON Schema dict, serialise it with
+      json.dumps, and embed it in the system prompt. The prompt ends with an
+      explicit null instruction — "if a field is not present, set it to null."
+      That single sentence is important: without it, some models will omit
+      optional fields entirely rather than setting them to null, and Pydantic
+      will still accept that because the default takes over. But it is better
+      to be explicit so the model forms good habits. Then you call ollama.chat
+      with format equals json to engage grammar-constrained sampling — the
+      model is forced to emit valid JSON. The raw string comes back, you call
+      model_validate_json on it, and you get a ContactInfo instance. The
+      field descriptions you wrote in Python are now sitting inside the JSON
+      Schema in the prompt, guiding every extraction decision the model makes.
+
+  - type: exercise
+    heading: "Exercise 2: Design a Contact Schema"
+    prompt: >
+      Open exercise_02.ipynb. You will design a ContactCard schema with required
+      fields (name, email), optional fields (phone, website), and a nested Address
+      model (street, city, country — all optional). Add a Field(description=...)
+      to every field. Then use the schema to extract contact details from three
+      provided text snippets and validate the results with Pydantic.
+    hint: >
+      Use str | None with default=None for optional fields. Use default_factory=list
+      for any list field. Write descriptions that tell the model the format AND what
+      to do when the field is absent. Run model_json_schema() and print it first —
+      seeing the output tells you exactly what the model will read.
+    narration: >
+      Your turn. The exercise walks you through designing a ContactCard schema from
+      scratch. You will make deliberate choices for each field: is it required or
+      optional? Does it belong in a nested Address model or at the top level? What
+      description makes the extraction unambiguous? Then you will use that schema
+      in a real extraction call against three text snippets — a business card, an
+      email signature, and a plain sentence — and validate each result with Pydantic.
+      The interesting part is seeing how your field descriptions affect what comes
+      back. Try writing a vague description first, run the extraction, then sharpen
+      the description and run it again. The difference is often immediate. Take
+      your time with this one — schema design is a skill you will use in every
+      extraction pipeline you build.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Required vs optional: mark a field optional (str | None, default=None) when it is not always present — prevents hallucination"
+      - "Nested models: group related fields into their own BaseModel; the parent field can itself be optional"
+      - "List fields: use list[YourModel] with default_factory=list — never default=[]"
+      - "Field(description=...): write the format, the meaning, and the null rule — the model reads it as instructions"
+      - "Next — Lesson 3: validation and retries, handling the cases where the model still gets it wrong"
+    narration: >
+      Four design tools, all working together. Optional fields let the model
+      answer honestly when data is absent rather than fabricating a value.
+      Nested models group related fields into clean, typed sub-objects. List
+      fields with default_factory handle repeating sections like work history.
+      And Field descriptions are your direct line to the model — they travel
+      inside the JSON Schema in the system prompt and guide every extraction
+      decision. Combine all four and your schemas become precise, honest, and
+      easy for the model to follow. In the next lesson you will look at what
+      happens when the model still gets it wrong — validation errors and the
+      retry loop that recovers from them automatically.

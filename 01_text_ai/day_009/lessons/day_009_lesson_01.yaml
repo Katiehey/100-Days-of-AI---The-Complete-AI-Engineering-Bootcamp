@@ -1,0 +1,261 @@
+day: "009"
+lesson: "01"
+title: "What Is Structured Extraction?"
+
+slides:
+
+  - type: title
+    heading: "Structured Extraction"
+    subheading: "Turning prose into typed, validated data with a Pydantic schema"
+    narration: >
+      Welcome to Day 9. Over the last few days you have built a solid set of
+      skills: you can prompt a local model, get JSON back, validate it with
+      Pydantic, classify text into labels, and handle errors gracefully. Today
+      you combine all of that into one powerful pattern called structured
+      extraction. The idea is simple but transformative: you point a model at a
+      piece of free text — a book blurb, a job posting, a customer review — and
+      instead of getting a paragraph back, you get a clean, typed Python object
+      with exactly the fields you defined. By the end of the day you will be able
+      to turn any blob of prose into structured data your code can actually use.
+      Lesson 1 explains what extraction is and why it matters. Let's dig in.
+
+  - type: concept
+    label: "The problem"
+    heading: "Prose Is Useless to Your Code"
+    body: >
+      The world's most useful information lives in text: emails, articles, product
+      descriptions, medical notes, legal contracts. But your code cannot sort,
+      filter, or compute on a paragraph. It needs fields.
+    bullets:
+      - "Free text: useful to humans, opaque to programs"
+      - "Structured data (dicts, objects): useful to programs, hard to author manually"
+      - "Extraction bridges the gap — automatically, at scale"
+    narration: >
+      Think about what you actually want to do with text in a real application.
+      You want to sort books by publication year. Filter job postings by required
+      skills. Aggregate customer sentiment scores. Group articles by topic. None
+      of that is possible when the data lives in a paragraph. You need fields.
+      You need a title field, a year field, a list of skills, a numeric score.
+      Before LLMs, getting those fields out of raw text meant writing fragile
+      regular expressions or hiring annotators to label data by hand. Both
+      approaches are slow, brittle, and expensive. Structured extraction with a
+      schema-guided model changes that completely. You describe the shape of the
+      data you want, you hand the model a piece of text, and you get back a typed
+      Python object you can immediately put into a database, a spreadsheet, or
+      the next step of your pipeline. That is the problem extraction solves, and
+      it is one of the highest-value things you can do with an LLM in a real
+      engineering context.
+
+  - type: concept
+    label: "Schema-guided extraction"
+    heading: "Tell the Model What to Fill In"
+    body: >
+      Schema-guided extraction means you define a Pydantic model first — the
+      exact fields, types, and descriptions you want — then ask the LLM to fill
+      it from a piece of text. The schema is the contract between you and the
+      model.
+    bullets:
+      - "Pydantic schema → prompt the model with its JSON Schema representation"
+      - "Model fills the fields from the source text"
+      - "You parse and validate the response with `model_validate_json()`"
+      - "Result: a typed Python object, not a string"
+    narration: >
+      Here is how schema-guided extraction works at a high level. You start by
+      writing a Pydantic class — just like you did on Day 4. Each field has a
+      name, a type annotation, and a description that tells the model what
+      information belongs there. You then serialize that class to its JSON Schema
+      representation using `model_json_schema()` and embed it in your system
+      prompt, so the model knows exactly what structure to produce. The user
+      message contains the source text — the paragraph you want to extract from.
+      The model reads the text, identifies the relevant pieces, and writes a JSON
+      object that fits the schema. You call `model_validate_json()` on the
+      response, which does two things at once: it parses the JSON and it validates
+      every field against your type annotations. What you get back is a proper
+      Python object — with dot-access to every field, fully typed, fully
+      validated. If a required field is missing or the wrong type, Pydantic raises
+      a `ValidationError` immediately rather than letting bad data flow silently
+      through your system. The schema is the contract. The model fills it. Pydantic
+      enforces it. That three-step pattern is the whole technique.
+
+  - type: how_it_works
+    label: "The extraction pipeline"
+    heading: "Three Steps: Define → Prompt → Validate"
+    body: >
+      Every structured extraction follows the same three-step flow regardless of
+      what you are extracting.
+    bullets:
+      - "**Step 1 — Define:** write a Pydantic model with typed, described fields"
+      - "**Step 2 — Prompt:** embed the JSON Schema in the system prompt; pass text as user message"
+      - "**Step 3 — Validate:** parse the model's JSON output with `model_validate_json()`"
+    narration: >
+      Let's walk through the three steps concretely so the pipeline is clear in
+      your mind before you see code. Step one is defining your schema. You write
+      a Pydantic class and give every field a `Field(description=...)` so the
+      model understands what each field means. The description is not decoration
+      — the model reads it and uses it to decide which part of the source text
+      maps to which field. Step two is prompting. You call `model_json_schema()`
+      on your class, serialize the result to a JSON string, and drop it into your
+      system prompt alongside an instruction to fill the schema from the provided
+      text. You set `format="json"` in your `ollama.chat()` call to activate
+      grammar-constrained sampling — the same JSON mode you learned on Day 4 —
+      so the model is guaranteed to emit valid JSON. Step three is validation. You
+      take the raw string the model returns, pass it to `model_validate_json()`,
+      and you get back a proper Python object. If the JSON is malformed or a
+      field has the wrong type, you get a `ValidationError` you can handle
+      explicitly. If everything is fine, you have a fully typed, fully validated
+      object you can use immediately. Three steps, every time, for any extraction
+      task. Once you have this pattern in your head it becomes a reusable tool
+      you can apply to almost any unstructured text problem.
+
+  - type: code
+    label: "Extraction in practice"
+    heading: "Extracting a Book Record from a Blurb"
+    code: |
+      import json
+      import ollama
+      from pydantic import BaseModel, Field
+
+      MODEL = "llama3.2"
+
+      # Step 1 — Define the schema
+      class BookRecord(BaseModel):
+          title: str = Field(description="The book's title")
+          author: str = Field(description="The author's full name")
+          year: int = Field(description="Year of first publication")
+          genre: str = Field(description="Primary literary genre")
+          summary: str = Field(description="One-sentence plot summary")
+
+      # Step 2 — Build the extraction prompt
+      SCHEMA_JSON = json.dumps(BookRecord.model_json_schema(), indent=2)
+
+      SYSTEM_PROMPT = f"""You are a data extraction assistant.
+      Extract information from the provided text and return a JSON object
+      that matches this schema exactly:
+
+      {SCHEMA_JSON}
+
+      Return only the JSON object. No prose, no explanation."""
+
+      def extract_book(blurb: str) -> BookRecord:
+          response = ollama.chat(
+              model=MODEL,
+              messages=[
+                  {"role": "system", "content": SYSTEM_PROMPT},
+                  {"role": "user", "content": blurb},
+              ],
+              format="json",
+          )
+          raw = response["message"]["content"]
+          # Step 3 — Validate and return a typed object
+          return BookRecord.model_validate_json(raw)
+
+      # Try it
+      blurb = """
+      George Orwell's Nineteen Eighty-Four, published in 1949, is a dystopian
+      novel set in a totalitarian future society where independent thinking is
+      a crime. The story follows Winston Smith as he secretly rebels against
+      the all-seeing Party and its leader, Big Brother.
+      """
+
+      book = extract_book(blurb)
+      print(book.title)    # Nineteen Eighty-Four
+      print(book.author)   # George Orwell
+      print(book.year)     # 1949
+      print(book.genre)    # Dystopian fiction
+    narration: >
+      Now you can see the full pattern in code. The `BookRecord` Pydantic class
+      defines five fields — title, author, year, genre, and summary — each with
+      a `Field(description=...)` that tells the model what belongs there. Notice
+      that `year` is typed as `int`, not a string. Pydantic will enforce that.
+      If the model writes a year as a string like `"1949"` instead of an integer,
+      Pydantic will try to coerce it, and if that fails you get a `ValidationError`
+      rather than silent bad data. The `SYSTEM_PROMPT` embeds the JSON Schema
+      directly so the model sees the exact structure it must produce. The
+      `extract_book` function is just three lines of logic: call `ollama.chat()`
+      with `format="json"`, grab the content string, pass it to
+      `model_validate_json()`. The return type is `BookRecord` — not a dict, not
+      a string. You get dot-access to every field immediately. At the bottom you
+      can see the result: `book.title`, `book.author`, `book.year` all populated
+      from the blurb with no manual parsing. This is the full extraction loop in
+      about thirty lines. Everything here uses concepts you already know: Pydantic
+      from Day 4, `ollama.chat()` from Day 3, `format="json"` and
+      `model_validate_json()` from Day 4. What is new today is applying them
+      together for the specific purpose of extraction.
+
+  - type: concept
+    label: "Why this matters"
+    heading: "Extraction vs. Classification vs. Summarization"
+    body: >
+      You now know three LLM output patterns. Each solves a different problem:
+    bullets:
+      - "**Summarization (Day 7):** compress text → shorter text"
+      - "**Classification (Day 8):** text → one label from a fixed set"
+      - "**Extraction (Day 9):** text → structured object with multiple typed fields"
+    narration: >
+      It is worth pausing to place extraction alongside the other patterns you
+      have already learned, because knowing which tool to reach for is as
+      important as knowing how to use it. Summarization, which you learned on
+      Day 7, takes long text and produces shorter text — you are still working
+      in prose, just compressed. Classification, from Day 8, takes text and
+      returns a single label from a list you define — the output is one word or
+      phrase. Extraction is different from both. The output is a structured object
+      with multiple fields, each of a specific type. You are not compressing and
+      you are not categorising — you are pulling specific pieces of information
+      out of the text and filing them into a schema. A useful way to think about
+      it: summarization reduces, classification labels, extraction parses. When
+      you need to build a dataset, populate a database, or feed structured data
+      into a downstream pipeline, extraction is the right tool. Summarization and
+      classification produce outputs that are still opaque to your code. Extraction
+      produces an object your code can directly compute on. That is why extraction
+      is often the first step in a data engineering pipeline that uses LLMs.
+
+  - type: exercise
+    heading: "Exercise 1: Extract a Book Record"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. You will implement `extract_book(blurb)`
+      — a function that takes a free-text book description and returns a validated
+      `BookRecord` Pydantic object. The automated checks will verify that your
+      function returns the correct types for each field and handles the required
+      fields correctly.
+    hint: >
+      Define `BookRecord` with `Field(description=...)` on every field, embed
+      `BookRecord.model_json_schema()` in your system prompt, call `ollama.chat()`
+      with `format="json"`, and parse the result with `model_validate_json()`.
+    narration: >
+      Your turn. Open exercise 01 in the exercises folder. You will implement the
+      `extract_book` function from scratch following the three-step pattern you
+      just saw. The notebook gives you the `BookRecord` schema and a set of test
+      blurbs, and the automated checks verify that your function returns a proper
+      `BookRecord` instance with the right types — not a dict, not a string, a
+      real typed object. Pay particular attention to the `year` field: it must
+      come back as an integer. If the model returns it as a string and you are
+      not validating, you will get a silent type mismatch that would break any
+      downstream code that does arithmetic on the year. The automated check will
+      catch this for you. Use `model_validate_json()` and let Pydantic do the
+      type enforcement. The hint in the exercise walks you through the four key
+      steps if you get stuck. Try to build it from memory first — the pattern is
+      short enough that you should be able to reconstruct it without looking.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Structured extraction converts free text into typed Python objects your code can use directly"
+      - "Schema-guided: define a Pydantic model, embed its JSON Schema in the prompt, validate with `model_validate_json()`"
+      - "Three steps every time: Define → Prompt → Validate"
+      - "Extraction differs from summarization (compress) and classification (label) — it parses specific fields"
+      - "Next: handling missing and optional fields so extraction stays robust when the source text is incomplete"
+    narration: >
+      Let's lock in what you learned. Structured extraction is the pattern of
+      using a Pydantic schema to tell the model exactly which fields to fill so
+      that prose becomes typed, validated data. The flow is always the same three
+      steps: define your schema, embed it in the system prompt, and validate the
+      response with `model_validate_json()`. Pydantic enforces your types —
+      including things like year being an integer — so bad data surfaces
+      immediately as a `ValidationError` rather than flowing silently into your
+      pipeline. You also saw how extraction sits alongside summarization and
+      classification as three distinct patterns for different output shapes. In
+      lesson 2 you will make extraction more robust by dealing with optional
+      fields and source text that simply does not contain every piece of
+      information your schema asks for. That is a very common real-world situation
+      and it requires a small but important change to how you define your schema.
+      See you in lesson 2.
