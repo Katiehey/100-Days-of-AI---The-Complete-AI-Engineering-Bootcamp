@@ -1,0 +1,293 @@
+day: "012"
+lesson: "04"
+title: "Persistence and the Embedding Function"
+
+slides:
+
+  - type: title
+    heading: "Persistence and the Embedding Function"
+    subheading: "Let Chroma call your embedder so raw text is enough"
+    narration: >
+      In the last two lessons you manually embedded every document and every query before
+      handing the vectors to Chroma. That works, and it is important that you understand
+      what is happening at each step. But there is a cleaner way to wire things together.
+      Chroma has a built-in interface called EmbeddingFunction. When you attach one to a
+      collection, Chroma calls it for you automatically every time you add documents or run
+      a query. You pass raw text and Chroma handles the rest. In this lesson you will also
+      look at PersistentClient more carefully — understanding exactly what it writes to disk,
+      how you share one store across multiple scripts, and what happens when you open the
+      same path twice. By the end you will have a collection that accepts plain text in and
+      returns plain text out, with zero manual embedding calls in your application code.
+
+  - type: concept
+    label: "Persistent storage in depth"
+    heading: "What PersistentClient Actually Writes to Disk"
+    body: >
+      PersistentClient uses a directory of SQLite files. Understanding the layout helps you
+      share, back up, and version your vector store confidently.
+    bullets:
+      - "`chromadb.PersistentClient(path=\"./chroma_store\")` — one argument, the directory"
+      - "Chroma creates the directory if it does not exist"
+      - "Inside: SQLite files storing vectors, text, metadata, and ANN index state"
+      - "The whole store is portable — copy the directory to move it"
+      - "Two scripts pointing at the same path share the same data"
+    narration: >
+      When you call PersistentClient with a path, Chroma creates that directory if it does not
+      already exist and opens — or creates — a set of SQLite database files inside it. SQLite is
+      a file-based database engine that is part of Python's standard library and is what Chroma
+      uses for all its on-disk storage. Every vector you insert, every piece of text, every
+      metadata dict, and the ANN index state are written into those files. Because it is just a
+      directory of files, the store is completely portable. You can copy the whole chroma_store
+      folder to another machine, open it with PersistentClient on the new machine, and query it
+      immediately — no export step, no database server to configure. Two separate Python scripts
+      can point at the same path and access the same data. Chroma uses file locking to prevent
+      simultaneous writes from corrupting the store, so you should avoid having two processes
+      write at the same time, but reading from multiple scripts concurrently is fine. Think of
+      your chroma_store directory the same way you think of a project folder: put it somewhere
+      sensible, keep it out of your git repository if it is large, and back it up like any other
+      data asset.
+
+  - type: concept
+    label: "EmbeddingFunction"
+    heading: "The EmbeddingFunction Interface"
+    body: >
+      Chroma defines a simple callable interface. Any object that accepts a list of strings and
+      returns a list of vectors satisfies it. Attach one to a collection and you never need to
+      embed manually again.
+    bullets:
+      - "Interface: `__call__(self, input: list[str]) -> list[list[float]]`"
+      - "Subclass `chromadb.EmbeddingFunction` and implement `__call__`"
+      - "Attach at collection creation: `get_or_create_collection(name, embedding_function=ef)`"
+      - "On `add(documents=[...])`: Chroma calls `ef(documents)` internally"
+      - "On `query(query_texts=[...])`: Chroma calls `ef(query_texts)` internally"
+      - "No `embeddings=` argument needed when an EmbeddingFunction is attached"
+    narration: >
+      The EmbeddingFunction interface is Chroma's hook for plugging in any embedding model you
+      choose. The interface is minimal: your class must implement a __call__ method that accepts
+      a list of strings and returns a list of lists of floats — one vector per input string.
+      That is it. Chroma does not care how you produce the vectors. You could call Ollama, call
+      a local model with a Python library, or load weights from disk. As long as your __call__
+      returns a list of lists of floats of consistent length, Chroma will use it. You attach the
+      function when you create or retrieve a collection by passing it as the embedding_function
+      keyword argument to get_or_create_collection. From that point on, whenever you call
+      collection.add with a documents list but no embeddings argument, Chroma calls your function
+      on those documents and stores the resulting vectors. Whenever you call collection.query with
+      query_texts instead of query_embeddings, Chroma calls your function on the query strings
+      first. Your application code goes from managing vectors explicitly to just passing text in
+      and getting text out. The embedding step becomes invisible — it happens inside Chroma,
+      automatically, every time.
+
+  - type: code
+    label: "Implement OllamaEmbeddingFunction"
+    heading: "Writing the Ollama EmbeddingFunction"
+    code: |
+      import chromadb
+      import ollama
+
+
+      class OllamaEmbeddingFunction(chromadb.EmbeddingFunction):
+          """
+          Wraps Ollama's embeddings endpoint as a Chroma EmbeddingFunction.
+
+          Args:
+              model: The Ollama embedding model name (e.g. "nomic-embed-text").
+          """
+
+          def __init__(self, model: str = "nomic-embed-text") -> None:
+              self.model = model
+
+          def __call__(self, input: list[str]) -> list[list[float]]:
+              """Embed a batch of strings and return one vector per string."""
+              vectors = []
+              for text in input:
+                  response = ollama.embeddings(model=self.model, prompt=text)
+                  vectors.append(response["embedding"])
+              return vectors
+
+
+      # --- Wire it up ---
+
+      ef = OllamaEmbeddingFunction(model="nomic-embed-text")
+
+      client = chromadb.PersistentClient(path="./chroma_store")
+
+      # Pass embedding_function here — Chroma uses it on every add and query
+      collection = client.get_or_create_collection(
+          name="auto_embedded",
+          embedding_function=ef,
+      )
+
+      print(f"Collection ready. Documents stored: {collection.count()}")
+    narration: >
+      Here is how you implement the OllamaEmbeddingFunction. Subclass chromadb.EmbeddingFunction
+      and add two methods. The __init__ method stores the model name as an instance attribute,
+      defaulting to nomic-embed-text — the same model you used in Days 11 and 12. The __call__
+      method receives a list of strings and must return a list of lists of floats. The
+      implementation loops over the input strings, calls ollama.embeddings for each one — the
+      exact same call you wrote in Day 11 — and appends the embedding to the vectors list. Then
+      it returns the full list. Notice that this is a plain loop, not a batch API call. Ollama's
+      embeddings endpoint handles one string at a time, so you loop explicitly. The loop is
+      inside __call__ so Chroma does not need to know that detail. From Chroma's perspective,
+      it handed you a list of strings and got back a list of vectors — the internal
+      implementation is invisible. Creating the collection with embedding_function equals ef
+      is the only extra argument compared to Lesson 2. Everything else — the path,
+      get_or_create_collection, collection.count — is unchanged. The association between the
+      collection and the function is held in memory for this session; you will need to pass the
+      embedding_function argument again each time you open the collection, because Chroma does
+      not serialise the Python callable to disk.
+
+  - type: code
+    label: "Adding and querying with text only"
+    heading: "add() and query() with Raw Text"
+    code: |
+      # --- Add documents as plain text — no manual embedding ---
+
+      documents = [
+          "Chroma persists vectors in SQLite files on disk.",
+          "EmbeddingFunction is the interface for plugging in any embedder.",
+          "get_or_create_collection is safe to call on every application start.",
+          "nomic-embed-text produces 768-dimensional vectors.",
+          "Metadata filters narrow the vector search to a document subset.",
+      ]
+
+      ids = [f"doc_{i}" for i in range(len(documents))]
+
+      # Chroma calls ef(documents) internally — you never touch a vector
+      collection.add(
+          ids=ids,
+          documents=documents,
+          # No embeddings= argument needed
+      )
+
+      print(f"Stored {collection.count()} documents.")
+
+
+      # --- Query with plain text — Chroma embeds the query too ---
+
+      results = collection.query(
+          query_texts=["how does chroma store data?"],  # plain string — no manual embedding
+          n_results=3,
+      )
+
+      for i, (doc, dist) in enumerate(
+          zip(results["documents"][0], results["distances"][0])
+      ):
+          print(f"{i+1}. [{dist:.4f}] {doc}")
+    narration: >
+      Now look at how much simpler the application code becomes. Adding documents is just
+      collection.add with ids and documents. No embed helper, no list comprehension over
+      embeddings, no embeddings argument at all. Chroma sees that the collection has an
+      embedding function attached and calls it on your documents list before writing anything
+      to disk. The query call is equally clean: instead of query_embeddings you use query_texts
+      and pass a list of plain strings. Chroma calls the embedding function on those strings,
+      gets the vectors, runs the ANN search, and returns the same nested result structure you
+      saw in Lesson 2 — results["ids"][0], results["documents"][0], results["distances"][0].
+      The unpacking loop uses zip over two of those lists to print a ranked output. This is the
+      pattern you will use in every project from here on: wire the embedding function once at
+      collection creation, then work entirely in text. The embedding layer becomes
+      infrastructure, invisible to the code that actually does useful work. Notice that the
+      result structure is identical to what you learned in Lesson 2 — you are not learning a
+      new API, just removing the manual embedding calls that were cluttering the code.
+
+  - type: how_it_works
+    label: "Session re-attachment"
+    heading: "Re-opening a Collection Across Sessions"
+    body: >
+      The EmbeddingFunction is a Python object — it is not serialised to disk. You must pass
+      it again every time you open the collection. Everything else (vectors, text, metadata)
+      is already on disk and reloaded automatically.
+    code: |
+      # Script A: create and populate the collection
+      ef = OllamaEmbeddingFunction(model="nomic-embed-text")
+      client = chromadb.PersistentClient(path="./chroma_store")
+      collection = client.get_or_create_collection(
+          name="auto_embedded",
+          embedding_function=ef,   # <-- must pass every session
+      )
+      collection.add(ids=["doc_0"], documents=["Chroma is a vector database."])
+
+      # ---- process ends; SQLite files remain on disk ----
+
+      # Script B (or a later run of Script A): re-open and query
+      ef2 = OllamaEmbeddingFunction(model="nomic-embed-text")  # new object, same model
+      client2 = chromadb.PersistentClient(path="./chroma_store")  # same path
+      collection2 = client2.get_or_create_collection(
+          name="auto_embedded",
+          embedding_function=ef2,  # re-attach
+      )
+
+      print(f"Documents on disk: {collection2.count()}")  # prints 1
+      results = collection2.query(
+          query_texts=["vector database"],
+          n_results=1,
+      )
+      print(results["documents"][0][0])  # "Chroma is a vector database."
+    narration: >
+      Here is the important lifecycle detail you need to understand. When your script exits,
+      the SQLite files on disk retain every vector, every text string, every metadata dict.
+      None of that is lost. What is not persisted is the Python EmbeddingFunction object —
+      Python objects do not automatically serialize to disk. So the next time you open the
+      same collection path, you need to pass the embedding_function argument again. Think of
+      it as reconnecting a plugin: the data is already there; you are just telling the new
+      session which callable to use when it needs to embed something. If you forget to pass
+      the embedding function and then call query with query_texts, Chroma will raise an error
+      because it has no callable to produce the query vector. The fix is always the same:
+      create an EmbeddingFunction instance and pass it to get_or_create_collection. A good
+      pattern is to put the client setup, the embedding function instantiation, and the
+      get_or_create_collection call in a single factory function that every script in your
+      project calls at startup — that way the re-attachment is never forgotten. The code here
+      shows both sides: Script A creates and populates, Script B re-opens and queries. The
+      count returns 1 because the document persisted between runs, and the query returns the
+      correct text because the new embedding function produces the same vectors as the
+      original — same model, same output.
+
+  - type: exercise
+    heading: "Exercise 4: load_or_create_collection"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `load_or_create_collection(path, name)`:
+      create a PersistentClient at the given path, instantiate an OllamaEmbeddingFunction
+      with "nomic-embed-text", call get_or_create_collection with both arguments, and return
+      the resulting collection. The returned collection must accept `add(documents=[...])` and
+      `query(query_texts=[...])` with no embeddings argument — because the EmbeddingFunction
+      is attached. Automated checks verify: (1) the function returns a chromadb.Collection,
+      (2) `collection.add(documents=[...])` stores documents without an embeddings argument,
+      (3) the document count matches the number of texts added, and (4) `collection.query`
+      returns the most semantically relevant document as a string.
+    hint: >
+      The implementation is three lines: `ef = OllamaEmbeddingFunction(...)`,
+      `client = chromadb.PersistentClient(path=path)`, and
+      `return client.get_or_create_collection(name=name, embedding_function=ef)`.
+      Do not pass an `embeddings=` argument when the checks call `collection.add` —
+      that is the whole point of attaching an EmbeddingFunction.
+    narration: >
+      This exercise ties together everything in the lesson. The function you implement —
+      `load_or_create_collection` — is a factory: it opens the persistent store, attaches the
+      embedding function, and returns a collection that works entirely in text. No manual
+      ollama call appears anywhere in the factory. The embedding happens inside Chroma,
+      invisibly, because you attached OllamaEmbeddingFunction at collection creation. The
+      automated checks call `collection.add` and `collection.query` directly — they verify
+      the document count and semantic relevance. Understanding the double-indexing into
+      `results["documents"][0][0]` is the only subtle part of working with Chroma's
+      batch-shaped query response.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`PersistentClient` writes SQLite files to disk — vectors, text, and metadata survive process restarts"
+      - "Subclass `chromadb.EmbeddingFunction` and implement `__call__(self, input: list[str]) -> list[list[float]]`"
+      - "Attach with `get_or_create_collection(name, embedding_function=ef)` — then `add(documents=[...])` and `query(query_texts=[...])` need no manual embedding"
+      - "The EmbeddingFunction is not persisted to disk; re-attach it every session by passing it to `get_or_create_collection`"
+      - "Next: Lesson 5 — updating and deleting documents so your knowledge base stays current over time"
+    narration: >
+      Let us lock in what you have learned. PersistentClient writes everything — vectors, text,
+      metadata, index state — to SQLite files in the directory you specify. That directory is
+      your entire vector store and it is portable: copy the folder and you copy the database.
+      The EmbeddingFunction interface is a simple subclass with one method to implement:
+      __call__ takes a list of strings and returns a list of vectors. Once you attach an
+      instance to a collection, Chroma calls it automatically on add and on query, so your
+      application code works entirely in text. The one thing to remember is that the
+      EmbeddingFunction object itself is not saved to disk — re-attach it every time you open
+      the collection. A factory function that does the three-line setup is the clean way to
+      handle that. In Lesson 5 you will add the final pieces of the CRUD lifecycle — upsert
+      for idempotent re-ingestion, delete for retiring stale documents, and get for inspection —
+      so that your knowledge base stays accurate and current without ever needing a full rebuild.

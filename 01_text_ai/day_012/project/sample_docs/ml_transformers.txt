@@ -1,0 +1,5 @@
+The Transformer architecture, introduced in "Attention Is All You Need" (Vaswani et al., 2017), replaced recurrent networks for sequence modelling. Its core mechanism — scaled dot-product self-attention — allows every token in a sequence to directly attend to every other token, regardless of distance. This removes the vanishing gradient bottleneck that plagued RNNs and LSTMs.
+
+A Transformer encoder stack produces contextualised token embeddings: the same word receives a different vector depending on the sentence it appears in. "Bank" in "river bank" and "bank account" produce different embeddings because the surrounding tokens are different. These contextualised representations are what make large language models so capable.
+
+BERT, GPT, T5, and LLaMA are all Transformer variants. BERT-style models use only the encoder and are trained with masked language modelling — ideal for embedding and classification. GPT-style models use only the decoder and are trained autoregressively — ideal for text generation.

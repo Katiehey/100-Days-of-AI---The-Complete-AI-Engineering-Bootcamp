@@ -1,0 +1,5 @@
+Database indexing trades storage for query speed. A relational database index is typically a B-tree — a balanced tree structure where each node fans out to multiple children. A B-tree index enables O(log n) point lookups and range scans, compared to O(n) for a full table scan. Most production databases build a B-tree index automatically on primary keys and let you add indexes on any other column.
+
+Hash indexes provide O(1) average point lookups but cannot support range queries. They are used for exact-match workloads where range scans are never needed.
+
+In vector databases, the index must handle similarity search in high-dimensional space, which is a fundamentally different problem. HNSW (Hierarchical Navigable Small World) builds a multi-layer proximity graph: inserting a vector connects it to its nearest neighbours at each layer. A query navigates the graph greedily from the top layer down, arriving at a tight candidate neighbourhood without scanning every stored vector. IVF (Inverted File) partitions vectors into Voronoi cells at build time and scans only the nearest cells at query time. Both approaches yield sub-linear query complexity.

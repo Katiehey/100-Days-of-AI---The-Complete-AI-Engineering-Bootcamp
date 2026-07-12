@@ -1,0 +1,298 @@
+day: "012"
+lesson: "05"
+title: "Updating and Deleting Documents"
+
+slides:
+
+  - type: title
+    heading: "Updating and Deleting Documents"
+    subheading: "upsert, delete, and get — the full CRUD lifecycle of a Chroma collection"
+    narration: >
+      Welcome to the final lesson of Day 12. You now know how to create a Chroma
+      collection, add documents with metadata, run filtered semantic queries, and
+      understand the ANN index that makes all of it fast. But so far you have only
+      ever added data. In the real world, documents change and documents become
+      stale. A knowledge base gets new articles. An existing article is corrected.
+      An outdated policy document is retired. If you cannot update and remove
+      documents without tearing down and rebuilding the entire index, your vector
+      store is read-only in practice — and read-only systems break every real
+      product workflow. This lesson gives you the three remaining operations that
+      close the loop: upsert for add-or-replace, delete for removal, and get for
+      inspection. By the end you will know the complete CRUD lifecycle of a Chroma
+      collection and be ready to build a living, maintainable vector store.
+
+  - type: concept
+    label: "Why upsert beats add"
+    heading: "The Problem with add: Silent Data Loss on Duplicate IDs"
+    body: >
+      `Collection.add()` is insert-only. If you call it with an ID that already
+      exists, Chroma silently ignores the call — the original record is kept and
+      your update is lost. Real pipelines need to re-index documents that change
+      without losing updates.
+    bullets:
+      - "add() = insert-only: if the ID already exists, Chroma silently ignores the call and keeps the original record — the update is lost. upsert() guarantees the record is fully overwritten."
+      - "upsert() = insert-or-replace: if the ID exists, the stored record is overwritten; if not, it is created"
+      - "Same signature as add() — swap the method name and the behaviour is correct"
+      - "Use case: nightly re-ingestion pipeline — run it every night without clearing the collection first"
+    narration: >
+      When you learned Collection.add in Lesson 2, you were working with a fresh
+      collection every time. That is fine for a tutorial but immediately breaks when
+      you try to run the same ingestion script a second time: Chroma silently ignores
+      any add call whose ID is already in the collection, so the original record is
+      kept and your update is quietly lost. Imagine a nightly job that re-indexes your
+      documentation site. On Monday it adds a hundred documents. On Tuesday someone
+      edits three of them. If you run add again on Tuesday with the same IDs, the
+      three edits are silently dropped — you would have to delete the entire collection
+      and rebuild from scratch to get the updated content, paying the embedding cost for
+      all a hundred documents just because three changed. Upsert solves this cleanly.
+      It checks each ID: if it is new, the document is inserted; if it already exists,
+      the record is fully replaced — the stored text, metadata, and embedding are all
+      overwritten with the new values. Documents that were not in the upsert call are
+      left untouched. So on Tuesday, you upsert all a hundred documents and only three
+      records actually change in the store. The critical insight is that upsert lets you
+      treat your ingestion pipeline as idempotent: run it any number of times and the
+      collection converges to the correct state, with no silent data loss.
+
+  - type: concept
+    label: "delete and get"
+    heading: "Removing Documents and Inspecting the Store"
+    body: >
+      Two more operations round out the lifecycle: `Collection.delete()` removes
+      documents by ID or by metadata filter, and `Collection.get()` lets you
+      inspect what is actually stored.
+    bullets:
+      - "`delete(ids=[...])` — removes specific documents by their IDs"
+      - "`delete(where={...})` — removes every document that matches a metadata filter"
+      - "`get(ids=[...])` — fetches stored documents by ID (returns text, metadata, embeddings)"
+      - "`get(where={...})` — fetches all documents matching a metadata filter (no query vector needed)"
+      - "Use get() to audit the store, debug ingestion, or verify that a delete actually worked"
+    narration: >
+      Delete and get are the final two operations that complete the CRUD picture.
+      Delete takes either a list of IDs or a metadata filter in the same where-dict
+      syntax you learned in Lesson 3. When you pass IDs, those specific records are
+      removed from the collection and from the ANN index. When you pass a where
+      filter, every document matching the filter is removed. This is useful for
+      bulk cleanup: retire all documents from a deprecated source with one call
+      instead of fetching their IDs first. Get is the read operation without a
+      query vector — it fetches stored documents directly rather than ranking them
+      by similarity. You pass either a list of IDs or a where filter, and Chroma
+      returns the stored texts, metadatas, and optionally the raw embeddings. Think
+      of get as your inspection tool. After an upsert you can call get with the
+      same IDs to verify the new metadata is in place. After a delete you can call
+      get with the old IDs to confirm they are gone. Get does not do any vector
+      search; it is a straightforward key-value lookup into the collection's storage.
+      Between upsert, delete, and get you have full CRUD: create and update via
+      upsert, read via get and query, and delete via delete.
+
+  - type: how_it_works
+    label: "upsert mechanics"
+    heading: "How Chroma Handles an Upsert Internally"
+    body: >
+      Under the hood, upsert is an atomic check-and-write per ID. Understanding
+      this prevents surprises when you partially update a document's metadata.
+    bullets:
+      - "For each ID in the call: if present → overwrite all fields; if absent → insert"
+      - "Overwrite is total — the new embedding, text, and metadata fully replace the old record"
+      - "Fields you omit from the upsert call are not preserved — there is no partial patch"
+      - "To update only metadata: get the current embedding first, then upsert with the new metadata and the old embedding"
+      - "After upsert, the ANN index is updated automatically — no manual rebuild needed"
+    narration: >
+      One subtlety trips people up the first time: upsert is a total replacement,
+      not a partial patch. If a document already has an embedding and three metadata
+      fields, and you upsert it with a new embedding and only one metadata field,
+      the stored record will have only that one metadata field. The other two are
+      gone. There is no merge or partial update. This is consistent with how most
+      document stores work, but it means you need to be deliberate. If you want to
+      change only a document's metadata without re-embedding it, the correct pattern
+      is: call get with the document's ID to retrieve the stored embedding, then
+      call upsert with the old embedding and the new metadata. That way you are not
+      paying the embedding model call cost, and you are not silently losing fields.
+      The other thing worth knowing is that the ANN index stays consistent
+      automatically. Every upsert and delete is reflected in the index immediately.
+      You never need to call a separate rebuild method. This is one of the
+      conveniences that a managed vector database like Chroma provides over rolling
+      your own solution: the index maintenance is handled for you.
+
+  - type: code
+    label: "upsert in action"
+    heading: "Upserting New and Updated Documents"
+    code: |
+      import chromadb
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+      def embed(text: str) -> list[float]:
+          return ollama.embeddings(model=EMBED_MODEL, prompt=text)["embedding"]
+
+      client = chromadb.PersistentClient(path="./chroma_store")
+      collection = client.get_or_create_collection(name="policies")
+
+      # --- Initial load ---
+      docs_v1 = [
+          "Employees may work remotely up to two days per week.",
+          "All travel expenses require manager approval before booking.",
+          "Performance reviews are conducted annually in December.",
+      ]
+      ids = ["policy_001", "policy_002", "policy_003"]
+
+      collection.upsert(
+          ids=ids,
+          embeddings=[embed(d) for d in docs_v1],
+          documents=docs_v1,
+          metadatas=[{"version": 1, "status": "active"} for _ in docs_v1],
+      )
+      print(f"After initial upsert: {collection.count()} documents")
+
+      # --- Update policy_001 (content changed) and add a new policy ---
+      docs_v2 = [
+          "Employees may work remotely up to three days per week.",  # updated
+          "New joiners must complete onboarding within 30 days.",    # new
+      ]
+      ids_v2 = ["policy_001", "policy_004"]
+
+      collection.upsert(
+          ids=ids_v2,
+          embeddings=[embed(d) for d in docs_v2],
+          documents=docs_v2,
+          metadatas=[
+              {"version": 2, "status": "active"},   # policy_001 overwritten
+              {"version": 1, "status": "active"},   # policy_004 inserted
+          ],
+      )
+      print(f"After second upsert: {collection.count()} documents")
+
+      # --- Inspect policy_001 to confirm the update ---
+      result = collection.get(ids=["policy_001"])
+      print("\npolicy_001 after upsert:")
+      print("  text:    ", result["documents"][0])
+      print("  metadata:", result["metadatas"][0])
+    narration: >
+      Let us walk through this example carefully. The first upsert call loads three
+      policy documents. Each gets an embedding, a text, and metadata with version 1
+      and status active. Because the collection is fresh, all three are inserted.
+      After the call, collection.count() returns three. The second upsert call
+      handles two documents. The first is policy_001 with updated content — the
+      remote work allowance changed from two days to three. The second is a brand
+      new policy, policy_004, that did not exist before. After this call,
+      collection.count() returns four: policy_001 was overwritten in place,
+      policy_002 and policy_003 were untouched, and policy_004 was inserted. The
+      get call at the end is the inspection step. It fetches policy_001 by ID and
+      prints its stored text and metadata. You will see that the text shows the
+      new three-day wording and the metadata shows version 2. The old record is
+      completely gone. Notice that policy_002 and policy_003 were never mentioned
+      in the second upsert call — they are still in the collection with their
+      original version-1 metadata. Upsert only touches the IDs you give it. This
+      is the idempotent, selective update pattern you want in any real ingestion
+      pipeline.
+
+  - type: code
+    label: "delete and verify"
+    heading: "Deleting by ID and by Metadata Filter"
+    code: |
+      # ---- Delete a specific document by ID ----
+      collection.delete(ids=["policy_003"])
+      print(f"After deleting policy_003: {collection.count()} documents")
+
+      # Verify it is gone with get()
+      gone = collection.get(ids=["policy_003"])
+      print("policy_003 documents list:", gone["documents"])  # → []
+
+      # ---- Delete all documents matching a metadata filter ----
+      # Suppose a policy status is marked "archived" after review
+      collection.upsert(
+          ids=["policy_002"],
+          embeddings=[embed("All travel expenses require manager approval before booking.")],
+          documents=["All travel expenses require manager approval before booking."],
+          metadatas=[{"version": 1, "status": "archived"}],
+      )
+
+      # Now delete every archived policy in one call
+      collection.delete(where={"status": {"$eq": "archived"}})
+      print(f"After deleting archived docs: {collection.count()} documents")
+
+      # ---- Inspect what remains ----
+      remaining = collection.get(where={"status": {"$eq": "active"}})
+      print("\nRemaining active policies:")
+      for text, meta in zip(remaining["documents"], remaining["metadatas"]):
+          print(f"  [{meta['version']}] {text}")
+    narration: >
+      This slide shows both delete forms and uses get to verify each one. The
+      first delete call removes policy_003 by its ID. After the call, count drops
+      to three. The subsequent get with that ID returns an empty documents list,
+      which is Chroma's way of saying the record does not exist. There is no
+      exception; you just get back empty lists. That empty-list response is what
+      you should check in code when you need to confirm a deletion: if
+      result["documents"] is an empty list, the ID was not found. The second block
+      demonstrates filter-based deletion. First we upsert policy_002 with an
+      updated metadata status of archived — simulating a policy that has been
+      retired. Then we call delete with a where filter that matches every document
+      whose status field equals archived. One call removes all of them regardless
+      of how many there are. After that call, count drops again. The final get uses
+      a where filter to fetch all remaining active documents without a query vector
+      — this is get acting as a filtered scan, not a semantic search. The result
+      shows exactly what is left in the collection. Together, these two patterns —
+      delete by ID for surgical removal and delete by filter for bulk cleanup —
+      handle every real-world retirement scenario you will encounter.
+
+  - type: exercise
+    heading: "Exercise 5: upsert_and_prune"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. You will implement
+      `upsert_and_prune(collection, new_docs, ids_to_delete) -> int` — a single
+      function that upserts a batch of new or updated documents into a Chroma
+      collection, deletes a list of stale IDs, and returns `collection.count()`
+      so the caller always sees the authoritative document count after both
+      operations complete. Each dict in `new_docs` has keys `id` (str), `text`
+      (str), and `metadata` (dict). `ids_to_delete` is a plain list of ID strings.
+      Automated checks verify: (1) the function exists and is callable, (2) upserting
+      three documents returns 3, (3) deleting two of those leaves the surviving
+      document intact, and (4) a combined upsert-and-delete in one call correctly
+      updates an existing document, adds a new one, and removes a stale one.
+    hint: >
+      Call `collection.upsert(ids=[...], documents=[...], metadatas=[...])` with
+      the data extracted from `new_docs`, then call `collection.delete(ids=ids_to_delete)`,
+      then return `collection.count()`. The exercise uses Chroma's default embedding
+      function — no manual embedding call is needed. Guard both operations with
+      `if new_docs` and `if ids_to_delete` to avoid passing empty lists to Chroma.
+      When you call `collection.get` with IDs that include deleted or nonexistent
+      entries, Chroma silently omits them — the returned ids, documents, and
+      metadatas lists contain only the records that were found. zip over the three
+      returned lists directly; no None-filtering is needed.
+    narration: >
+      This exercise distils the lesson's CRUD concepts into one focused, composable
+      function. The power of `upsert_and_prune` is that it is idempotent: run it
+      any number of times with the same input and the collection converges to the
+      correct state. The upsert handles inserts and overwrites in a single call;
+      the delete handles retirement; the count return gives the caller a clean
+      snapshot without an extra round-trip. The automated checks exercise all three
+      operations in sequence, including a combined call where upsert and delete
+      happen together. Once the checks pass you will have a reusable building block
+      that fits directly into any real ingestion pipeline.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "`Collection.upsert()` provides add-or-replace semantics — insert new documents and overwrite changed ones in a single idempotent call; use it instead of `add()` in any pipeline that runs more than once"
+      - "`Collection.delete(ids=[...])` removes specific documents; `delete(where={...})` removes all documents matching a metadata filter — filter syntax is identical to Lesson 3"
+      - "`Collection.get()` is a direct key-value lookup — no query vector needed; use it to audit the store, verify upserts, and confirm deletes"
+      - "Upsert is a total replacement per ID — to update only metadata without re-embedding, fetch the stored embedding with get() first, then upsert with the old embedding and new metadata"
+      - "You now have the complete vector store CRUD lifecycle — apply it in today's project: a self-maintaining knowledge base that ingests, updates, and retires documents automatically"
+    narration: >
+      Let's lock in the complete picture. Upsert is the workhorse of any living
+      vector store. It lets you run your ingestion pipeline on a schedule without
+      worrying about duplicate IDs or deciding which documents are new versus
+      changed — you just upsert everything and Chroma handles the rest. Delete by
+      ID gives you surgical removal for known stale records; delete by filter gives
+      you bulk retirement for entire categories of documents at once. Get is your
+      audit tool: fetch by ID to inspect individual records, or fetch by filter to
+      see a slice of the collection without running a semantic search. Remember
+      that upsert replaces the entire record — if you need to preserve an existing
+      embedding while only changing metadata, get the embedding first, then upsert
+      with the old vector. With these four operations — add via upsert, read via
+      get and query, update via upsert, delete via delete — you have a complete,
+      maintainable vector store. The Day 12 project pulls all five lessons
+      together: you will build a self-maintaining knowledge base that ingests
+      documents from a source, semantically searches them with optional metadata
+      filters, and retires outdated documents — a real, production-shaped artifact
+      that runs end-to-end on your laptop.

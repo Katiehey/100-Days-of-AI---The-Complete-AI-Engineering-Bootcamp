@@ -1,0 +1,317 @@
+day: "012"
+lesson: "03"
+title: "Metadata Filtering"
+
+slides:
+
+  - type: title
+    heading: "Metadata Filtering"
+    subheading: "Narrow a vector search to exactly the documents that belong — before ranking runs"
+    narration: >
+      In Lesson 2 you saw a one-line teaser of Chroma's where parameter — a plain
+      dict you pass to collection.query to restrict the search space. That teaser
+      used a simple exact match. In this lesson you go all the way in. You will
+      learn the three filter operators that cover the overwhelming majority of
+      real-world use cases: dollar-eq for exact match, dollar-in for set
+      membership, and dollar-gte for numeric range. You will see how to combine
+      them with dollar-and and dollar-or for compound conditions. And you will
+      understand the critical ordering fact: the filter runs first, the vector
+      comparison runs second, only on the surviving documents. By the end of this
+      lesson you will be able to aim a semantic search at a precise subset of your
+      collection instead of scanning everything.
+
+  - type: concept
+    label: "Why filter?"
+    heading: "Semantic Search Is Not Always Enough"
+    body: >
+      Vector similarity finds documents that are *topically close* to a query —
+      but it has no knowledge of who wrote a document, when it was published, or
+      which category it belongs to. Metadata filtering gives you that precision.
+    bullets:
+      - "Without filters: search returns the globally closest vectors, regardless of source or date"
+      - "With filters: search first discards irrelevant documents, then ranks only the survivors"
+      - "Examples: search only the legal department's docs; search only articles from 2024; search only docs tagged 'verified'"
+      - "Filter + semantic = structured precision AND semantic relevance in one query"
+    narration: >
+      Think about what a pure vector search actually does. It embeds your query,
+      computes a similarity score against every document in the collection, and
+      returns the most similar ones. That is powerful for finding semantically
+      related content — but it is completely blind to any structured property of
+      the documents. If your collection holds ten thousand documents from five
+      departments, a query about "budget forecasting" will return the most similar
+      vectors across all five departments, even if the user only cares about the
+      finance department's documents. Metadata filtering is how you close that gap.
+      You attach structured properties to each document when you index it — source,
+      department, date, category, rating, whatever your application needs — and then
+      at query time you tell Chroma to discard every document that does not match
+      your conditions before running the vector comparison. The remaining documents
+      are ranked by similarity. The result is the best of both worlds: the
+      precision of a structured filter and the flexibility of semantic search in a
+      single query call. This is one of the features that makes a proper vector
+      database significantly more useful than the plain in-memory index you built
+      in Day 11.
+
+  - type: concept
+    label: "Filter operators"
+    heading: "The Three Operators You Will Use Most"
+    body: >
+      Chroma's where clause supports a small set of operators expressed as
+      dollar-prefixed keys inside a nested dict. Three operators cover almost
+      every real use case.
+    bullets:
+      - "`$eq` — exact match: `{\"source\": {\"$eq\": \"docs\"}}` (or shorthand `{\"source\": \"docs\"}`)"
+      - "`$in` — set membership: `{\"category\": {\"$in\": [\"news\", \"blog\"]}}` — matches any value in the list"
+      - "`$gte` — greater-than-or-equal: `{\"year\": {\"$gte\": 2023}}` — numeric comparison"
+      - "Complementary operators also exist: `$ne`, `$nin`, `$lt`, `$lte`, `$gt`"
+    narration: >
+      Chroma's filter syntax uses nested dicts with dollar-sign operator keys,
+      similar to MongoDB's query language. Dollar-eq tests for exact equality.
+      You write it as a dict where the key is your metadata field and the value
+      is another dict with dollar-eq mapping to what you want to match. Chroma
+      also accepts a shorthand for exact match: just put the field name and value
+      directly in the where dict without wrapping it in dollar-eq. Both forms do
+      the same thing. Dollar-in is for set membership. The value is a list and
+      Chroma will return documents whose field value matches any item in that list.
+      This is useful when you have a fixed set of acceptable values, like a list
+      of trusted sources or a set of approved categories. Dollar-gte is a numeric
+      comparison — greater than or equal to. You use this for things like minimum
+      rating, year range, or price threshold. There are complementary operators:
+      dollar-ne for not-equal, dollar-nin for not-in, dollar-lt and dollar-lte for
+      less-than comparisons. Once you understand the pattern, all of them follow
+      the same structure, so learning these three gives you the full mental model.
+
+  - type: how_it_works
+    label: "Filter mechanics"
+    heading: "Filter Runs First — Vector Search Runs Second"
+    body: >
+      Understanding the execution order is critical for writing correct filters
+      and for predicting what happens when filter and `n_results` interact.
+    bullets:
+      - "Step 1: Chroma applies the `where` filter to all documents in the collection"
+      - "Step 2: the filtered subset is the only pool the vector search considers"
+      - "Step 3: Chroma returns up to `n_results` of the top-scoring survivors"
+      - "Consequence: if the filter leaves fewer documents than `n_results`, you get fewer results — not an error"
+      - "Consequence: filtering is *free* in the sense that it reduces, not increases, work"
+    narration: >
+      The execution order matters and it is worth making explicit. When you pass
+      a where dict to collection.query, Chroma does not run the vector search and
+      then filter the results. It runs the filter first, producing a subset of
+      documents, and then runs the vector comparison only on that subset. This has
+      two important consequences. First, a filter can never add documents to the
+      result set — it can only remove them. If you filter for source equal to
+      "docs" and only three documents match, the maximum result set size is three,
+      even if you asked for n_results equals ten. Chroma handles this gracefully:
+      it returns however many matching documents exist, not an error. Second,
+      filtering reduces work, it does not add it. The vector comparison is the
+      expensive part. A filter that cuts the candidate pool from ten thousand to
+      two hundred means the vector search only computes two hundred similarity
+      scores instead of ten thousand. This is one of the core reasons to use
+      metadata thoughtfully at indexing time: good metadata enables highly focused
+      queries that are both more relevant and faster.
+
+  - type: code
+    label: "Basic filter examples"
+    heading: "Using $eq, $in, and $gte in Practice"
+    code: |
+      import chromadb
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+      def embed(text: str) -> list[float]:
+          return ollama.embeddings(model=EMBED_MODEL, prompt=text)["embedding"]
+
+      # --- Set up collection with varied metadata ---
+
+      client = chromadb.PersistentClient(path="./chroma_store")
+      collection = client.get_or_create_collection(name="articles")
+
+      texts = [
+          "How to optimise SQL queries for large datasets.",
+          "Introduction to vector databases and ANN indexing.",
+          "Python logging best practices for production systems.",
+          "Understanding cosine similarity in machine learning.",
+          "Database indexing strategies: B-trees versus hash indexes.",
+          "Error handling patterns in async Python applications.",
+      ]
+      metadatas = [
+          {"source": "docs",     "category": "database", "year": 2022},
+          {"source": "blog",     "category": "database", "year": 2024},
+          {"source": "docs",     "category": "python",   "year": 2023},
+          {"source": "textbook", "category": "ml",       "year": 2021},
+          {"source": "blog",     "category": "database", "year": 2024},
+          {"source": "docs",     "category": "python",   "year": 2024},
+      ]
+      ids = [f"art_{i}" for i in range(len(texts))]
+
+      collection.add(
+          ids=ids,
+          embeddings=[embed(t) for t in texts],
+          documents=texts,
+          metadatas=metadatas,
+      )
+
+      query_vec = embed("how do databases store and retrieve data quickly?")
+
+      # --- $eq: exact match (shorthand form) ---
+      res_eq = collection.query(
+          query_embeddings=[query_vec],
+          n_results=3,
+          where={"source": "docs"},        # shorthand for {"source": {"$eq": "docs"}}
+      )
+      print("=== source == 'docs' ===")
+      for doc in res_eq["documents"][0]:
+          print(" •", doc)
+
+      # --- $in: match any value in a list ---
+      res_in = collection.query(
+          query_embeddings=[query_vec],
+          n_results=3,
+          where={"category": {"$in": ["database", "ml"]}},
+      )
+      print("\n=== category in ['database', 'ml'] ===")
+      for doc in res_in["documents"][0]:
+          print(" •", doc)
+
+      # --- $gte: numeric range ---
+      res_gte = collection.query(
+          query_embeddings=[query_vec],
+          n_results=3,
+          where={"year": {"$gte": 2023}},
+      )
+      print("\n=== year >= 2023 ===")
+      for doc in res_gte["documents"][0]:
+          print(" •", doc)
+    narration: >
+      Let's see all three operators in one runnable example. First, the setup:
+      six short article summaries with metadata that records the source, a
+      category tag, and the publication year. This is typical of a real document
+      corpus — structured properties you might use to segment results by
+      department, topic, or recency. The embed helper and the collection.add call
+      are exactly what you wrote in Lesson 2. Nothing new there. The three queries
+      below the setup each use a different operator. The dollar-eq query uses the
+      shorthand form — a plain key-value pair in the where dict — which is
+      equivalent to wrapping the value in dollar-eq. Both forms are accepted by
+      Chroma. The dollar-in query passes a list of acceptable category values.
+      Only documents whose category field is in that list are candidates for the
+      vector search. The dollar-gte query filters by year, returning only documents
+      from 2023 or later. In each case, the filter runs before the vector
+      comparison, so the printed results will only contain documents that satisfy
+      the filter condition. Read the output and notice that the results differ
+      across the three queries even though the query vector is the same. That is
+      the filter doing its job.
+
+  - type: code
+    label: "Compound filters"
+    heading: "Combining Conditions with $and and $or"
+    code: |
+      # --- $and: all conditions must match ---
+      res_and = collection.query(
+          query_embeddings=[query_vec],
+          n_results=3,
+          where={
+              "$and": [
+                  {"source": {"$eq": "docs"}},
+                  {"year":   {"$gte": 2023}},
+              ]
+          },
+      )
+      print("=== source == 'docs' AND year >= 2023 ===")
+      for i, doc in enumerate(res_and["documents"][0]):
+          meta = res_and["metadatas"][0][i]
+          print(f" • [{meta['source']} / {meta['year']}] {doc}")
+
+      # --- $or: at least one condition must match ---
+      res_or = collection.query(
+          query_embeddings=[query_vec],
+          n_results=3,
+          where={
+              "$or": [
+                  {"source":   {"$eq": "textbook"}},
+                  {"category": {"$eq": "ml"}},
+              ]
+          },
+      )
+      print("\n=== source == 'textbook' OR category == 'ml' ===")
+      for i, doc in enumerate(res_or["documents"][0]):
+          meta = res_or["metadatas"][0][i]
+          print(f" • [{meta['category']}] {doc}")
+    narration: >
+      When a single operator is not enough, you combine conditions using dollar-and
+      and dollar-or. Dollar-and takes a list of condition dicts and requires all of
+      them to be satisfied. Dollar-or takes a list and requires at least one to be
+      satisfied. Both operators use the same nested dict structure as the individual
+      operators. In the first query here you are asking for documents that come from
+      the docs source and were published in 2023 or later. Both conditions must hold.
+      The result set is smaller because it is the intersection of the two individual
+      filter results. In the second query you are asking for documents from the
+      textbook source or from the ml category. Either condition is sufficient. The
+      result set is larger because it is the union. Notice that in both queries the
+      loop prints the metadata alongside the text. Once you retrieve results from
+      Chroma, the metadatas key gives you back the metadata dicts in the same order
+      as the documents, so you can index into them in parallel. That pattern of
+      printing both the metadata and the text is something you will use constantly
+      when debugging filtered searches to confirm that your filter is actually doing
+      what you expect.
+
+  - type: exercise
+    heading: "Exercise 3: search_with_filter"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. You are given a pre-populated Chroma
+      collection of product descriptions, each with metadata fields:
+      `category` (string), `rating` (float), and `in_stock` (int, 0 or 1).
+      Implement `search_with_filter(collection, query_embedding, where, top_k)` —
+      a function that accepts a **pre-computed embedding vector** (not a raw query
+      string), calls `collection.query` with the provided `where` dict and
+      `n_results=top_k`, and returns a list of dicts with keys `id`, `text`,
+      `distance`, and `metadata`. The check harness passes the query embedding
+      in directly — your function does not call an embedding model.
+      Automated checks verify: (1) the function exists and returns a list,
+      (2) each result dict has the required keys, (3) `$gte` filter returns
+      only items with `rating >= 4.0`, and (4) a `$and` compound filter returns
+      only items that are in-stock AND rated >= 4.0.
+    hint: >
+      Pass `query_embeddings=[query_embedding]` (note the outer list — Chroma
+      expects a batch) and `where=where` to `collection.query`. Your function
+      does not need to construct the filter — just forward the `where` argument.
+      Remember to index into `[0]` on every key of the result dict.
+      For the `$and` compound filter combine `{"in_stock": {"$eq": 1}}` with
+      `{"rating": {"$gte": 4}}` inside the `"$and"` list.
+    narration: >
+      This exercise moves metadata filtering from something you read about to
+      something you write and run. The function signature uses a pre-computed
+      embedding rather than a raw query string — separating the embedding step
+      from the retrieval step is a deliberate design choice that makes
+      `search_with_filter` model-agnostic: you can swap the embedding source
+      without touching the retrieval logic. The automated checks verify that
+      each query returns only documents that satisfy the filter condition — so if
+      a result slips through that violates the filter, the check will catch it.
+      That forces you to confirm your function is actually forwarding the where
+      dict and not quietly dropping it. After the checks pass, try changing the
+      filter values and observe how the result set changes. That interactive
+      exploration is the fastest way to build intuition for how tight or loose a
+      given filter is.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`$eq` (exact match), `$in` (set membership), `$gte` (numeric range) are the three core Chroma filter operators"
+      - "Filters run before the vector search — they reduce the candidate pool, never increase it"
+      - "Compound filters use `$and` (all must match) or `$or` (any must match) with a list of condition dicts"
+      - "If fewer documents pass the filter than `n_results`, Chroma returns what exists — no error"
+      - "Next: updating a live collection — upsert new documents and delete stale ones without rebuilding from scratch"
+    narration: >
+      Let's lock in what you learned. The three operators — dollar-eq, dollar-in,
+      and dollar-gte — cover the overwhelming majority of filtering you will need
+      in real projects. Exact match for categorical fields like source or category,
+      set membership for multi-value selectors like allowed categories or author
+      names, and numeric comparison for ratings, years, prices, or any quantitative
+      property. The execution ordering rule is the most important thing to remember:
+      the filter runs first, the vector search runs second. This means a filter can
+      only shrink your result set, never inflate it, and it means a very tight
+      filter can dramatically speed up the semantic search step by reducing the
+      candidate pool. Compound filters let you combine any of these operators with
+      dollar-and for intersection or dollar-or for union. In Lesson 4 you will learn
+      how to keep a live Chroma collection up to date — upserting documents that
+      have changed and deleting documents that no longer belong — so that your index
+      stays accurate over time without ever needing a full rebuild.

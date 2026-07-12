@@ -1,0 +1,296 @@
+day: "012"
+lesson: "02"
+title: "Chroma: Your First Vector Database"
+
+slides:
+
+  - type: title
+    heading: "Chroma: Your First Vector Database"
+    subheading: "Persist, organise, and query embeddings — no more rebuilding the index every run"
+    narration: >
+      In Lesson 1 you built a semantic search index as a plain Python list of
+      dicts, embedded every document at startup, and threw the whole thing away
+      when the script stopped. That works for toy examples, but it breaks down
+      the moment you have more than a few hundred documents or need your index
+      to survive between runs. This lesson fixes that. You are going to meet
+      Chroma — a lightweight, open-source vector database that runs entirely on
+      your machine. Chroma stores your embeddings on disk, lets you organise
+      them into named collections, and gives you a clean query API. By the end
+      of this lesson you will know how to create a persistent Chroma client,
+      add documents with their embeddings and metadata, and query that collection
+      with a single call. Let us get into it.
+
+  - type: concept
+    label: "The problem"
+    heading: "Why a List of Dicts Is Not Enough"
+    body: >
+      The Day 11 brute-force index has three real limits that bite you quickly
+      in any serious project.
+    bullets:
+      - "Ephemeral — rebuilt from scratch every run (slow for large document sets)"
+      - "O(n) search — every query scans every document; doubles when docs double"
+      - "No metadata — you can store text and a vector but nothing else"
+    narration: >
+      Think about the Day 11 index. To answer one query you embed the query,
+      then loop over every document, compute cosine similarity, sort, and return
+      the top results. For ten documents that is instant. For ten thousand it
+      starts to drag. For a million it is completely impractical. And because the
+      index lives in a Python list it vanishes the moment your script exits —
+      so every run pays the full embedding cost all over again. There is also no
+      room for metadata: you stored text and a vector, that is it. You cannot
+      filter by date, by author, by document type, or by any other property. A
+      vector database solves all three problems. It stores vectors on disk so
+      they persist across runs. It uses approximate nearest-neighbour algorithms
+      that are far faster than a full scan at scale. And it stores arbitrary
+      metadata alongside each vector so you can combine semantic search with
+      traditional filters. Chroma gives you all of this with almost no setup.
+
+  - type: concept
+    label: "Chroma data model"
+    heading: "Client → Collection → Documents"
+    body: >
+      Chroma organises everything in three layers — understanding them now saves
+      you debugging time later.
+    bullets:
+      - "**Client** — the entry point; points at a directory on disk"
+      - "**Collection** — a named bucket of vectors (like a table in SQL)"
+      - "**Document** — one entry: an ID, an embedding, a text string, and optional metadata dict"
+    narration: >
+      Chroma has a simple three-level hierarchy. At the top is the client. You
+      create one client per application and tell it which directory on disk it
+      should use for storage. All your data lives in that directory as SQLite
+      files — no separate database server to install or manage. Inside the client
+      you create collections. A collection is a named bucket that holds a set of
+      related vectors. Think of it like a table in a relational database: you
+      might have one collection for product descriptions, another for support
+      tickets, another for documentation pages. Each collection is independent
+      and queryable on its own. Inside each collection are documents. Every
+      document has four things: a unique string ID you choose, the embedding
+      vector as a list of floats, the original text string, and an optional
+      metadata dictionary for any extra properties you want to attach. That
+      metadata is what makes Chroma powerful beyond raw vector search — you can
+      filter results by metadata fields before or after the vector search.
+
+  - type: how_it_works
+    label: "Setup"
+    heading: "Creating a Persistent Client and Collection"
+    body: >
+      Two lines to get a persistent Chroma client; one more to get a collection.
+      `get_or_create_collection` is safe to call on every run — it creates the
+      collection the first time and returns the existing one on subsequent runs.
+    code: |
+      import chromadb
+
+      # All data stored in ./chroma_store — survives between runs
+      client = chromadb.PersistentClient(path="./chroma_store")
+
+      # Safe to call every run: creates once, returns existing on re-runs
+      collection = client.get_or_create_collection(name="documents")
+
+      print(f"Collection '{collection.name}' ready.")
+      print(f"Documents stored: {collection.count()}")
+    narration: >
+      Here is the minimum setup code. You import chromadb, then call
+      PersistentClient with a path — a directory where Chroma will write its
+      SQLite files. If the directory does not exist, Chroma creates it. Then you
+      call get_or_create_collection with a name. The name is just a string —
+      pick something that describes what the collection holds. The key word is
+      get_or_create: the first time you run this it creates a fresh empty
+      collection; every subsequent run it just opens the existing one. That
+      means you can add your install-time setup code into the same script as
+      your query code without worrying about wiping the collection every time.
+      collection.count() returns how many documents are currently stored —
+      a quick sanity check you will use constantly. That is the entire setup.
+      No config files, no environment variables, no server process.
+
+  - type: code
+    label: "Adding documents"
+    heading: "add() — IDs, Embeddings, Documents, Metadata"
+    code: |
+      import ollama
+
+      EMBED_MODEL = "nomic-embed-text"
+
+      def embed(text: str) -> list[float]:
+          """Return the embedding vector for a piece of text."""
+          response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+          return response["embedding"]
+
+      # Three sample documents to index
+      texts = [
+          "Chroma stores vectors on disk for fast retrieval.",
+          "Cosine similarity measures the angle between two vectors.",
+          "Metadata filters let you narrow results before vector search.",
+      ]
+      metadata = [
+          {"source": "docs", "topic": "storage"},
+          {"source": "textbook", "topic": "math"},
+          {"source": "docs", "topic": "filtering"},
+      ]
+
+      # Embed all documents (once — stored on disk from here on)
+      embeddings = [embed(t) for t in texts]
+      ids = [f"doc_{i}" for i in range(len(texts))]
+
+      collection.add(
+          ids=ids,
+          embeddings=embeddings,
+          documents=texts,
+          metadatas=metadata,
+      )
+      print(f"Added {len(ids)} documents. Total: {collection.count()}")
+    narration: >
+      Now let us add documents. The embed helper from Day 11 is unchanged —
+      you call ollama.embeddings with nomic-embed-text and pull the embedding
+      key out of the response dict. Note: `ollama.embeddings()` is still
+      functional but the newer API is `ollama.embed(model=..., input=[text])` —
+      the response key becomes `response["embeddings"][0]`. Either form works;
+      this course uses `ollama.embeddings()` for consistency with Day 11. The only new thing is the collection.add
+      call. It takes four parallel lists: ids, embeddings, documents, and
+      metadatas. The ids list is a list of strings you choose — they must be
+      unique within the collection. The embeddings list is a list of vectors,
+      one per document. The documents list is the raw text, which Chroma stores
+      alongside the vector so you can display it in search results. The metadatas
+      list is a list of plain dicts — any key-value pairs you want. Here the
+      metadata records the source of each document and its topic. All four lists
+      must have the same length and be in the same order. After add completes
+      the data is written to disk immediately — you can kill the process and
+      restart it and the documents are still there. That is the core of the
+      persistence guarantee.
+
+  - type: code
+    label: "Querying"
+    heading: "query() with query_embeddings"
+    code: |
+      def semantic_search(
+          query: str,
+          collection,
+          top_k: int = 3,
+      ) -> list[dict]:
+          """
+          Embed the query, search the Chroma collection, return ranked results.
+
+          Args:
+              query:      The natural-language search query.
+              collection: An open chromadb Collection.
+              top_k:      Number of results to return.
+
+          Returns:
+              List of dicts with keys 'id', 'text', 'distance', 'metadata'.
+          """
+          query_vector = embed(query)
+
+          results = collection.query(
+              query_embeddings=[query_vector],
+              n_results=top_k,
+          )
+
+          hits = []
+          for i in range(len(results["ids"][0])):
+              hits.append({
+                  "id":       results["ids"][0][i],
+                  "text":     results["documents"][0][i],
+                  "distance": results["distances"][0][i],
+                  "metadata": results["metadatas"][0][i],
+              })
+          return hits
+
+      # Try it out
+      hits = semantic_search("how does vector storage work?", collection)
+      for h in hits:
+          print(f"[{h['distance']:.4f}] {h['text']}")
+    narration: >
+      Here is the query side. The function embeds the query string the same way
+      you embedded the documents, then calls collection.query. There are two
+      things to pay close attention to in that call. First, query_embeddings
+      takes a list of lists — the outer list is a batch of queries. Even when
+      you have only one query, you wrap it: query_embeddings equals square
+      bracket query_vector square bracket. Second, n_results is how many
+      documents Chroma should return. The response from collection.query is also
+      nested one level deep for the same batching reason: results["ids"] is a
+      list of lists, results["ids"][0] is the list of IDs for your first and
+      only query, and so on for documents, distances, and metadatas. The loop
+      unpacks those parallel lists into a cleaner list of dicts. Notice that
+      Chroma returns distances rather than similarities. Chroma uses L2 distance
+      by default for its internal index, so smaller distance means more similar.
+      You will see values close to zero for strong matches. Print the distance
+      alongside the text and you get an immediately readable ranking.
+
+  - type: concept
+    label: "Metadata filtering"
+    heading: "Narrow Results with where Filters"
+    body: >
+      Pass a `where` dict to `query()` to restrict the search to a subset of
+      your collection before the vector comparison runs.
+    bullets:
+      - "`where={\"topic\": \"storage\"}` — exact match on a metadata field"
+      - "`where={\"$and\": [{\"source\": \"docs\"}, {\"topic\": \"storage\"}]}` — combine conditions"
+      - "Filter runs first; vector search runs only on the surviving documents"
+    narration: >
+      One of the most useful features in Chroma is metadata filtering. Imagine
+      you have a collection of ten thousand documents from five different sources.
+      A user wants to search only documents from the official docs, not from
+      community posts. Without filtering you would have to maintain separate
+      collections or post-process results. With Chroma's where parameter you
+      just add a filter to the query call and the database handles it. The filter
+      syntax uses plain dicts. A simple exact match is just the key and value
+      you want to match. For compound conditions Chroma supports dollar-sign
+      operators: dollar-and takes a list of conditions that must all be true,
+      dollar-or takes a list where at least one must be true. The filter is
+      applied before the vector comparison, so it effectively reduces the search
+      space to only the matching documents and then finds the nearest vectors
+      among those. This is the combination of semantic relevance and structured
+      filtering that makes a vector database significantly more powerful than a
+      plain embedding list. You will not need complex filters today, but knowing
+      the where parameter exists means you will reach for it naturally when your
+      projects grow.
+
+  - type: exercise
+    heading: "Exercise 2: build_collection"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `build_collection(client, name, docs)`:
+      given a `chromadb.Client`, a collection name string, and a list of document dicts
+      (each with keys `id`, `text`, and `metadata`), create the collection, embed each
+      document's text with `nomic-embed-text`, and add all documents in one `collection.add`
+      call. Return the populated collection. The check harness then queries the returned
+      collection inline to verify correctness — there is no separate `search_collection`
+      function to implement.
+    hint: >
+      Call `client.create_collection(name)` to get the collection, build four parallel
+      lists (`ids`, `embeddings`, `documents`, `metadatas`) from the `docs` list, then
+      call `collection.add(ids=..., embeddings=..., documents=..., metadatas=...)`.
+      Remember that `collection.query(query_embeddings=..., n_results=...)` returns
+      nested lists — index into `[0]` to get your single query's results.
+    narration: >
+      Time to build this yourself. The exercise gives you one function to implement:
+      `build_collection`. It receives a client, a name, and a list of document dicts.
+      Your job is to create the collection, embed each document's text, and add all
+      documents in one batch. The automated checks verify that the collection has the
+      right number of documents, that the IDs match what was passed in, and that
+      querying the returned collection yields semantically relevant results. Take your
+      time reading the Chroma query response structure — the nested lists catch almost
+      everyone the first time. Once you understand the batching logic, the unpacking
+      loop is straightforward.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Chroma persists vectors to disk — embed once, query forever"
+      - "`PersistentClient` + `get_or_create_collection` is the standard setup (two lines)"
+      - "`collection.add(ids, embeddings, documents, metadatas)` — four parallel lists"
+      - "`collection.query(query_embeddings=[vec], n_results=k)` returns nested lists; index `[0]`"
+      - "Next: metadata filtering and updating documents — keeping a live collection fresh"
+    narration: >
+      Let us lock in what you learned. Chroma solves the three limits of the
+      Day 11 list-based index: it persists to disk so you never pay the
+      embedding cost twice, it stores metadata so you can filter alongside
+      semantic search, and it scales to collections far larger than what fits
+      comfortably in a Python list. The two-line setup — PersistentClient and
+      get_or_create_collection — is a pattern you will reuse in every project
+      that needs semantic search. The add call takes four parallel lists; keep
+      them the same length and in the same order and Chroma handles the rest.
+      The query response is batched one level deep, so remember to index into
+      results["ids"][0] not results["ids"]. In Lesson 3 you will go deeper into
+      managing a live collection: upserting new documents, deleting stale ones,
+      and using the where filter to narrow searches. The skills from this lesson
+      are the foundation for everything that follows in Day 12.

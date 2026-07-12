@@ -1,0 +1,314 @@
+day: "012"
+lesson: "01"
+title: "Why Brute-Force Search Doesn't Scale"
+
+slides:
+
+  - type: title
+    heading: "Why Brute-Force Search Doesn't Scale"
+    subheading: "From O(n) cosine similarity to approximate nearest-neighbour indexing"
+    narration: >
+      Welcome to Day 12. Yesterday you built a complete semantic search pipeline
+      from scratch — embeddings, cosine similarity, an in-memory index, and a
+      retrieval-augmented generation loop that actually works. And it works well,
+      as long as your corpus is small. Today you find out what happens when the
+      corpus grows. The brute-force approach you wrote is elegant and correct, but
+      it has a fundamental scaling problem that makes it unusable at production
+      scale. By the end of this lesson you will understand exactly why, and you
+      will have seen the algorithmic approach that dedicated vector databases use
+      to solve it. This is the bridge from "works on my laptop" to "works in
+      production."
+
+  - type: concept
+    label: "The scaling problem"
+    heading: "O(n) Means Every Search Reads the Whole Corpus"
+    body: >
+      Your Day 11 search function compares the query vector against every stored
+      vector, one at a time. That is O(n) work per query — the cost grows linearly
+      with corpus size.
+    bullets:
+      - "100 documents → 100 similarity computations per query (fast)"
+      - "100,000 documents → 100,000 computations per query (slow)"
+      - "10,000,000 documents → 10,000,000 computations per query (unusable)"
+      - "Latency scales with n; adding documents makes every future query slower"
+    narration: >
+      Let's be precise about what O(n) means here. In your Day 11 search function,
+      you loop over every entry in the index and compute a cosine similarity. That
+      is one dot product and two magnitude calculations per entry. For a hundred
+      documents, that is trivial — a modern CPU chews through it in microseconds.
+      But the relationship is linear: double the documents, double the work. At one
+      hundred thousand documents, a single query requires a hundred thousand
+      floating-point comparisons. At ten million — a size that is completely
+      ordinary for a real product corpus, a documentation site, or a knowledge
+      base — a single query requires ten million comparisons. On a laptop that might
+      take seconds. Under concurrent load from multiple users, it becomes a
+      bottleneck that no amount of hardware can fix cheaply. The fundamental issue
+      is not the speed of any individual comparison; it is that you are doing all
+      of them. Every time. For every query. There is no way to skip any of them
+      without knowing in advance which ones are irrelevant — and that is exactly
+      what approximate nearest-neighbour indexing figures out.
+
+  - type: concept
+    label: "Why brute-force is hard to optimise"
+    heading: "You Can't Skip Comparisons Without an Index"
+    body: >
+      Vector space has no inherent ordering that lets you prune the search early.
+      Unlike sorted arrays or B-trees, there is no "less than" relationship on
+      high-dimensional vectors that lets you rule out whole regions quickly.
+    bullets:
+      - "Text embeddings live in hundreds of dimensions (e.g. 768 for nomic-embed-text)"
+      - "In high dimensions, \"nearby\" and \"far away\" lose their everyday meaning"
+      - "No sort order exists that lets you binary-search a vector index"
+      - "Exact nearest-neighbour search is provably expensive in high dimensions — the \"curse of dimensionality\""
+    narration: >
+      You might wonder: can't you just sort the vectors somehow and use binary
+      search? That works brilliantly for one-dimensional data — a sorted list of
+      numbers lets you find the closest match in O(log n). But vectors are not
+      one-dimensional. The embeddings you used in Day 11 have 768 dimensions each.
+      In that space, there is no single ordering that captures closeness. Sorting
+      by the first dimension tells you nothing useful about the other 767. This is
+      the curse of dimensionality — a real mathematical phenomenon where the
+      geometry of high-dimensional space makes intuitive shortcuts fail. You cannot
+      prune branches of a search tree early, because being far in one dimension says
+      nothing about the total distance. Every dimension is equally important, and
+      you cannot know whether an entry is irrelevant until you have computed the
+      full similarity. So exact nearest-neighbour search — finding the provably
+      closest vector — requires examining every stored vector. The only way to get
+      sub-linear search is to accept a small approximation: you find something very
+      close to the nearest neighbour, not necessarily the exact nearest neighbour.
+      That trade-off is the foundation of ANN indexing.
+
+  - type: how_it_works
+    label: "The ANN idea"
+    heading: "Approximate Nearest-Neighbour: Trading Exactness for Speed"
+    body: >
+      ANN indexing pre-structures the vector space at build time so that query
+      time can skip the vast majority of stored vectors and still return results
+      that are very close to the true nearest neighbours.
+    bullets:
+      - "Build time: partition or graph-link vectors into a data structure (the index)"
+      - "Query time: navigate the structure to a promising neighbourhood, compare only those vectors"
+      - "Recall trade-off: ANN may miss the single closest vector but finds top-k correctly 95–99% of the time"
+      - "Speed gain: O(log n) or O(1) query time instead of O(n) — orders of magnitude faster"
+      - "Dedicated vector databases (ChromaDB, FAISS, Pinecone, Weaviate) use ANN under the hood"
+    narration: >
+      The key insight of approximate nearest-neighbour search is that you are
+      willing to accept a small probability of missing the single absolute closest
+      vector, in exchange for searching a fraction of the corpus. Different ANN
+      algorithms achieve this in different ways. Some, like HNSW — Hierarchical
+      Navigable Small World — build a multi-layer graph where each node is connected
+      to a small number of neighbours. A query navigates this graph greedily,
+      jumping to progressively closer nodes until it converges on a neighbourhood.
+      Others, like IVF — Inverted File index — partition the vector space into
+      clusters at build time and only search the clusters closest to the query.
+      Both approaches mean that at query time you compare the query vector against
+      maybe a few hundred candidates instead of millions. The recall — the
+      percentage of true nearest neighbours you actually find — is typically above
+      95 percent with well-tuned parameters. For semantic search, that is more than
+      good enough: the results you return are essentially as relevant as brute-force
+      results, but retrieved in milliseconds instead of seconds. This is why every
+      production vector database uses ANN. The brute-force approach you built in
+      Day 11 is a perfect teaching tool, and it is the right choice for small
+      corpora in local experiments. But as soon as you are dealing with tens of
+      thousands of documents or serving real users, you need an ANN index.
+
+  - type: code
+    label: "Measuring the problem"
+    heading: "Benchmarking Brute-Force Search at Scale"
+    code: |
+      import time
+      import math
+      import random
+
+      # --- Helpers from Day 11 ---
+
+      def dot(a: list[float], b: list[float]) -> float:
+          return sum(x * y for x, y in zip(a, b))
+
+      def magnitude(v: list[float]) -> float:
+          return math.sqrt(sum(x * x for x in v))
+
+      def cosine_similarity(a: list[float], b: list[float]) -> float:
+          mag_a, mag_b = magnitude(a), magnitude(b)
+          if mag_a == 0.0 or mag_b == 0.0:
+              return 0.0
+          return dot(a, b) / (mag_a * mag_b)
+
+
+      def brute_force_search(
+          index: list[dict], query_vec: list[float], top_k: int = 5
+      ) -> list[dict]:
+          """O(n) brute-force: compare query_vec against every stored vector."""
+          scored = [
+              {"text": entry["text"], "score": cosine_similarity(query_vec, entry["embedding"])}
+              for entry in index
+          ]
+          scored.sort(key=lambda e: e["score"], reverse=True)
+          return scored[:top_k]
+
+
+      # --- Synthetic index: n random 768-dimensional vectors ---
+
+      DIM = 768  # nomic-embed-text dimensionality
+
+      def make_random_vector(dim: int) -> list[float]:
+          return [random.gauss(0, 1) for _ in range(dim)]
+
+      def make_synthetic_index(n: int) -> list[dict]:
+          return [
+              {"text": f"doc_{i}", "embedding": make_random_vector(DIM)}
+              for i in range(n)
+          ]
+
+
+      # --- Benchmark: measure query latency at different corpus sizes ---
+
+      query_vec = make_random_vector(DIM)
+
+      for n in [1_000, 10_000, 100_000]:
+          index = make_synthetic_index(n)
+          start = time.perf_counter()
+          brute_force_search(index, query_vec, top_k=5)
+          elapsed_ms = (time.perf_counter() - start) * 1_000
+          print(f"n={n:>8,}  →  {elapsed_ms:7.1f} ms")
+
+      # Expected output (approximate, varies by hardware):
+      #   n=   1,000  →      2.3 ms
+      #   n=  10,000  →     22.8 ms
+      #   n= 100,000  →    231.4 ms
+    narration: >
+      Let's make the O(n) problem concrete with numbers. This benchmark builds
+      synthetic indexes of three different sizes — one thousand, ten thousand, and
+      one hundred thousand entries — each containing a random 768-dimensional
+      vector to simulate the dimensionality of nomic-embed-text, the model you used
+      in Day 11. Then it runs the brute-force search function and measures how long
+      it takes. Notice that the code reuses the exact same helpers you wrote
+      yesterday: `dot`, `magnitude`, `cosine_similarity`, and the search function
+      with its list comprehension and descending sort. Nothing is new here — this is
+      Day 11 code being stress-tested. The `time.perf_counter` function gives you
+      high-resolution timing; multiplying by 1000 converts to milliseconds. The
+      numbers in the comments are representative output on a typical laptop. What
+      you will observe is that the latency increases linearly: ten times more
+      documents means roughly ten times more milliseconds. At one hundred thousand
+      entries — a medium-sized document corpus — a single query takes roughly a
+      quarter of a second. That does not sound terrible, but it is before any
+      network overhead, before serving concurrent users, and before accounting for
+      the fact that your query embedding call also adds latency. At a million entries
+      you would be at two to three seconds per query. This benchmark is the
+      motivation for everything that follows in Day 12.
+
+  - type: concept
+    label: "What vector databases do"
+    heading: "Vector Databases: ANN + Storage + API"
+    body: >
+      A vector database is a purpose-built system that combines ANN indexing with
+      persistent storage and a query API. It handles the scaling problem so your
+      code does not have to.
+    bullets:
+      - "Stores vectors persistently (survives process restarts — unlike your in-memory list)"
+      - "Builds an ANN index automatically at insert time"
+      - "Exposes a query API: `collection.query(query_embeddings=[...], n_results=5)`"
+      - "ChromaDB: open-source, runs locally with `pip install chromadb` — zero cost"
+      - "FAISS: Meta's library for billion-scale similarity search, used inside larger systems"
+      - "Pinecone, Weaviate, Qdrant: managed cloud services for production scale"
+    narration: >
+      A vector database packages three things that your Day 11 in-memory solution
+      does not have. First, persistence: your list of text-embedding dicts lives
+      only as long as the Python process. If you restart, you re-embed everything.
+      A vector database writes data to disk and reloads on startup — you build the
+      index once and query it forever. Second, ANN indexing: when you insert
+      vectors, the database automatically organises them into an efficient data
+      structure so queries are fast regardless of corpus size. Third, a clean API:
+      instead of writing your own search loop, you call a method like
+      `collection.query` and the database handles embedding storage, index
+      navigation, and result ranking for you. In Day 12 you will use ChromaDB,
+      which is free and open-source and runs entirely on your laptop. You install
+      it with pip, create a client, and you have a production-grade vector database
+      with ANN search available locally. The cloud-based alternatives — Pinecone,
+      Weaviate, Qdrant — offer the same capabilities as managed services you would
+      use when you need to scale beyond a single machine. But ChromaDB is the
+      right starting point: zero cost, zero sign-up, and the API patterns you learn
+      transfer directly to every other vector database.
+
+  - type: concept
+    label: "Build vs query time"
+    heading: "Build Once, Query Fast"
+    body: >
+      The ANN index is built at insert time — not at query time. This shifts the
+      cost to where it belongs: building the corpus, not serving users.
+    bullets:
+      - "Insert once: embed documents, add vectors to the database → index built automatically"
+      - "Query many times: each query navigates the pre-built index in O(log n) time"
+      - "Separation of concerns mirrors Day 11's index-time vs query-time distinction"
+      - "The more queries you run, the more the upfront build cost pays off"
+    narration: >
+      One of the cleanest ideas in vector database design is the explicit separation
+      between build time and query time, and you already understand this intuitively
+      from Day 11. When you called `build_index` yesterday, you embedded every
+      document chunk and stored the results. That was expensive — one embedding
+      model call per chunk. But you only did it once. Every subsequent call to
+      `search` was fast because the embeddings were already computed. Vector
+      databases extend this idea: when you insert documents, the database builds or
+      updates its ANN index. That operation is moderately expensive, but it happens
+      once per document, not once per query. Query time is where the pay-off
+      arrives. Instead of scanning every vector, the ANN index lets the database
+      navigate a pre-computed structure and find candidates in a fraction of the
+      time. If you have a million documents and receive ten thousand queries a day,
+      you pay the index build cost once per document insertion and save the brute-
+      force cost ten thousand times per day. The maths compel the architecture.
+      This is why every serious production system separates the ingestion pipeline
+      — which builds and updates the index — from the serving pipeline — which
+      queries it. You will build both in Day 12.
+
+  - type: exercise
+    heading: "Exercise 1: brute_force_search"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. You will implement
+      `brute_force_search(query_embedding, index, top_k)` — a function that
+      scores every entry in an in-memory index by cosine similarity to the query
+      vector and returns the top-k results sorted by descending score. Each entry
+      in `index` is a dict with keys `"text"` (str) and `"embedding"`
+      (list[float]). Each result dict must have keys `"text"` and `"score"`.
+      Automated checks verify: (1) the function exists and is callable, (2) it
+      returns a list of dicts with the correct keys and length, (3) the top result
+      is correct — identical vectors give a score of 1.0, and (4) results are
+      sorted descending by score, and (5) a larger index takes more time than a
+      smaller one, confirming O(n) scaling is observable.
+    hint: >
+      Implement cosine similarity as dot product divided by the product of
+      magnitudes. Use `math.sqrt` and `sum`. Build a scored list with a list
+      comprehension over every entry in `index`, then sort by `"score"` descending
+      and slice to `top_k`. The check uses synthetic random vectors — no Ollama
+      call is needed.
+    narration: >
+      This exercise cements the O(n) intuition by making you implement the search
+      loop yourself. The function scores every entry in the index — there is no
+      early exit and no pruning — which is exactly what makes it O(n). The
+      automated checks verify both correctness (right top result, right score,
+      right sort order) and scaling behaviour (a ten-times-larger index takes
+      measurably more time). Once the checks pass, look at the timing numbers
+      printed by Check 5. Extrapolate mentally to one million entries. That
+      extrapolation is the motivation for everything else in Day 12.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Brute-force cosine search is O(n) — every query compares the query vector against every stored vector, so cost grows linearly with corpus size"
+      - "High-dimensional vector spaces have no exploitable ordering, making exact nearest-neighbour search provably expensive — the curse of dimensionality"
+      - "Approximate nearest-neighbour (ANN) indexing pre-structures the vector space at build time so queries navigate a fraction of the corpus at query time"
+      - "Vector databases (ChromaDB locally; Pinecone, Qdrant in the cloud) package ANN indexing with persistent storage and a clean query API"
+    narration: >
+      Let's lock in the lesson. The brute-force search you built in Day 11 is
+      correct and instructive, but it is O(n) — every query touches every stored
+      vector. At small scale that is fine. At production scale — hundreds of
+      thousands of documents, concurrent users — it becomes a bottleneck. The
+      curse of dimensionality means you cannot sort high-dimensional vectors in a
+      way that enables binary search or early pruning. Approximate nearest-neighbour
+      indexing solves this by pre-organising vectors at insert time so that a query
+      can navigate to a relevant neighbourhood without checking every entry. The
+      approximation is tiny — recall above 95 percent is routine — and the speed
+      gain is massive. Dedicated vector databases package all of this for you.
+      In Lesson 2 you will install ChromaDB and learn its core API: creating a
+      collection, adding documents with embeddings, and running your first ANN
+      query. You will see the same search that took hundreds of milliseconds on a
+      large synthetic corpus complete in single-digit milliseconds.

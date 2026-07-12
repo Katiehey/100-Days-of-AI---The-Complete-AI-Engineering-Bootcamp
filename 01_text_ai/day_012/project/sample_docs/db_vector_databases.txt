@@ -1,0 +1,5 @@
+A vector database is a purpose-built storage and retrieval system for embedding vectors. Unlike relational databases optimised for exact row lookups or full-text search optimised for keyword matching, a vector database is built around approximate nearest-neighbour (ANN) search — finding the vectors most similar to a query vector, fast.
+
+Popular open-source options include ChromaDB (SQLite-backed, runs locally), FAISS (Meta's library, no persistence layer), and Qdrant (Rust-based, production-ready). Managed cloud services include Pinecone, Weaviate, and Zilliz. ChromaDB is the right starting point: zero cost, zero sign-up, pip install, and runs on your laptop.
+
+Vector databases power retrieval-augmented generation (RAG) pipelines by storing document chunks as embeddings and retrieving the most relevant chunks at query time. The retrieved chunks are injected into a prompt before sending to a language model, grounding the model's answer in real data rather than training-time memory.

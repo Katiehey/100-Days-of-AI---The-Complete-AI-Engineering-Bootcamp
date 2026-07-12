@@ -1,0 +1,5 @@
+Word embeddings transform text into dense numerical vectors that capture semantic meaning. Unlike one-hot encodings that treat every word as independent, embeddings place semantically similar words close together in vector space. For example, "king" and "queen" have nearby embeddings because they share context across billions of training sentences.
+
+Modern embedding models like nomic-embed-text, sentence-transformers, and OpenAI's text-embedding-ada produce vectors with hundreds of dimensions — typically 384, 768, or 1536. Each dimension encodes a latent feature the model discovered during training. You cannot interpret a single dimension, but the geometry of the whole vector is meaningful: cosine similarity between two vectors measures their semantic relatedness.
+
+Embeddings underpin semantic search, retrieval-augmented generation, clustering, anomaly detection, and recommendation systems. Any task that requires comparing or grouping text by meaning is a candidate for embeddings.

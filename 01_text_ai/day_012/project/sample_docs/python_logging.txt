@@ -1,0 +1,7 @@
+Python's built-in logging module provides a hierarchical logger system that is the standard for production code. The five standard levels are DEBUG, INFO, WARNING, ERROR, and CRITICAL. You configure a logger with basicConfig once at the entry point of your application; all subsequent loggers in child modules inherit the root configuration.
+
+Use logger = logging.getLogger(__name__) in each module. This creates a logger whose name matches the fully qualified module path, which means log messages automatically include the source module — invaluable when debugging a multi-module application.
+
+In production systems, emit structured logs in JSON format using a formatter like python-json-logger. Structured logs can be ingested by log aggregation systems (Elasticsearch, Datadog, CloudWatch) and queried by field. A log entry for a search query might include fields like user_id, query_text, top_k, filter_applied, and latency_ms — making it trivial to trace a slow query back through the system without grepping raw text.
+
+Avoid print() in library code. Use logging.debug() for diagnostic detail, logging.info() for normal events worth recording, and logging.warning() or higher for unexpected states.
