@@ -1,0 +1,272 @@
+day: "014"
+lesson: "05"
+title: "LLM-as-Judge Evaluation"
+
+slides:
+
+  - type: title
+    heading: "LLM-as-Judge Evaluation"
+    subheading: "Measure your RAG pipeline — don't just hope it works"
+    narration: >
+      Welcome to the final lesson of Day 14. Over the last four lessons you
+      built a complete cited RAG pipeline: retrieving with sources, filtering
+      weak chunks, building numbered citation prompts, and generating grounded
+      answers. That is a solid pipeline — but right now you have no way to know
+      whether it is actually good. You cannot tell if the model stayed inside
+      the context or invented details. You cannot tell if the answer really
+      addressed what was asked. In this lesson you will fix that by adding a
+      second LLM call that acts as an independent judge, scoring the first
+      LLM's answer for faithfulness and relevance. By the end you will have a
+      function called evaluate_rag_answer that turns subjective quality into
+      concrete numbers. Let's close out Day 14.
+
+  - type: concept
+    label: "Why evaluation matters"
+    heading: "Without Measurement, RAG Quality Is Just Vibes"
+    body: >
+      A RAG pipeline that looks good in a demo may be hallucinating on 30% of
+      queries. Without a scoring step, you cannot detect regressions, compare
+      parameter choices, or report quality to a stakeholder with any confidence.
+    bullets:
+      - "You can't improve what you can't measure — intuition doesn't scale"
+      - "Prompt changes, model swaps, and retrieval tweaks all shift quality; you need scores to compare them"
+      - "Manual review doesn't scale past a handful of examples; automated scoring does"
+      - "A score from an LLM judge is not perfect, but it is far better than no score at all"
+    narration: >
+      Think about what you know about your pipeline right now. You ran it on a
+      few questions, the answers looked reasonable, and that felt like enough.
+      But reasonable-looking and actually-correct are two different things. A
+      model that sounds confident can still be fabricating details that are not
+      in your documents. And the moment you change anything — swap the model,
+      adjust the distance threshold, rewrite the system prompt — you have no
+      baseline to compare against. You are flying blind. The field of machine
+      learning solved this problem decades ago with held-out evaluation sets and
+      automatic metrics. You need the same discipline for RAG. The LLM-as-judge
+      pattern gives you a practical path to that: run a second LLM call after
+      every answer, score it, and log the scores. Now changes have measurable
+      consequences and you can make engineering decisions based on evidence
+      rather than gut feel.
+
+  - type: concept
+    label: "Two dimensions to score"
+    heading: "Faithfulness and Relevance: The Two Core RAG Metrics"
+    body: >
+      Not all RAG failures look the same. You need two separate scores because
+      an answer can fail in two independent ways — by going outside the context,
+      or by missing the point of the question.
+    bullets:
+      - "Faithfulness (0.0–1.0): did every claim in the answer come from the provided context, or did the model add knowledge from training?"
+      - "Relevance (0.0–1.0): does the answer actually address what the user asked, or does it talk around the question?"
+      - "A faithfulness failure is hallucination — the model invented facts not present in your documents"
+      - "A relevance failure is misdirection — the model stayed in the context but answered a different question"
+    narration: >
+      There are two ways a RAG answer can go wrong, and they require different
+      fixes. The first is faithfulness: the model reaches outside the retrieved
+      context and pulls in facts from its training data. The answer sounds
+      authoritative, but the information came from somewhere you did not control
+      and cannot verify. That is hallucination in a RAG setting. The second
+      failure mode is relevance: the model reads the context faithfully but
+      produces an answer that does not address what was actually asked. Maybe it
+      summarises the context instead of extracting the specific fact the user
+      wanted. Both failures are bad, but you need to measure them separately
+      because the fixes are different. A faithfulness problem points you toward
+      a stricter system prompt or a better retrieval filter. A relevance problem
+      points you toward the way you phrase the user question or structure the
+      prompt. Two metrics, two diagnostic signals.
+
+  - type: how_it_works
+    label: "The LLM-as-judge pattern"
+    heading: "Ask a Second LLM Call to Score the First One"
+    body: >
+      The LLM-as-judge pattern is simple: after your RAG pipeline produces an
+      answer, you make a second ollama.chat call. This time the model's job is
+      not to answer the question — it is to evaluate the answer that was just
+      produced.
+    bullets:
+      - "Inputs to the judge: the original question, the retrieved context chunks, and the model's answer"
+      - "Judge's task: score faithfulness and relevance on a 0.0–1.0 scale, issue a PASS/FAIL verdict, and explain why"
+      - "Output is structured JSON — the same schema-guided extraction pattern you built on Day 4"
+      - "The judge runs against the same model locally; no external API or separate service required"
+    narration: >
+      You already know how to build this because you have done the harder
+      version. On Day 4 you used a Pydantic schema and format equals json to
+      extract structured data from unstructured text. On Day 8 you used the
+      same pattern to get confidence scores out of a classification call. The
+      LLM-as-judge is exactly that pattern applied to evaluation. You write a
+      system prompt that defines what faithfulness and relevance mean, you pass
+      the question, the context, and the answer as the user message, and you ask
+      the model to return a JSON object matching your schema. The judge does not
+      need special capabilities — any instruction-following model can do this.
+      What matters is the quality of your evaluation prompt: how precisely you
+      define the criteria, and whether the schema captures everything you need
+      to act on the result.
+
+  - type: code
+    label: "RagEval schema and evaluate_rag_answer"
+    heading: "A Pydantic Schema for Evaluation + the Judge Function"
+    code: |
+      from pydantic import BaseModel, Field
+
+      class RagEval(BaseModel):
+          faithfulness: float = Field(description="0.0–1.0: every claim supported by context")
+          relevance:    float = Field(description="0.0–1.0: answer addresses the question")
+          verdict:      str   = Field(description="PASS or FAIL")
+          reason:       str   = Field(description="One sentence explaining the verdict")
+
+      JUDGE_SYSTEM_PROMPT = """You are an impartial evaluator of RAG answers.
+      Score the answer on two dimensions, each from 0.0 to 1.0:
+      - faithfulness: every claim in the answer must be directly supported by the provided context
+      - relevance: the answer must address the question asked
+      verdict: PASS if both scores >= 0.7, else FAIL.
+
+      Return ONLY a JSON object like this example:
+      {"faithfulness": 0.9, "relevance": 0.8, "verdict": "PASS", "reason": "All claims are supported by context."}"""
+
+      def evaluate_rag_answer(
+          question: str,
+          answer: str,
+          context_chunks: list[str],
+          model: str = "llama3.2",
+      ) -> RagEval:
+          """Score a RAG answer for faithfulness and relevance."""
+          sep = "\n\n---\n\n"
+          context = sep.join(context_chunks)
+          user_msg = (
+              f"Context:\n{context}\n\n"
+              f"Question: {question}\n"
+              f"Answer: {answer}\n\n"
+              f"Evaluate and return JSON."
+          )
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                  {"role": "user",   "content": user_msg},
+              ],
+              format="json",
+          )
+          return RagEval.model_validate_json(response["message"]["content"])
+    narration: >
+      Walk through this code top to bottom. First, the RagEval Pydantic model
+      declares exactly what the judge must return: two floats, a verdict string,
+      and a one-sentence reason. The Field descriptions serve as documentation
+      and make the model's expected output clear. Second, the system prompt is
+      the heart of the evaluator. Notice the concrete JSON example at the end —
+      this is the Day 4 anti-schema-echo technique: instead of passing the raw
+      Pydantic schema (which some models echo back unchanged), you give the model
+      a filled example. It sees exactly what a valid response looks like, not
+      just the abstract structure. Third, the function builds a user message with
+      everything the judge needs: the full context to check faithfulness, the
+      original question to assess relevance, and the answer under review. The
+      output comes back as JSON and model_validate_json parses it into a typed
+      RagEval object, giving you dot-access to all four fields.
+
+  - type: concept
+    label: "Faithfulness vs relevance trade-off"
+    heading: "Both Scores Must Be High — They Can Fail Independently"
+    body: >
+      Faithfulness and relevance are not on the same axis. An answer can score
+      perfectly on one and zero on the other, and both extremes represent a
+      broken pipeline.
+    bullets:
+      - "Maximum faithfulness, zero relevance: 'The context does not contain information about this topic.' — grounded but useless"
+      - "Maximum relevance, zero faithfulness: a confident, on-topic answer built entirely from hallucinated facts"
+      - "The only acceptable outcome is high scores on both — the answer must be grounded AND address the question"
+      - "PASS threshold of 0.7 on both means one weak dimension cannot be compensated by a strong one"
+    narration: >
+      Here is a thought experiment that makes the trade-off concrete. Imagine
+      your RAG system is asked a question and retrieves context that does not
+      quite cover the answer. One possible response is: I cannot find enough
+      information in the provided context to answer this question. That answer
+      scores 1.0 on faithfulness — every word is supported by the absence of
+      evidence — but 0.0 on relevance because it completely fails the user.
+      Now imagine the opposite: the model ignores the context entirely, draws on
+      its training data, and produces a fluent, directly relevant answer. That
+      scores 1.0 on relevance but 0.0 on faithfulness because the source of
+      the information is untraceable. Neither pipeline is working. The only
+      version that passes is one where the answer addresses the question and
+      every claim it makes is actually present in the retrieved context. That
+      is the bar you are holding your pipeline to with the 0.7 threshold on both
+      dimensions.
+
+  - type: how_it_works
+    label: "Scoring prompt design"
+    heading: "Clear Criteria Make the Judge Consistent"
+    body: >
+      The quality of an LLM judge depends almost entirely on how precisely you
+      define the evaluation criteria in the system prompt. Vague instructions
+      produce noisy, inconsistent scores. Explicit rules produce stable,
+      interpretable ones.
+    bullets:
+      - "Faithfulness criterion: 'every claim in the answer must be directly supported by the provided context'"
+      - "Relevance criterion: 'the answer must address the question that was asked'"
+      - "Verdict rule is deterministic: PASS if and only if both scores >= 0.7 — no discretion required"
+      - "The reason field forces the judge to articulate why it scored the way it did, making failures actionable"
+    narration: >
+      Prompt engineering for an LLM judge is a bit different from prompt
+      engineering for a task model. With a task model, you care about output
+      quality. With a judge, you care about consistency and interpretability.
+      You want the same answer to receive the same score whether the judge runs
+      at noon or midnight, on the first query or the hundredth. That means
+      leaving as little to interpretation as possible. The faithfulness criterion
+      in the system prompt says every claim — not most claims, not the main
+      claims, but every claim. That zero-tolerance language pushes the judge
+      toward conservative scoring, which is appropriate for hallucination
+      detection. The relevance criterion anchors on what was asked, not what
+      was interesting or what was in the context. The verdict rule is stated as
+      a mathematical threshold so the judge cannot split the difference. And the
+      reason field is crucial for debugging: when an answer fails, you want a
+      sentence that tells you why, so you can trace the failure back to a
+      specific part of the pipeline. Good judge prompts are precise, not long.
+
+  - type: exercise
+    heading: "Exercise 5: Judge a RAG Answer"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement
+      `evaluate_rag_answer(question, answer, context_chunks, model='llama3.2')`
+      → RagEval. Build a prompt with the question, answer, and context, ask the
+      LLM judge to score faithfulness and relevance, and parse the result into
+      a RagEval instance.
+    hint: >
+      Include a concrete filled-JSON example in JUDGE_SYSTEM_PROMPT (anti-schema-echo
+      technique from Day 4) rather than passing the raw schema. Build user_msg with
+      the context, question, and answer. Pass `format='json'` to `ollama.chat()` and
+      parse the response with `RagEval.model_validate_json()`.
+    narration: >
+      Your task is to implement evaluate_rag_answer using the components you
+      have just seen. JUDGE_SYSTEM_PROMPT and RagEval are already defined in
+      the notebook — you only fill in the function body. Build user_msg from
+      the context, question, and answer, then call ollama.chat with format
+      equals json. The key design choice is in the system prompt: use a
+      concrete filled example rather than the raw Pydantic schema. When a model
+      receives the schema JSON object it sometimes echoes it back unchanged —
+      a concrete example of a valid response sidesteps that failure mode. Parse
+      the response with RagEval.model_validate_json to get a typed object back.
+      Once the checks pass, try it with a hallucinated answer and compare the
+      faithfulness score to a grounded one.
+
+  - type: summary
+    heading: "Day 14 Complete"
+    bullets:
+      - "LLM-as-judge turns subjective quality into measurable scores — faithfulness and relevance are the two core RAG metrics"
+      - "The judge prompt is a schema-guided extraction (Day 4 pattern) applied to evaluation — no new tools needed"
+      - "faithfulness = 1.0 + relevance = 1.0 is the goal; both can fail independently"
+      - "Day 15 brings the next layer: multi-turn conversation with history — chatbots that remember what you said"
+      - "Project: build a full cited RAG pipeline — index, retrieve, filter, cite, and evaluate in one end-to-end run"
+    narration: >
+      Day 14 is done, and you have built something substantial. Across five
+      lessons you upgraded a basic RAG pipeline into a production-quality system:
+      retrieval now carries source metadata, a distance filter removes weak
+      chunks before they confuse the model, citation-numbered prompts let the
+      model reference specific sources, and an LLM judge scores every answer
+      for faithfulness and relevance. Each piece connects to a pattern you
+      already knew — Pydantic schemas from Day 4, confidence scores from Day 8,
+      ChromaDB queries from Days 12 and 13 — so the new work was in how you
+      composed them, not in learning entirely new tools. The project for this
+      section asks you to wire all five pieces together into a single end-to-end
+      run: index a corpus, retrieve with sources, filter by distance, generate
+      a cited answer, and evaluate it. That pipeline is a genuine deliverable,
+      not just an exercise. On Day 15 you will shift focus from documents to
+      dialogue, adding conversation history so your LLM can remember what was
+      said earlier in a session. Multi-turn conversation is the next layer of
+      capability, and it builds on everything you have done so far.

@@ -1,0 +1,240 @@
+day: "014"
+lesson: "04"
+title: "Relevance Filtering"
+
+slides:
+
+  - type: title
+    heading: "Relevance Filtering"
+    subheading: "Don't let bad context into your prompt"
+    narration: >
+      You have built a retrieval pipeline that finds the top-k chunks closest to
+      your query, attaches source metadata, and hands them to the LLM. That works
+      well when the documents actually contain an answer. But what happens when
+      they do not? Top-k does not know the difference between a good match and a
+      poor one — it always returns exactly k results, relevant or not. In this
+      lesson you will add a single filtering step that reads the L2 distance on
+      each chunk and discards anything that is too far from the query. The result
+      is a pipeline that can say "I don't know" instead of hallucinating a
+      connection between your question and unrelated text.
+
+  - type: concept
+    label: "The silent bad-context problem"
+    heading: "Top-k Always Fills the Bag — Even with Noise"
+    body: >
+      ChromaDB's retrieve_with_sources returns exactly k chunks regardless of how
+      relevant they are. When no chunk is genuinely similar to the query, the LLM
+      receives the k least-bad chunks as if they were authoritative context — and
+      it hallucinates or forces a connection.
+    bullets:
+      - "Top-k is a ranking, not a relevance gate — rank 1 could still be a terrible match"
+      - "The LLM cannot tell it was given noise; it answers as if the context is correct"
+      - "The result is a confident-sounding hallucination grounded in irrelevant text"
+      - "This failure is silent — no error is raised, no warning appears in the output"
+    narration: >
+      Think about what top-k actually does. It sorts every chunk in the collection
+      by L2 distance from your query and returns the k smallest distances. That is
+      pure ranking. If your collection contains a thousand chunks about cooking
+      recipes and the user asks about quantum physics, top-k will still return five
+      chunks — the five recipe chunks that happened to use words vaguely similar to
+      the query. The LLM then receives those five recipe chunks as its context and
+      tries to answer a physics question with them. Because the LLM is trained to
+      be helpful and use the context it is given, it will not say the context is
+      irrelevant. It will construct an answer from whatever it was handed. That
+      answer is a hallucination, and you will never see an error message. The
+      pipeline will appear to have worked. Distance filtering is the mechanism that
+      makes this failure visible and stoppable.
+
+  - type: concept
+    label: "Distance as a quality signal"
+    heading: "L2 Distance Tells You How Far Away Each Chunk Is"
+    body: >
+      Every dict returned by retrieve_with_sources has a "distance" key — the L2
+      distance between the query embedding and the chunk embedding. Lower is better:
+      0.0 means identical, and values grow as chunks become less similar. A large
+      distance is a direct signal that a chunk is not relevant to the query.
+    bullets:
+      - "Distance 0.0 — embeddings are identical (chunk exactly matches the query)"
+      - "Distance 0.3–0.8 — strong match, almost certainly on-topic"
+      - "Distance 0.9–1.2 — moderate match, may still be useful"
+      - "Distance above 1.5 — weak match, likely off-topic noise"
+    narration: >
+      You already know that ChromaDB defaults to L2 distance — squared Euclidean
+      distance in embedding space. You saw in Lesson 1 that each retrieved dict
+      carries a "distance" field alongside the text and metadata. That number is
+      more than bookkeeping. It is a quality signal. When the distance is small,
+      the chunk and the query are close together in embedding space, which means
+      the underlying semantics are similar. When the distance is large, they are
+      far apart, and the semantic overlap is weak. The exact scale depends on your
+      embedding model and your documents, but for nomic-embed-text on typical
+      English prose, values below roughly 1.0 are reliably on-topic, values
+      between 1.0 and 1.5 are in the grey zone, and values above 1.5 are usually
+      noise. Filtering on this number gives you a principled way to reject chunks
+      that the retrieval step ranked highly only because nothing better existed.
+
+  - type: how_it_works
+    label: "Choosing a threshold"
+    heading: "Threshold Is Dataset-Specific — Here Is Where to Start"
+    body: >
+      There is no universal correct threshold. Distances depend on the embedding
+      model, the language, the document length, and the chunk size. The right
+      approach is to start in the 1.0–1.5 range for nomic-embed-text on English
+      prose, then calibrate on your own data by inspecting distances for known
+      good and bad matches.
+    bullets:
+      - "Start at max_distance=1.2 — a reasonable midpoint for nomic-embed-text"
+      - "Run queries you know are in-scope; confirm distances are well below your threshold"
+      - "Run queries you know are out-of-scope; confirm distances are above your threshold"
+      - "Adjust the threshold until the two groups are cleanly separated"
+      - "Re-calibrate when you change the embedding model, chunk size, or document domain"
+    narration: >
+      Picking a threshold is not guesswork, but it does require looking at your
+      own data. The recommended starting point for nomic-embed-text on English
+      prose is 1.2. From there, the calibration process is straightforward. Take
+      five or ten questions that are genuinely answerable from your documents, run
+      them through retrieval, and look at the distances on the top results. Those
+      distances are your "good match" baseline. Then take five or ten questions
+      that your documents cannot answer, run them through retrieval, and look at
+      those distances. Those are your "noise" baseline. Set the threshold somewhere
+      between the two groups. If the groups overlap, tighten your chunking or try
+      a different embedding model. The key point is that 1.2 is a starting point,
+      not a law. Every time you change the embedding model, the chunk size, or the
+      document domain, the threshold may need to move.
+
+  - type: code
+    label: "filter_by_relevance"
+    heading: "filter_by_relevance — One Comprehension, Clear Fallback"
+    code: |
+      def filter_by_relevance(
+          sources: list[dict],
+          max_distance: float = 1.2,
+      ) -> list[dict]:
+          """Keep only chunks whose L2 distance is at or below max_distance."""
+          return [s for s in sources if s["distance"] <= max_distance]
+
+      # Combined retrieve + filter:
+      def retrieve_filtered(
+          question: str,
+          collection,
+          top_k: int = 5,
+          max_distance: float = 1.2,
+      ) -> list[dict]:
+          sources = retrieve_with_sources(question, collection, top_k)
+          filtered = filter_by_relevance(sources, max_distance)
+          return filtered   # may be empty — caller must handle that
+
+      # Graceful empty-result path:
+      sources = retrieve_filtered("What is quantum tunnelling?", collection)
+      if not sources:
+          print("No relevant context found — I don't know based on the provided documents.")
+      else:
+          prompt = build_cited_prompt(question, sources)
+          # ... call LLM
+    narration: >
+      The implementation is deliberately minimal. filter_by_relevance is a single
+      list comprehension that keeps every source dict where the distance is at or
+      below max_distance. No loops, no state, no side effects — just a filter. The
+      function is also easy to unit-test: you can call it with a hand-crafted list
+      of dicts without touching ChromaDB or Ollama at all. retrieve_filtered
+      composes retrieve_with_sources and filter_by_relevance into a single
+      two-step pipeline: retrieve k candidates, then discard the ones that are too
+      far away. The result may be an empty list, and that is intentional. The
+      caller — not filter_by_relevance — decides what to do when nothing passes.
+      In the snippet at the bottom you can see the simplest possible caller
+      pattern: check for an empty list, and if it is empty, print a "don't know"
+      message and stop. This is what makes the pipeline honest. The filter created
+      the possibility of an empty result; the caller converts that into a clean
+      user-facing response.
+
+  - type: how_it_works
+    label: "The empty-result case"
+    heading: "When Nothing Passes — Skip the LLM Entirely"
+    body: >
+      An empty list from filter_by_relevance is a valid, correct outcome. The right
+      response is to return a structured "I don't know" without calling the LLM at
+      all — not to fall back to unfiltered results, which would defeat the purpose
+      of filtering.
+    code: |
+      def rag_with_citations(question: str, collection, model: str = "llama3.2") -> dict:
+          sources = retrieve_filtered(question, collection)
+          if not sources:
+              return {
+                  "answer": "I don't know based on the provided documents.",
+                  "citations": [],
+              }
+          user_msg = build_cited_prompt(question, sources)
+          messages = [
+              {"role": "system", "content": CITED_SYSTEM_PROMPT},
+              {"role": "user",   "content": user_msg},
+          ]
+          answer = ollama.chat(model=model, messages=messages)["message"]["content"]
+          return {
+              "answer":    answer,
+              "citations": extract_citations(answer, sources),
+          }
+    narration: >
+      Look at how rag_with_citations handles the empty case. The very first thing
+      it does after calling retrieve_filtered is check whether sources is empty. If
+      it is, the function returns immediately with a fixed "I don't know" answer
+      and an empty citations list. No LLM call happens. No prompt is built. This
+      matters for two reasons. First, it is the honest response — if no relevant
+      chunk was found, the pipeline genuinely does not have enough information to
+      answer, and pretending otherwise would be a hallucination. Second, it saves
+      a round-trip to the LLM, which is the slowest and most expensive part of the
+      pipeline. The tempting alternative — falling back to unfiltered results when
+      filtering produces nothing — would silently undo everything the filter
+      achieved. Never do that. The empty list is a signal, not a bug. Treat it
+      like one, and your pipeline becomes one that can be trusted.
+
+  - type: exercise
+    heading: "Exercise 4: Filter by Relevance"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `filter_by_relevance(sources,
+      max_distance=1.2)` so that it returns only the dicts from `sources` where
+      `source["distance"] <= max_distance`. Return an empty list if nothing passes —
+      the caller handles that gracefully. The automated checks verify that chunks
+      below the threshold are kept, chunks above it are discarded, equal-to-threshold
+      chunks are kept, and an all-too-distant input correctly returns an empty list.
+    hint: >
+      A single list comprehension does it: `[s for s in sources if s["distance"] <=
+      max_distance]`. The key insight is that returning an empty list is correct
+      behaviour — do not fall back to unfiltered results automatically. The caller
+      decides what to do when nothing passes.
+    narration: >
+      Your turn. The function itself is short — one line if you write the
+      comprehension cleanly — but the exercise is testing whether you understand
+      the contract. The automated checks will pass inputs where some chunks are
+      above the threshold, some are below, and at least one is exactly equal to
+      the threshold. Equal-to-threshold chunks should be kept, because the filter
+      condition is less-than-or-equal. There is also a check with an input where
+      every chunk is too distant: your function must return an empty list in that
+      case, not fall back to returning all the inputs. That empty list is the
+      signal the caller needs to skip the LLM and return a "don't know" response.
+      Write the function, run the checks, and then trace through the retrieve_filtered
+      and rag_with_citations patterns above to see how your function fits into the
+      full pipeline.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "top-k retrieval always returns k results — distance filtering is what makes 'I don't know' possible"
+      - "filter_by_relevance is a pure function: one list comprehension, no Ollama, easy to unit-test"
+      - "The empty-result path is a feature: when nothing is relevant, skip the LLM call entirely"
+      - "Threshold is dataset-specific — start at 1.0–1.5 for nomic-embed-text, calibrate on your own data"
+      - "Next: measuring whether the pipeline is actually working — LLM-as-judge evaluation"
+    narration: >
+      Here is the shape of what you have built today across lessons 1 through 4.
+      You started with raw retrieval that always returned k results. You added
+      source metadata so the LLM knows where each chunk came from. You built a
+      citation mechanism so answers can point back to specific documents. And now
+      you have added a relevance gate that discards low-quality context before it
+      ever reaches the prompt. The filter is small — one list comprehension — but
+      it changes the character of the pipeline entirely. Without it, your RAG system
+      is polite but unreliable: it always gives an answer even when it has no basis
+      for one. With it, the system can decline to answer, which is often the most
+      trustworthy response possible. The last major piece is evaluation: how do you
+      know if the whole pipeline is working? In Lesson 5 you will use the LLM
+      itself as a judge — asking it to score whether each answer is actually
+      supported by the cited sources — which gives you a systematic way to measure
+      quality and catch regressions when you change the threshold, the chunking
+      strategy, or the embedding model.

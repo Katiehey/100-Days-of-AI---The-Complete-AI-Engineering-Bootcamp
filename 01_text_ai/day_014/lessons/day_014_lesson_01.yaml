@@ -1,0 +1,234 @@
+day: "014"
+lesson: "01"
+title: "Retrieving with Sources"
+
+slides:
+
+  - type: title
+    heading: "RAG II — Quality & Citations"
+    subheading: "From answers to accountable answers"
+    narration: >
+      Welcome to Day 14. Yesterday you built a complete RAG pipeline — indexing
+      documents into ChromaDB, retrieving the top-k relevant chunks, and
+      generating a grounded answer. Today you start upgrading that pipeline for
+      production quality. The first upgrade is citations: knowing not just what
+      the model said, but exactly which document and which chunk it came from.
+      By the end of this lesson you will have replaced Day 13's retrieve_context
+      with a richer function called retrieve_with_sources that carries text,
+      source metadata, and distance scores all in one tidy return value. Let's
+      get into it.
+
+  - type: concept
+    label: "The citation problem"
+    heading: "Day 13's RAG Returns an Answer — With No Proof"
+    body: >
+      Yesterday's rag_answer function returns a plain string. That string has no
+      trace of which document the model used, which chunk it read, or how
+      confident the retrieval step was.
+    bullets:
+      - "Output is a bare string: users cannot see where the information came from"
+      - "No document name: impossible to tell the model used the right source"
+      - "No chunk reference: you cannot open the source and verify the excerpt"
+      - "No distance score: you cannot tell whether the retrieved chunks were even relevant"
+    narration: >
+      Think about what Day 13's pipeline actually hands back to the user. A
+      string. That is it. The model may have reasoned brilliantly over exactly
+      the right chunks, or it may have been given three weakly-matched fragments
+      and made something up — you cannot tell from the output alone. In a
+      prototype that is fine, but in any real application — internal tooling,
+      customer-facing Q and A, research assistance — users need to be able to
+      verify what they are reading. They need to know: where did this answer come
+      from? Which document? Can I go check it myself? Without that information,
+      your RAG system is a black box, and black boxes erode trust. The fix does
+      not require a major rewrite. It is a targeted upgrade to retrieve_context,
+      the function that talks to ChromaDB. Instead of throwing away the metadata
+      that ChromaDB already returns, you keep it and pass it forward.
+
+  - type: concept
+    label: "Upgrading retrieve_context"
+    heading: "Return a list[dict] Instead of list[str]"
+    body: >
+      Day 13's retrieve_context returns list[str] — just the chunk text. The
+      upgrade returns list[dict], where each dict bundles everything you need
+      for a citation alongside the text.
+    bullets:
+      - "`text` — the chunk content, used to build the prompt (same as before)"
+      - "`source` — the document filename stored in the chunk's metadata"
+      - "`chunk_index` — which chunk within that document (for pinpoint references)"
+      - "`distance` — ChromaDB's similarity score; lower means closer match"
+    narration: >
+      The upgrade is a change of return type, and that single change unlocks
+      everything else you will build today and in the lessons that follow.
+      Previously you returned a list of strings, which means the retrieval step
+      discarded source and distance information the moment it finished. Now you
+      return a list of dicts. Each dict is what you can think of as a source
+      chunk — a self-contained object that carries the text the model needs to
+      read, the metadata a human needs to trace the answer back to its origin,
+      and a quality signal you can use to filter out weak matches. The text field
+      is identical to what you returned before, so anything downstream that used
+      retrieve_context for the text can still access it at chunk["text"]. The
+      three new fields — source, chunk_index, and distance — are the foundation
+      for citations and quality filtering. ChromaDB already has all of this data.
+      You just stopped throwing it away.
+
+  - type: how_it_works
+    label: "Reading the full ChromaDB result"
+    heading: "Three Lists, All Aligned by Index"
+    body: >
+      collection.query() returns a dict with several keys. Three of them matter
+      here: documents, metadatas, and distances. Each contains a list-of-lists —
+      one inner list per query. For a single query, index into position 0.
+    bullets:
+      - "`results['documents'][0]` — list of chunk text strings, one per result"
+      - "`results['metadatas'][0]` — list of metadata dicts (source, chunk_index, …)"
+      - "`results['distances'][0]` — list of float distance scores, one per result"
+      - "All three inner lists have the same length and align by index — zip them together"
+    narration: >
+      You already called collection.query on Day 12. What you may not have
+      noticed is how much information ChromaDB sends back. The return value is a
+      dict, and inside it documents, metadatas, and distances are all present at
+      the same time. Each of those keys holds a list of lists: the outer list
+      corresponds to each query embedding you passed in, and the inner list holds
+      one entry per result. Because you are running a single query, you always
+      index the outer list at position zero to get the flat inner list. The
+      crucial insight is that all three inner lists are aligned by index. Entry
+      zero in documents is the text for the closest chunk, entry zero in
+      metadatas is that same chunk's metadata, and entry zero in distances is its
+      distance score. Entry one corresponds to the second-closest chunk across
+      all three lists, and so on. That alignment is what makes zip the right tool
+      here: zip(docs, metas, distances) pairs each text with its own metadata and
+      distance in a single clean pass, with no index arithmetic required.
+
+  - type: code
+    label: "retrieve_with_sources implementation"
+    heading: "Zip Documents, Metadatas, and Distances Into Dicts"
+    code: |
+      def retrieve_with_sources(
+          question: str,
+          collection,
+          top_k: int = 3,
+      ) -> list[dict]:
+          """Retrieve top-k chunks with their source metadata and distance scores."""
+          q_emb = ollama.embeddings(model="nomic-embed-text", prompt=question)
+          results = collection.query(
+              query_embeddings=[q_emb["embedding"]],
+              n_results=top_k,
+          )
+          docs      = results["documents"][0]
+          metas     = results["metadatas"][0]
+          distances = results["distances"][0]
+          return [
+              {
+                  "text":        doc,
+                  "source":      meta["source"],
+                  "chunk_index": meta["chunk_index"],
+                  "distance":    dist,
+              }
+              for doc, meta, dist in zip(docs, metas, distances)
+          ]
+
+      # Each returned dict is a "source chunk":
+      result = retrieve_with_sources("What is Python?", collection)
+      for chunk in result:
+          print(f"[{chunk['source']}] dist={chunk['distance']:.3f}")
+          print(chunk['text'][:80])
+    narration: >
+      Here is the complete implementation. The first half — embedding the
+      question and calling collection.query — is identical to Day 13's
+      retrieve_context. Nothing changes there. The difference is what happens
+      after the query returns. Instead of pulling out only results["documents"][0]
+      and returning it as a list of strings, you pull out all three lists: docs,
+      metas, and distances. Then you hand them straight to zip inside a list
+      comprehension. For each triple of doc, meta, and dist, you build a dict
+      with the four keys. Notice how the metadata dict from ChromaDB contains
+      both "source" and "chunk_index" — these were stored there when you indexed
+      the corpus on Day 13, so you can access them directly with meta["source"]
+      and meta["chunk_index"]. The usage example at the bottom shows the kind of
+      output you get: a source filename, a distance score formatted to three
+      decimal places, and the first eighty characters of the chunk text. That
+      three-line print loop is exactly the kind of logging you would add to a
+      RAG system to verify that retrieval is working correctly before you look at
+      the model's final answer.
+
+  - type: concept
+    label: "The distance field"
+    heading: "Distance Is a Quality Signal"
+    body: >
+      ChromaDB's default distance metric is L2 (Euclidean distance). Lower
+      values mean the chunk is more similar to the question. Higher values mean
+      the match is weaker.
+    bullets:
+      - "L2 distance: measures straight-line distance between two embedding vectors"
+      - "Lower = closer = more relevant; higher = further = weaker match"
+      - "A perfectly identical match would score 0.0; irrelevant chunks can score 1.5 or higher"
+      - "In Lesson 4 you will use distance to filter out chunks above a threshold before they reach the prompt"
+    narration: >
+      The distance field might look like an implementation detail right now, but
+      it will matter a great deal in Lesson 4. ChromaDB's default metric is L2
+      distance — the straight-line distance between two points in embedding
+      space. The closer two embeddings are, the more semantically similar the
+      underlying texts are, so a lower distance score is better. A score near
+      zero would mean the chunk is almost identical to the question. A score of
+      0.3 or 0.4 suggests a good match. A score above 1.0 or 1.5 typically
+      means the database could not find anything truly relevant and is just
+      returning its least-bad options. Right now you are capturing the distance
+      in every result dict. You are not doing anything with it yet — the prompt
+      builder will use all chunks regardless of quality. But because the
+      information is already there, adding a quality filter later is a
+      one-line change. That is exactly why you want to capture it now rather
+      than add it as an afterthought.
+
+  - type: exercise
+    heading: "Exercise 1: Retrieve with Sources"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement
+      `retrieve_with_sources(question, collection, top_k=3)` → list[dict].
+      Query the collection using the nomic-embed-text embedding, then zip the
+      documents, metadatas, and distances into a list of dicts with keys:
+      text, source, chunk_index, distance.
+    hint: >
+      Use `collection.query()` exactly as in Day 13, then unpack with
+      `docs = results['documents'][0]`, `metas = results['metadatas'][0]`, and
+      `distances = results['distances'][0]`. Zip all three together in a list
+      comprehension: `zip(docs, metas, distances)` — each iteration gives you
+      one doc, one meta dict, and one distance float to assemble into a dict.
+    narration: >
+      Your task is to implement retrieve_with_sources from scratch. Start with
+      the Day 13 version of retrieve_context as your mental template: embed the
+      question, call collection.query, pull out results["documents"][0]. That
+      part is unchanged. Then add two more lines to also pull out the metadatas
+      and distances lists. The list comprehension with zip does the rest. If you
+      have never used zip with three iterables before, the pattern is
+      straightforward: each call to zip produces a tuple of one element from each
+      iterable, in order, until the shortest is exhausted. Since all three lists
+      come from the same ChromaDB result they are guaranteed to have the same
+      length, so zip will produce exactly top_k tuples. The automated checks
+      verify that the return value is a list of dicts, that each dict contains
+      all four required keys, and that the values at those keys match what
+      ChromaDB actually returned. Once the checks pass, inspect the printed
+      output and confirm that the source filenames and distance scores look
+      sensible for your test query.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "retrieve_with_sources upgrades Day 13's retrieve_context: same query logic, richer return value"
+      - "Each result dict carries text (for the prompt), source + chunk_index (for citations), and distance (for filtering)"
+      - "All three ChromaDB result lists — documents, metadatas, distances — align by index; zip combines them cleanly"
+      - "Next: using these source dicts to build a citation-numbered prompt the model can reference"
+    narration: >
+      Let's lock in what you built in this lesson. The citation problem is
+      straightforward: Day 13's pipeline discarded useful information that
+      ChromaDB was already returning. The fix was equally straightforward — keep
+      that information and package it into a dict alongside the chunk text. Each
+      source chunk dict now carries everything a downstream function could need:
+      the text goes into the prompt, the source and chunk_index go into the
+      citation, and the distance score is banked for quality filtering later.
+      The implementation detail to remember is that ChromaDB's three result
+      lists — documents, metadatas, and distances — are perfectly aligned by
+      index, which makes zip the right tool for combining them. No manual
+      indexing, no risk of misalignment, one clean comprehension. In Lesson 2
+      you will take these source chunk dicts and use them to build a
+      citation-numbered prompt, so the model can reference specific sources by
+      number in its answer and users can trace every claim back to the exact
+      chunk it came from.

@@ -1,0 +1,220 @@
+day: "014"
+lesson: "02"
+title: "Citation-Numbered Prompts"
+
+slides:
+
+  - type: title
+    heading: "Citation-Numbered Prompts"
+    subheading: "Let the model tell you where each fact came from"
+    narration: >
+      In Lesson 1 you upgraded retrieve_with_sources to return not just text but
+      also the source filename, chunk index, and distance for every hit. That
+      metadata is sitting in the result list — but right now the model has no way
+      to use it. If the prompt just concatenates chunks, the model can answer the
+      question but cannot tell you which document each claim came from. This lesson
+      fixes that. You will restructure the prompt so every context chunk is
+      labelled with a number — [1], [2], [3] — and you will add an explicit
+      instruction telling the model to cite by those numbers inline. The result is
+      an answer where every factual claim points back to a source you can verify.
+
+  - type: concept
+    label: "Why numbered citations work"
+    heading: "Labelling Context Chunks Lets the Model Map Claims to Sources"
+    body: >
+      When each context chunk in the prompt carries a unique number, the model
+      can reference that number in its answer. After the answer is returned,
+      you can parse those references to know exactly which documents were used.
+    bullets:
+      - "Without labels: the model can say 'Python was created in the late 1980s' but you cannot verify which chunk that came from"
+      - "With labels: the model says 'Python was created in the late 1980s [1]' — you know it came from chunk 1"
+      - "The mapping is lossless: [N] in the answer corresponds directly to source N in the prompt"
+      - "No fine-tuning or special model support needed — plain numbered labels in the prompt are enough"
+    narration: >
+      This is a prompt engineering pattern, not a model capability. You are not
+      asking the model to do anything it did not already know how to do. You are
+      giving it a structured vocabulary — the numbers [1], [2], [3] — and an
+      explicit instruction to use that vocabulary when it draws on a source. The
+      model has seen numbered reference lists in academic writing, legal briefs,
+      and technical documentation throughout its training. When you present context
+      in the same format and ask for inline citation, the model applies the same
+      convention. What makes this powerful is that the numbers are deterministic on
+      your side. You enumerate the sources, so [1] in the answer always means the
+      first dict in your sources list, no matter what the model says about it. That
+      lets you build a fully traceable pipeline without any probabilistic parsing
+      of document names or filenames.
+
+  - type: concept
+    label: "The citation instruction"
+    heading: "The System Prompt Must Spell Out the Citation Contract"
+    body: >
+      The model will follow the citation convention only if you explicitly state
+      it. The system prompt is the right place to define the rule and the fallback.
+    bullets:
+      - "State the rule precisely: 'cite sources inline as [1], [2], etc. corresponding to the context numbers'"
+      - "Specify the scope: 'answer using ONLY the numbered context sources below'"
+      - "Define the fallback: if the answer is not in the sources, say so — do not invent"
+      - "CITED_SYSTEM_PROMPT encodes both the citation rule and the hallucination guard in one constant"
+    narration: >
+      The system prompt is where you set the rules of the game. Two rules matter
+      here. The first is the citation rule: tell the model that the context it is
+      about to receive is numbered, and that it should embed those numbers inline
+      wherever it draws on a source. Without this instruction some models will cite,
+      some will not, and you cannot rely on consistency. The second rule is the
+      scope constraint: the model should answer using only the provided sources, not
+      its general knowledge. This is the hallucination guard. If you omit it, the
+      model may blend retrieved facts with memorised facts, and the citations will
+      only cover the retrieved portion — the rest of the answer becomes untraceable.
+      Adding the fallback phrase — "say I don't know based on the provided documents
+      if the answer is not there" — closes the loop. The model is now committed to
+      either citing or abstaining, with no middle path of confident confabulation.
+
+  - type: how_it_works
+    label: "Prompt structure"
+    heading: "Enumerate Chunks, Prefix Each With [N] and the Filename, Then Ask the Question"
+    body: >
+      build_cited_prompt assembles the context block by iterating over the sources
+      list with 1-based indices, then appends the question and a citation reminder.
+    bullets:
+      - "Step 1 — label each chunk: f'[{i}] ({src[\"source\"]})\n{src[\"text\"]}' for i, src in enumerate(sources, start=1)"
+      - "Step 2 — join: separate labelled chunks with a blank line ('\\n\\n') so the model sees clear boundaries"
+      - "Step 3 — append: add the question and a short inline reminder ('Answer (cite sources as [1], [2], etc.):)')"
+      - "The source filename in parentheses is human-readable but the number is what the model cites — keep both"
+    narration: >
+      Let us walk through the structure. You call enumerate on the sources list
+      with start=1 so the first chunk becomes [1], not [0]. For each chunk you
+      build a string that opens with the number in square brackets, then the
+      filename in parentheses on the same line, then a newline, then the chunk
+      text. This mirrors the format of a numbered bibliography entry — the model
+      recognises it and treats the number as the citation key. You join all of
+      these entries with a double newline so there is a visible blank line between
+      each source, making boundaries obvious. After the context block you place a
+      blank line, then the question, then the citation reminder on the answer line.
+      That reminder doubles as a prompt completion cue — the model sees
+      "Answer (cite sources as [1], [2], etc.):" and understands it should start
+      producing the answer immediately, embedding citation numbers as it goes.
+
+  - type: code
+    label: "build_cited_prompt"
+    heading: "Implementing build_cited_prompt"
+    code: |
+      CITED_SYSTEM_PROMPT = (
+          "You are a helpful assistant. Answer the question using ONLY the numbered "
+          "context sources below. Cite sources inline as [1], [2], etc. "
+          "If the answer is not in the sources, say: "
+          "'I don't know based on the provided documents.'"
+      )
+
+      def build_cited_prompt(question: str, sources: list[dict]) -> str:
+          """Build a prompt with numbered, labelled context sources."""
+          lines = []
+          for i, src in enumerate(sources, start=1):
+              lines.append(f"[{i}] ({src['source']})\n{src['text']}")
+          context = "\n\n".join(lines)
+          return (
+              f"Context sources:\n\n{context}\n\n"
+              f"Question: {question}\n"
+              f"Answer (cite sources as [1], [2], etc.):"
+          )
+    narration: >
+      Two components work together here. CITED_SYSTEM_PROMPT is a module-level
+      constant you pass to the model as the system message — it stays fixed across
+      every call. build_cited_prompt produces the user message for each specific
+      question. Inside the function, enumerate with start=1 gives you 1-based
+      numbers. For each source dict you format the label line — the number, the
+      filename, and the chunk text — then collect all of them in a list. Joining
+      with double newlines creates the context block. The return string opens with
+      "Context sources:" as a header the model can anchor to, then inserts the
+      block, then adds the question, then the answer line with its inline citation
+      reminder. Notice that the system prompt and the user prompt reinforce each
+      other: the system prompt establishes the rule once, and the answer line
+      repeats the citation convention at the exact moment the model begins
+      generating. That redundancy is intentional — it significantly improves
+      citation compliance across different models and temperatures.
+
+  - type: how_it_works
+    label: "Parsing citations"
+    heading: "Extract [N] References to Build a Traceable Sources List"
+    body: >
+      After the model returns an answer you can parse the citation numbers it used
+      with a simple regex, then look up the corresponding source dicts.
+    code: |
+      import re
+
+      def extract_citations(answer: str, sources: list[dict]) -> list[dict]:
+          """Return the source dicts actually referenced in the answer."""
+          cited_nums = {int(n) for n in re.findall(r'\[(\d+)\]', answer)}
+          return [
+              sources[i - 1]
+              for i in sorted(cited_nums)
+              if 1 <= i <= len(sources)
+          ]
+
+      # Usage:
+      answer = "Python was created by Guido van Rossum [1] in the late 1980s [1][2]."
+      cited = extract_citations(answer, sources)
+      for src in cited:
+          print(f"  → {src['source']} (chunk {src['chunk_index']})")
+    narration: >
+      Parsing the citations is almost as simple as building them. re.findall with
+      the pattern backslash-open-bracket, one or more digits, backslash-close-bracket
+      returns every number that appears inside square brackets in the answer string.
+      You collect those into a set to deduplicate — [1] might appear three times in
+      a single answer but you only want to list source 1 once. Then you sort the
+      set and filter out any numbers that are out of range — a model occasionally
+      hallucinates citation numbers that do not exist in your sources list, and the
+      range check silently drops them rather than raising an IndexError. Finally you
+      convert back to zero-based indexing by subtracting 1, and pull the full
+      source dict for each valid reference. The result is a list of dicts that tells
+      you exactly which source documents contributed to the answer, in citation
+      order. You can display these to the user, log them for auditing, or use them
+      to build a follow-up retrieval step if you want to dig deeper into a
+      particular source.
+
+  - type: exercise
+    heading: "Exercise 2: Build a Citation Prompt"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement build_cited_prompt(question, sources) -> str.
+      Number each source [1], [2], ... prefixed with its filename, join them with blank lines,
+      then append the question and an instruction to cite inline. The automated checks verify:
+      the function is callable; the output contains '[1]' when sources is non-empty; each
+      source's filename appears in the output; the question text appears in the output; and
+      the structure matches the expected 'Context sources:' header format.
+    hint: >
+      Use enumerate(sources, start=1) to get 1-based numbers. Format each entry as
+      f'[{i}] ({src["source"]})\n{src["text"]}'. Join the list of formatted entries with
+      '\n\n' and append the question and citation reminder at the end.
+    narration: >
+      Your turn. The notebook already has the function signature and the CITED_SYSTEM_PROMPT
+      constant — you implement the body of build_cited_prompt. Start with the enumerate
+      loop: for each source, build the label string with the number, filename, and text.
+      Collect those strings in a list and join them. Then assemble the final return string
+      with the "Context sources:" header, the joined context, a blank line, the question,
+      and the answer line. The five automated checks cover the essentials. The most
+      important one verifies that [1] actually appears in the output when you pass a
+      non-empty sources list — that is the minimum requirement for the citation pattern
+      to work. Run the checks, make sure all five pass, then try calling the function
+      manually with a couple of source dicts and read the output. You want to see clearly
+      numbered, labelled blocks before you move to Lesson 3.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Numbered context lets the model cite evidence inline — [1], [2] in the answer map directly to source documents"
+      - "CITED_SYSTEM_PROMPT + build_cited_prompt together create the citation contract between prompt and model"
+      - "extract_citations parses [N] references with re.findall to produce a traceable sources list"
+      - "Next: better chunking — sentence-aware splitting so citations point to coherent, complete thoughts"
+    narration: >
+      Three building blocks, all working together. CITED_SYSTEM_PROMPT sets the
+      rule at the system level: answer only from the sources, cite by number, and
+      say so if you do not know. build_cited_prompt encodes that rule into the
+      user message by labelling every chunk [1], [2], [3] and repeating the
+      citation reminder on the answer line. extract_citations closes the loop on
+      the output side, turning the model's inline [N] references into a concrete
+      list of source dicts you can display, log, or act on. Together they give
+      you a fully traceable RAG step — you know not just what the model said but
+      which documents it drew on for each claim. In Lesson 3 you will improve the
+      inputs to this pipeline by switching to sentence-aware chunking. Right now
+      your chunks are cut at fixed character boundaries, which can split a sentence
+      mid-thought. Better chunks produce cleaner citations and more coherent answers,
+      so that is the natural next step.

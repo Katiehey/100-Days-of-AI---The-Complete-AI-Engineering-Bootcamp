@@ -1,0 +1,265 @@
+day: "014"
+lesson: "03"
+title: "Sentence-Aware Chunking"
+
+slides:
+
+  - type: title
+    heading: "Sentence-Aware Chunking"
+    subheading: "Never cite half a sentence"
+    narration: >
+      Welcome to Lesson 3. In Lessons 1 and 2 you built a solid retrieval pipeline
+      using fixed-size character chunking — the same algorithm you first saw on Day 7
+      for summarisation. Fixed-char chunking is fast and predictable, but it has a
+      quiet flaw that only surfaces when a user reads the retrieved text: the chunk
+      boundary can land anywhere in a sentence, so the text that reaches the prompt
+      can start mid-thought or cut off mid-clause. In this lesson you will fix that
+      by switching to sentence-aware chunking. Instead of counting characters and
+      slicing wherever the limit falls, you will group whole sentences together until
+      you reach a size limit, then start a fresh chunk. Every chunk produced this way
+      ends on a sentence boundary — which means every piece of text your retriever
+      returns is coherent enough to quote.
+
+  - type: concept
+    label: "The mid-sentence cut problem"
+    heading: "What Fixed-Char Chunking Can Break"
+    body: >
+      Fixed-size character chunking does not know what a sentence is. It counts
+      characters and slices at the limit, which means a boundary can fall anywhere —
+      including mid-sentence. The result is retrieved chunks that feel incomplete or
+      misleading.
+    bullets:
+      - "Chunk A ends with: \"The answer is\" — the subject is set up, the answer is gone"
+      - "Chunk B starts with: \"42, which proves the theory\" — context-free, hard to cite"
+      - "The model receives a partial thought and may hallucinate the missing part"
+      - "A user reading the source passage gets a fragment, not a citable unit"
+    narration: >
+      Picture a paragraph that explains a key fact. Fixed-char chunking sets a limit
+      of, say, 500 characters, counts to 500, and cuts. If sentence happens to
+      straddle that boundary — and in real prose it often does — one chunk ends with
+      the setup and the next starts with the payoff. Neither chunk is wrong in isolation,
+      but neither is independently useful. When ChromaDB retrieves Chunk A, the model
+      reads a sentence that stops at the most interesting word. When it retrieves
+      Chunk B, it gets an answer with no question. For summarisation this is tolerable
+      — you are asking the model to produce prose, not cite a source. For retrieval,
+      where the goal is grounding the model in specific text, a half-sentence is
+      actively harmful. Sentence-aware chunking solves the problem by making the
+      sentence, not the character count, the atomic unit.
+
+  - type: concept
+    label: "Sentence-aware approach"
+    heading: "Group Sentences, Not Characters"
+    body: >
+      Sentence-aware chunking inverts the fixed-char logic. Instead of counting
+      characters and splitting wherever the limit falls, you split on sentence
+      terminators first, then accumulate whole sentences until adding the next one
+      would exceed your character budget.
+    bullets:
+      - "Step 1 — split: break the text on . ! ? boundaries into a list of sentence strings"
+      - "Step 2 — accumulate: keep a 'current' list; append sentences until the joined length exceeds max_chars"
+      - "Step 3 — flush: when a sentence would push you over the limit, save current as a chunk and start fresh"
+      - "Step 4 — overlap: carry the last overlap_sentences sentences into the next chunk for continuity"
+    narration: >
+      The mental model is a sliding window, but the window moves one sentence at a
+      time rather than one character at a time. You maintain a running list of
+      sentences called current. For each new sentence, you ask: if I joined everything
+      in current plus this new sentence with spaces, would the result exceed max_chars?
+      If yes, flush current as a completed chunk, keep the last overlap_sentences
+      entries for continuity, and start the new chunk with those overlap sentences
+      plus the one that triggered the flush. If no, just append the sentence to
+      current and keep going. The result is chunks that are bounded by max_chars,
+      but whose internal structure is always aligned to sentence boundaries. You get
+      coherence for free because the unit you are grouping is already a coherent unit.
+
+  - type: how_it_works
+    label: "Sentence splitting with re.split"
+    heading: "Splitting Text into Sentences"
+    body: >
+      The first building block is split_sentences — a helper that turns a block of
+      text into a list of sentence strings. It uses re.split with a lookbehind
+      assertion so that the punctuation stays attached to the sentence that ends with
+      it, rather than being lost or placed at the start of the next one.
+    bullets:
+      - "re.split(r'(?<=[.!?])\\s+', text) — split on whitespace that follows . ! or ?"
+      - "(?<=[.!?]) is a lookbehind: match a position preceded by sentence-ending punctuation"
+      - "The split point is the whitespace, not the punctuation — so punctuation stays on the left sentence"
+      - "Strip and filter — remove empty strings and leading/trailing whitespace from each part"
+    narration: >
+      The regex does one specific job: find every place in the text where whitespace
+      follows a sentence-ending punctuation mark, and treat that as a split point.
+      The lookbehind pattern (?<=[.!?]) says "only match this position if the
+      character immediately to the left is a period, exclamation mark, or question
+      mark." The actual split happens on the whitespace that follows. That means the
+      punctuation stays glued to the end of the sentence that owns it — "It was
+      created in 1991." stays intact as a unit, not "It was created in 1991" with the
+      period dropped. After splitting you strip each part and filter out any empty
+      strings that can result from leading whitespace or multiple spaces. What you get
+      back is a clean list of sentence strings, each ending with its own punctuation,
+      ready to be grouped into chunks.
+
+  - type: how_it_works
+    label: "Grouping sentences into chunks"
+    heading: "Accumulating Sentences with Overlap"
+    body: >
+      The second building block is the grouping loop inside chunk_by_sentences. It
+      iterates the sentence list, speculatively joins current plus the next sentence,
+      and decides whether to append or flush based on the candidate length.
+    bullets:
+      - "candidate = \" \".join(current + [sent]) — the chunk you would produce if you added this sentence"
+      - "if current and len(candidate) > max_chars — only flush if current is non-empty (never produce an empty chunk)"
+      - "chunks.append(\" \".join(current)) — save the completed chunk before moving on"
+      - "(current[-overlap_sentences:] if overlap_sentences else []) + [sent] — seed the next chunk with the tail of the old one (the guard handles overlap_sentences=0, since list[-0:] returns the whole list in Python)"
+    narration: >
+      The loop logic is worth reading carefully because it handles two edge cases that
+      trip people up. The first is the guard current and before the length check. You
+      need this because if a single sentence is longer than max_chars, you still have
+      to emit it as a chunk — you cannot discard it. Without the guard, the function
+      would flush an empty current as a zero-length chunk and loop forever. The second
+      is the overlap line. When you flush, you do not start the next chunk from
+      scratch. You take the last overlap_sentences entries from the list you just
+      flushed and prepend them to the new current. This means the next chunk begins
+      with context from the end of the previous one — the same idea as character
+      overlap in fixed-char chunking, but expressed in whole sentences. After the loop
+      there is a final append to catch whatever remains in current. Without that line,
+      the last group of sentences would be silently dropped.
+
+  - type: code
+    label: "Implementation"
+    heading: "chunk_by_sentences"
+    code: |
+      import re
+
+      def split_sentences(text: str) -> list[str]:
+          """Split text into sentences on . ! ? boundaries."""
+          # Split after . ! ? followed by whitespace or end of string
+          parts = re.split(r'(?<=[.!?])\s+', text.strip())
+          return [p.strip() for p in parts if p.strip()]
+
+      def chunk_by_sentences(
+          text: str,
+          max_chars: int = 500,
+          overlap_sentences: int = 1,
+      ) -> list[str]:
+          """Group whole sentences into chunks of at most max_chars characters."""
+          sentences = split_sentences(text)
+          chunks = []
+          current: list[str] = []
+
+          for sent in sentences:
+              candidate = " ".join(current + [sent])
+              if current and len(candidate) > max_chars:
+                  chunks.append(" ".join(current))
+                  # carry last overlap_sentences sentences into next chunk
+                  # guard: list[-0:] == list[:] in Python, so check > 0 first
+                  current = (current[-overlap_sentences:] if overlap_sentences else []) + [sent]
+              else:
+                  current.append(sent)
+
+          if current:
+              chunks.append(" ".join(current))
+          return chunks
+
+      # Example:
+      text = "Python is a language. It was created in 1991. Guido van Rossum made it."
+      chunks = chunk_by_sentences(text, max_chars=60, overlap_sentences=1)
+      for i, c in enumerate(chunks):
+          print(f"Chunk {i}: {c!r}")
+    narration: >
+      Here is the complete implementation — two functions, about twenty-five lines
+      total. split_sentences handles the regex work: it strips the input, splits on
+      whitespace that follows sentence-ending punctuation, then filters and strips
+      each part. chunk_by_sentences calls split_sentences first to get the sentence
+      list, then runs the accumulation loop. Notice that the only branch inside the
+      loop is the flush condition: if current is non-empty and the candidate string
+      exceeds max_chars, flush and restart; otherwise append. The overlap line
+      (current[-overlap_sentences:] if overlap_sentences else []) + [sent] seeds
+      the new chunk with the tail of the old one. The if-guard is essential:
+      Python's list[-0:] is identical to list[0:] — the whole list — so without
+      the check, overlap_sentences=0 would carry every sentence forward instead
+      of starting fresh. The sentence that triggered the flush always lands in the
+      new chunk, never gets dropped. The example at the
+      bottom uses max_chars=60 so you can see the chunking happen on a short string.
+      With three sentences and a tight limit, the first chunk will contain the first
+      sentence or two, and the next chunk will open with the overlap sentence carried
+      forward. Try changing max_chars and overlap_sentences to build intuition for
+      how the parameters interact.
+
+  - type: concept
+    label: "Trade-offs vs fixed-size"
+    heading: "When to Use Sentence-Aware vs Fixed-Char Chunking"
+    body: >
+      Sentence-aware chunking guarantees coherence but sacrifices predictability.
+      Fixed-char chunking guarantees uniform size but sacrifices coherence. Neither
+      is universally better — the right choice depends on the content and the use case.
+    bullets:
+      - "Sentence-aware: variable chunk size — one chunk may be 80 chars, the next 490"
+      - "Variable size makes token budgeting harder — a retrieved chunk might consume most of your context window"
+      - "Fixed-char: uniform size — easier to reason about worst-case prompt length"
+      - "Fixed-char breaks coherence in prose; sentence-aware breaks in structured data (tables, code, CSV) where sentences are not the natural unit"
+    narration: >
+      This is a genuine trade-off, not a case where one approach is simply better.
+      Sentence-aware chunking shines on prose: articles, documentation, narrative
+      text, anything where the sentence is the natural unit of meaning. A retrieved
+      chunk will always be something a human could read and cite. The cost is that
+      you cannot predict chunk size. A document full of short sentences will produce
+      tiny chunks; a document with long complex sentences will produce large ones.
+      If your downstream use case requires strict token budgeting — for example, you
+      are fitting ten retrieved chunks into a context window of a fixed size — variable
+      chunk length is harder to manage. Fixed-char chunking is better for long,
+      uniform documents like transcripts or logs where you know the typical sentence
+      length and the content is dense enough that a mid-sentence cut is unlikely to
+      destroy meaning. In practice, many production systems use sentence-aware
+      chunking as the default and fall back to fixed-char for structured or code-heavy
+      content. The important thing is to know which problem each approach solves so
+      you can make the choice deliberately.
+
+  - type: exercise
+    heading: "Exercise 3: Chunk by Sentences"
+    prompt: >
+      Open exercises/exercise_03.ipynb. split_sentences is already provided.
+      Implement chunk_by_sentences(text, max_chars=500, overlap_sentences=1) -> list[str].
+      Split the text into sentences first, then group sentences into chunks no longer
+      than max_chars. Carry the last overlap_sentences sentences into the next chunk.
+    hint: >
+      Use split_sentences() (provided) to get a list of sentence strings. Keep a
+      'current' list. For each sentence, check if joining current + [sent] would
+      exceed max_chars. If so, flush current as a chunk and start fresh with the last
+      overlap_sentences sentences plus the new one. Remember to append whatever remains
+      in current after the loop ends.
+    narration: >
+      Your turn. split_sentences is already in the notebook so you can focus entirely
+      on the grouping logic. Start by reading the provided helper to understand what
+      you will receive: a list of sentence strings, each ending with its own
+      punctuation, all stripped of surrounding whitespace. Then implement the
+      accumulation loop. The key decisions are: when do you flush, how do you seed
+      the next chunk with overlap, and what do you do after the loop ends? Work
+      through the automated checks in order — they will test an empty string, a single
+      sentence shorter than max_chars, a string that produces exactly two chunks, and
+      a string where overlap_sentences=0 should produce no repeated content across
+      chunks. When all checks are green, come back for the summary.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "Sentence-aware chunking guarantees every chunk ends on a sentence boundary — retrieved chunks are always coherent"
+      - "split_sentences uses a lookbehind regex (?<=[.!?]) to split after punctuation without losing it"
+      - "overlap_sentences carries the last N whole sentences into the next chunk — context preserved, mid-sentence never cut"
+      - "Trade-off: variable chunk size makes token budgeting less predictable; use fixed-char for long uniform docs, sentence-aware for prose where coherence matters"
+      - "Next: relevance filtering — using ChromaDB's distance score to discard low-quality matches before they reach the prompt"
+    narration: >
+      Four things to carry forward from this lesson. First: the root cause of the
+      mid-sentence cut problem is that fixed-char chunking treats all characters as
+      equal — it has no concept of linguistic structure. Sentence-aware chunking
+      solves this by making the sentence the atomic unit of chunking, not the
+      character. Second: the lookbehind regex (?<=[.!?]) is the detail that makes
+      split_sentences work correctly. It splits on the whitespace after punctuation,
+      not on the punctuation itself, so the period or question mark stays with the
+      sentence it belongs to. Third: the overlap mechanism in chunk_by_sentences
+      works in whole sentences, not characters — current[-overlap_sentences:] gives
+      you the last N complete sentences to seed the next chunk with. You get
+      continuity without ever cutting mid-sentence. Fourth: this is a trade-off,
+      not a universal upgrade. Variable chunk length is the cost you pay for
+      guaranteed coherence. Know when that trade-off is worth it. In Lesson 4 you
+      will learn relevance filtering — how to use ChromaDB's distance scores to
+      decide which retrieved chunks are actually relevant before they consume space
+      in your prompt.
