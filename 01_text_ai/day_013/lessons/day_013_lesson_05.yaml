@@ -1,0 +1,324 @@
+day: "013"
+lesson: "05"
+title: "Grounding the Answer"
+
+slides:
+
+  - type: title
+    heading: "Grounding the Answer"
+    subheading: "Make the model stay within the evidence"
+    narration: >
+      Welcome to the final lesson of Day 13. Over the last four lessons you built
+      every component of a Retrieval-Augmented Generation pipeline: a prompt
+      template in Lesson 1, a document chunker in Lesson 2, a ChromaDB-backed
+      index in Lesson 3, and a semantic retrieval function in Lesson 4. You have
+      all the pieces. This lesson is about the last and most important discipline
+      in RAG: grounding. Grounding means explicitly constraining the language model
+      to answer only from the context you retrieved — never from its training
+      weights, never from inference, and never from invention. Without it, a capable
+      model can and will supplement your retrieved chunks with confident-sounding
+      fabrications, and your users will not be able to tell the difference. With it,
+      every answer is traceable to a document you own. By the end of this lesson you
+      will have a single rag_answer function that assembles the entire pipeline and
+      enforces that discipline on every call.
+
+  - type: concept
+    label: "The hallucination risk"
+    heading: "Without Grounding, the LLM Fills the Gaps Itself"
+    body: >
+      Retrieval alone does not prevent hallucination. Even with relevant chunks in
+      the prompt, an ungrounded model will blend retrieved text with its own
+      training knowledge — and the user cannot tell where one ends and the other begins.
+    bullets:
+      - "The model sees your retrieved chunks, but nothing stops it from adding training-data knowledge beyond them"
+      - "Blended answers look authoritative — fluent, coherent, plausible — but contain unverifiable claims"
+      - "Users cannot distinguish grounded facts from model-generated additions without reading the source documents themselves"
+      - "Grounding closes this gap: a system prompt explicitly forbids the model from going beyond the context"
+    narration: >
+      Here is a subtle trap that catches many RAG implementations: retrieval is
+      necessary but not sufficient to prevent hallucination. When you embed chunks
+      into the prompt without a grounding instruction, you have given the model
+      good material to work with, but you have not told it to stop there. A capable
+      language model trained on a vast corpus will naturally complete your context
+      with related knowledge from its weights. It is not trying to deceive anyone —
+      it is doing exactly what it was trained to do, which is produce fluent and
+      helpful text. The problem is that the output becomes a blend: some sentences
+      come from your retrieved documents, others come from the model's training
+      data, and the whole thing reads as a single coherent answer. There is no
+      seam, no citation, no signal to the user about which parts are grounded and
+      which are not. If the training-data portions happen to be wrong or outdated
+      for your domain, you have a confident, well-written hallucination. The fix is
+      a grounding system prompt. You tell the model, as the first message in every
+      call, exactly what the rules are: use only the context I am giving you, and
+      if the answer is not there, say so. That single instruction shifts the model's
+      behaviour from blending to confining, and it is the difference between a
+      trustworthy RAG system and a plausible-sounding one.
+
+  - type: concept
+    label: "What grounding means"
+    heading: "The Grounding System Prompt: Rules Before Every Call"
+    body: >
+      Grounding is implemented as a system prompt — the first message in the
+      messages list — that sets hard rules for the model's behaviour before it
+      reads any context or question.
+    bullets:
+      - "Instructs the model: answer strictly from the provided context, nothing else"
+      - "Provides an honest escape route: 'I don't know based on the provided documents.'"
+      - "Applied as the system message, so it governs every turn of the conversation"
+      - "Does not need to be long — one or two clear sentences are enough; ambiguity is the enemy"
+      - "The 'I don't know' path is a feature, not a bug — honesty about absence of evidence is more useful than a confident wrong answer"
+    narration: >
+      The grounding system prompt works because of how the messages list in
+      ollama.chat is structured. You have been using system prompts since Day 3
+      and Day 6: the first message in the list has role system, and the model
+      treats its content as overriding behavioural instructions that apply to
+      everything that follows. That is exactly the slot where your grounding
+      instruction goes. The content of that instruction needs to do two things
+      precisely. First, it must forbid the model from drawing on any knowledge
+      outside the context block — words like "strictly," "only," and "solely" are
+      deliberate; hedging language like "try to" or "prefer to" leaves a door
+      open. Second, it must give the model a specific fallback phrase to use when
+      the context does not contain the answer. That fallback matters more than it
+      sounds. Without it, a model that genuinely cannot find the answer in your
+      context will still try to generate something useful, which almost always
+      means a hallucination. With it, the model has a sanctioned, explicit way to
+      be honest — and because you defined the exact wording, you can detect and
+      handle "I don't know" responses programmatically in your application. Keep
+      the system prompt short and unambiguous. A single sentence of permission
+      followed by a single sentence of fallback is all you need.
+
+  - type: code
+    label: "Full RAG pipeline"
+    heading: "The Grounding Prompt and the Complete rag_answer Function"
+    code: |
+      import ollama
+
+      # All helpers built in earlier lessons of today
+      # from lesson_02 import chunk_document
+      # from lesson_03 import index_corpus
+      # from lesson_04 import retrieve_context
+      # from lesson_01 import build_rag_prompt
+
+      GROUNDING_SYSTEM_PROMPT = (
+          "You are a helpful assistant that answers questions strictly from the "
+          "provided context. If the answer is not in the context, respond with: "
+          "'I don't know based on the provided documents.' "
+          "Do not use any knowledge outside the context."
+      )
+
+
+      def rag_answer(question: str, collection, model: str = "llama3.2") -> str:
+          """Full RAG pipeline: retrieve → augment → generate."""
+          chunks = retrieve_context(question, collection, top_k=3)
+          user_msg = build_rag_prompt(question, chunks)
+          messages = [
+              {"role": "system", "content": GROUNDING_SYSTEM_PROMPT},
+              {"role": "user", "content": user_msg},
+          ]
+          response = ollama.chat(model=model, messages=messages)
+          return response["message"]["content"]
+    narration: >
+      Here is the complete pipeline assembled into a single function. Look at how
+      short rag_answer is — five lines of logic — and notice what that brevity
+      represents: every individual concern has already been handled in its own
+      lesson. retrieve_context from Lesson 4 handles embedding the question and
+      querying ChromaDB. build_rag_prompt from Lesson 1 handles formatting the
+      chunks and the question into a structured context block. ollama.chat from
+      Day 1 handles the generation call. rag_answer does nothing but chain those
+      pieces together and wrap them with the grounding instruction. The
+      GROUNDING_SYSTEM_PROMPT constant sits outside the function deliberately.
+      You define it once at module level, use it on every single call, and if you
+      ever need to adjust the wording you change it in one place. The three verbs
+      in the docstring — retrieve, augment, generate — map directly to the three
+      lines inside the function body: retrieve_context, build_rag_prompt, and
+      ollama.chat. That one-to-one mapping is the clearest sign that your
+      architecture is right. Each function has one job, and rag_answer's job is
+      to call them in order with the grounding discipline enforced.
+
+  - type: how_it_works
+    label: "The I don't know path"
+    heading: "When the Context Doesn't Contain the Answer"
+    body: >
+      The grounding prompt creates two paths through the pipeline. Understanding
+      the "I don't know" path makes you a more reliable RAG engineer.
+    bullets:
+      - "Path A — answer found: chunks contain relevant text → model synthesises a grounded response"
+      - "Path B — answer absent: chunks are irrelevant or empty → model returns the 'I don't know' phrase"
+      - "Path B is triggered by both weak retrieval (low similarity scores) and genuine absence of information"
+      - "A grounded 'I don't know' is more useful than a confident hallucination — the user knows to look elsewhere"
+      - "You can detect Path B programmatically: check if the response contains the fallback phrase"
+    narration: >
+      One of the most important things to internalise about grounding is that the
+      "I don't know" response is a success state, not a failure state. Think about
+      what it means from the user's perspective. When a grounded system says "I
+      don't know based on the provided documents," the user learns something true
+      and actionable: the answer is not in the documents you are searching. That
+      is honest, and it tells the user exactly what to do next — look in a
+      different source, rephrase the question, or expand the corpus. Compare that
+      to an ungrounded system that responds with a plausible-sounding paragraph
+      drawn from training data: the user gets something that looks like an answer,
+      may act on it, and only discovers the problem later. The grounded silence is
+      more useful than the confident invention. In practice you will encounter two
+      triggers for the "I don't know" path. The first is weak retrieval: the top
+      chunks returned by retrieve_context have low cosine similarity to the
+      question, meaning the corpus probably does not contain the answer. The second
+      is partial retrieval: the relevant chunks were indexed, but the specific
+      sentence that answers the question was not included in the top three. Both
+      cases produce the same result — the model reads the context, cannot find the
+      answer, and fires the fallback phrase. Because you defined that phrase
+      explicitly in the grounding prompt, you can also detect it programmatically:
+      if the response string contains "I don't know based on the provided
+      documents," your application can handle it differently than a full answer.
+      That is a useful hook for logging, user-facing messaging, or fallback logic.
+
+  - type: concept
+    label: "Two failure modes"
+    heading: "What Can Still Go Wrong After Grounding"
+    body: >
+      Grounding reduces hallucination significantly, but two failure modes remain.
+      Knowing them makes you a better RAG engineer.
+    bullets:
+      - "Failure mode A — context gap: the answer exists in your documents but was not retrieved (chunking or retrieval quality issue, not a grounding issue)"
+      - "Failure mode B — partial context: retrieved chunks contain related but incomplete information; the model synthesises carefully but may still misrepresent nuance"
+      - "Mode A fix: improve chunking overlap, increase top_k, or improve embedding model alignment"
+      - "Mode B fix: retrieve more chunks, use larger chunk size, or add a citation requirement to the prompt"
+      - "Grounding does not fix retrieval quality — it only constrains what the model does with whatever you retrieved"
+    narration: >
+      Grounding is a constraint on generation, not a repair for retrieval. It is
+      worth being precise about this, because conflating the two leads to
+      debugging in the wrong place. Failure mode A is a retrieval problem. The
+      answer was in your documents all along, but the relevant chunk was not in
+      the top three results — perhaps because the chunk boundary split the key
+      sentence, or because the embedding similarity between the question phrasing
+      and the document phrasing was too low. Grounding cannot fix this; the model
+      received no relevant context and correctly says "I don't know." The fix lives
+      in Lessons 2 and 4: better chunking overlap, a higher top_k, or a different
+      embedding model. Failure mode B is subtler. The retrieved chunks are
+      relevant but incomplete — they contain a related concept or a partial answer
+      but not the full picture. The model, constrained by grounding, must work
+      only with what it has. It might synthesise something that is technically
+      supported by the chunks but misses an important nuance that lived in a
+      paragraph you did not retrieve. The fix here is to bring more context in:
+      increase top_k, widen your chunk size, or restructure the prompt to ask the
+      model to synthesise only what it can directly support. Both failure modes are
+      normal and expected in any real RAG system. Day 14 addresses them directly
+      with better chunking strategies and basic evaluation techniques. What matters
+      right now is that you can tell the difference between a grounding problem and
+      a retrieval problem — they look similar from the outside but require entirely
+      different fixes.
+
+  - type: how_it_works
+    label: "Complete pipeline visualised"
+    heading: "The Full RAG Pipeline, Step by Step"
+    body: >
+      Every call to rag_answer traces the same path through four functions.
+      Visualising it end to end shows how the lessons of today fit together.
+    bullets:
+      - "User question enters rag_answer"
+      - "retrieve_context: embed question → ChromaDB ANN search → top-3 chunk texts returned"
+      - "build_rag_prompt: format chunks as Context block + Question — the augmented user message"
+      - "rag_answer: prepend GROUNDING_SYSTEM_PROMPT as system message + pass augmented user message"
+      - "ollama.chat: grounded generation — model reads only the context you provided"
+      - "Answer returned: traceable to your documents, honest about gaps"
+    narration: >
+      Let's walk the pipeline once in full so you can see every piece in its
+      place. A user types a question. That string enters rag_answer. The first
+      thing rag_answer does is call retrieve_context, which embeds the question
+      using nomic-embed-text and queries your ChromaDB collection. ChromaDB runs
+      its approximate nearest neighbour index and returns the three chunk texts
+      whose embeddings are closest in meaning to the question. Those three strings
+      come back as a list. Next, rag_answer passes that list and the original
+      question to build_rag_prompt. That function joins the chunks with a separator
+      and wraps them in the Context block template you built in Lesson 1 — the
+      result is a single formatted string that is the user message. Then rag_answer
+      constructs the messages list: the system message carries the grounding
+      instruction, and the user message carries the augmented prompt. That list
+      goes to ollama.chat. The model reads the system instruction first — use only
+      the context, say "I don't know" if the answer is absent — then reads the
+      context block and the question. It generates a response constrained to what
+      it just read. The response content comes back and rag_answer returns it. From
+      the caller's perspective, you passed in a question and a collection and got
+      back a grounded answer. The entire pipeline — embed, search, format, ground,
+      generate — ran in that one function call. That is good API design: all the
+      complexity is encapsulated, and the interface is as simple as possible.
+
+      Pipeline summary:
+        User question
+            |  [retrieve_context]    embed question -> ChromaDB -> top-3 chunks
+            |  [build_rag_prompt]    format: Context: {chunks} \n Question: {q}
+            |  [rag_answer]          system: "use only context" + user: augmented prompt
+            |  [ollama.chat]         grounded response
+        Answer (from your documents)
+
+  - type: exercise
+    heading: "Exercise 5: Answer with Grounding"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement
+      `rag_answer(question, collection, model='llama3.2') -> str` — the full RAG
+      pipeline in a single function. Call `retrieve_context` to get the top-3
+      chunks, call `build_rag_prompt` to format them as an augmented user message,
+      then call `ollama.chat` with `GROUNDING_SYSTEM_PROMPT` as the system message
+      and the augmented prompt as the user message. Return
+      `response["message"]["content"]`. Automated checks verify: (1) the function
+      exists and is callable, (2) the returned value is a non-empty string, (3) a
+      question whose answer is in the indexed corpus returns a grounded response
+      (not the fallback phrase), and (4) a question with no relevant context
+      returns the "I don't know based on the provided documents." fallback phrase.
+    hint: >
+      Chain the three functions you built today: `chunks = retrieve_context(question,
+      collection, top_k=3)`, then `user_msg = build_rag_prompt(question, chunks)`,
+      then build the messages list with `{"role": "system", "content":
+      GROUNDING_SYSTEM_PROMPT}` as the first entry and `{"role": "user", "content":
+      user_msg}` as the second. Pass that list to `ollama.chat(model=model,
+      messages=messages)` and return `response["message"]["content"]`.
+    narration: >
+      This exercise is the capstone for Day 13. You are not implementing anything
+      new in terms of algorithms — you are composing four things you already know
+      into one clean function. The retrieve_context call is Lesson 4. The
+      build_rag_prompt call is Lesson 1. The messages structure with a system role
+      first is Day 3 and Day 6. The ollama.chat call and response extraction is
+      Day 1. What you are practising here is integration: the discipline of wiring
+      independent, well-defined functions into a pipeline that is more capable than
+      any of its parts. The automated checks for this exercise test not just that
+      the function runs, but that the grounding actually works — check four
+      deliberately asks a question whose answer is not in the indexed corpus and
+      verifies that the system returns the fallback phrase rather than a fabricated
+      answer. That check is the whole point of grounding. Once all four checks
+      pass, you have a working, grounded RAG system running entirely on your
+      laptop. That is not a toy exercise. It is the same pattern that powers
+      enterprise document Q&A systems, customer support bots, and research
+      assistants — scaled up, but architecturally identical to what you just built.
+
+  - type: summary
+    heading: "Day 13 Takeaways"
+    bullets:
+      - "Grounding is a system-prompt discipline: explicitly forbid the model from going beyond the context"
+      - "The 'I don't know' path is a feature — a grounded honest silence is better than a confident hallucination"
+      - "Full RAG pipeline: retrieve_context → build_rag_prompt → GROUNDING_SYSTEM_PROMPT + ollama.chat"
+      - "Day 14 builds on this: source citations, better chunking strategies, and basic RAG evaluation"
+      - "Project: build a Q&A CLI that answers questions from a set of local documents — using everything from today"
+    narration: >
+      Let's lock in everything you built today. You now have a complete
+      Retrieval-Augmented Generation pipeline that runs end to end on your laptop.
+      Lesson 1 gave you build_rag_prompt — the function that assembles retrieved
+      chunks and a question into a structured, model-readable context block.
+      Lesson 2 gave you chunk_document — the function that splits raw text into
+      overlapping windows so retrieval has granular, focused targets. Lesson 3
+      gave you index_corpus — the function that embeds every chunk and stores it
+      in a persistent ChromaDB collection. Lesson 4 gave you retrieve_context —
+      the function that embeds a question and fetches the most semantically similar
+      chunks from the index. And this lesson gave you rag_answer — the function
+      that chains all four together and enforces grounding via a system prompt,
+      ensuring every answer is traceable to a document you own. The key insight
+      from today is that grounding and retrieval solve different problems. Good
+      retrieval gets the right chunks in front of the model. Good grounding keeps
+      the model from going beyond those chunks. You need both, and you now know
+      how to implement both from scratch. Day 14 pushes this further. You will add
+      source citations so users can verify the evidence behind every answer, explore
+      chunking strategies beyond the fixed-size window, and run basic evaluation to
+      measure how often your pipeline retrieves the right chunk. But today's
+      project is where the learning lands: build a command-line Q&A tool that
+      accepts a folder of text files, indexes them into ChromaDB, and answers
+      user questions from the terminal using rag_answer. Run it, ask it hard
+      questions, observe where grounding helps and where retrieval quality is the
+      limiting factor, then commit it. You have earned that commit.

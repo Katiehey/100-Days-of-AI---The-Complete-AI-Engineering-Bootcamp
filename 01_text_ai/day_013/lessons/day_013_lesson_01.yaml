@@ -1,0 +1,266 @@
+day: "013"
+lesson: "01"
+title: "The RAG Pattern"
+
+slides:
+
+  - type: title
+    heading: "Retrieval-Augmented Generation"
+    subheading: "Ground LLM answers in your own data"
+    narration: >
+      Welcome to Day 13. Over the last two days you built two powerful primitives:
+      semantic search using embeddings and cosine similarity on Day 11, and a
+      persistent vector database using ChromaDB on Day 12. Today you wire those
+      primitives together into one of the most important patterns in applied AI
+      engineering — Retrieval-Augmented Generation, or RAG. By the end of today
+      you will understand why RAG exists, how its three-step pipeline works, and
+      how to construct the augmented prompt that makes a language model reason
+      over your own documents instead of just its training data. Let's get into it.
+
+  - type: concept
+    label: "The knowledge gap problem"
+    heading: "LLMs Don't Know What You Know"
+    body: >
+      A language model's knowledge is frozen at its training cutoff. It cannot
+      access your private documents, your internal knowledge base, or anything
+      that happened after training ended.
+    bullets:
+      - "Training cutoff: the model has no knowledge of events or documents after a fixed date"
+      - "Private data: internal docs, wikis, PDFs, databases — none of it exists in the model's weights"
+      - "Hallucination: when asked about unknown facts the model confidently invents plausible-sounding answers"
+      - "RAG bridges the gap: give the model the relevant text at query time so it can reason over it"
+    narration: >
+      Here is the core problem that RAG solves. When you call an LLM with a
+      question, it can only draw on what it learned during training. That training
+      happened months or years ago, and the model has no idea what has changed
+      since. More critically for most real applications, it has never seen your
+      data at all — your company's internal documentation, your product knowledge
+      base, your research notes. If you ask the model a question that depends on
+      that private data, it faces a choice: admit ignorance, or invent something
+      plausible. Most of the time it invents, and this is what we call
+      hallucination. The output sounds confident and coherent, but it is not
+      grounded in reality. RAG is the practical solution. Instead of expecting the
+      model to remember your data from training, you retrieve the relevant pieces
+      at query time and hand them directly to the model in the prompt. The model
+      does not need to "know" anything — it just needs to read and reason, which
+      it is excellent at. You are turning the LLM from a knowledge store into a
+      reasoning engine, and that is a much better use of its capabilities.
+
+  - type: concept
+    label: "The RAG pipeline overview"
+    heading: "Three Steps: Retrieve → Augment → Generate"
+    body: >
+      Every RAG system — from a quick prototype to a production service — follows
+      the same three-step pipeline.
+    bullets:
+      - "Retrieve: embed the user's question, search the vector database, get the top-k most relevant chunks"
+      - "Augment: inject those chunks into the prompt as context, alongside the question"
+      - "Generate: call the LLM with the augmented prompt; it answers using the provided context"
+    narration: >
+      The RAG pipeline has three distinct steps, and it is worth understanding
+      each one cleanly before you write any code. Step one is retrieval. You take
+      the user's question, embed it using the same embedding model that was used
+      to index your documents, and run a similarity search against your vector
+      database. The result is the top-k chunks of text that are semantically
+      closest to the question — these are the pieces of your corpus that are most
+      likely to contain the answer. Step two is augmentation. You take those
+      retrieved chunks and insert them into the prompt as context. The prompt now
+      contains both the user's question and the relevant background material. Step
+      three is generation. You call the LLM with this augmented prompt. The model
+      reads the context you provided and uses it to construct its answer. Because
+      the answer is grounded in real text you supplied, hallucination is
+      dramatically reduced. Each of these three steps maps to code you have
+      already written or will write today. Retrieval is Day 11 and 12. Augmentation
+      is this lesson. Generation is the same ollama.chat call you have been
+      making since Day 1.
+
+  - type: how_it_works
+    label: "Step 1 — Retrieve"
+    heading: "Retrieve: Semantic Search Finds the Right Chunks"
+    body: >
+      The retrieval step converts the user's question into an embedding vector,
+      then queries the vector database for the chunks whose embeddings are closest
+      in meaning.
+    bullets:
+      - "Embed the question: `ollama.embeddings(model='nomic-embed-text', prompt=question)`"
+      - "Query ChromaDB: `collection.query(query_embeddings=[q_vec], n_results=top_k)`"
+      - "Result: a list of text chunks semantically relevant to the question"
+      - "Quality of retrieval directly determines quality of the final answer"
+    narration: >
+      Retrieval is the step that makes RAG possible, and you already know how to
+      do it from Days 11 and 12. You embed the user's question using the same
+      model — nomic-embed-text — that was used to embed your documents when they
+      were indexed. This is critical: the question and the documents must live in
+      the same embedding space, otherwise the similarity scores are meaningless.
+      Then you call collection.query on your ChromaDB collection with that
+      embedding vector and ask for the top-k most similar chunks. ChromaDB runs
+      its ANN index, finds the nearest neighbours, and returns the text of those
+      chunks. How many chunks you retrieve — the value of k — is a tuning
+      decision. Too few and you might miss the answer. Too many and you flood the
+      prompt with irrelevant text that confuses the model. A starting value of
+      three to five chunks is typical for most applications. One important insight
+      here: the quality of your final answer is bounded by the quality of your
+      retrieval. If the right chunk is not in what you retrieve, the model cannot
+      generate a correct answer no matter how capable it is. Good retrieval is
+      the foundation everything else rests on.
+
+  - type: how_it_works
+    label: "Step 2 — Augment"
+    heading: "Augment: Inject Context Into the Prompt"
+    body: >
+      The augmentation step assembles the retrieved chunks and the user's question
+      into a single structured prompt string that tells the model exactly what to
+      read and what to answer.
+    bullets:
+      - "Join the retrieved chunks with a clear separator (e.g. `\\n\\n---\\n\\n`)"
+      - "Wrap with a Context: / Question: / Answer: template"
+      - "Add a grounding system prompt: 'Answer ONLY using the provided context'"
+      - "The LLM receives real evidence — no need to recall facts from training weights"
+    narration: >
+      Augmentation is where you do the prompt engineering that makes RAG work.
+      You have a list of text chunks from the retrieval step. Your job now is to
+      format them into a prompt that tells the model: here is the background
+      information, here is the question, now answer using only what I have given
+      you. The structure matters. You join the chunks with a separator — a
+      horizontal rule like `---` works well — so the model can distinguish where
+      one chunk ends and the next begins. You label the block "Context:" and the
+      question "Question:" so the model understands the layout immediately. And
+      you include a system prompt that explicitly constrains the model: answer
+      only using the provided context; if the answer is not there, say so. This
+      last instruction is what prevents hallucination. Without it, the model might
+      supplement your context with its own training knowledge, which defeats the
+      purpose. With it, you get answers that are grounded, auditable, and honest
+      about their limitations. The augmented prompt is just a Python string — but
+      it is a carefully engineered one, and its structure is what transforms the
+      model from a general knowledge engine into a precise document Q&A system.
+
+  - type: code
+    label: "The augmented prompt structure"
+    heading: "Building the RAG Prompt in Python"
+    code: |
+      # The system prompt that grounds the model in your context
+      GROUNDING_SYSTEM_PROMPT = (
+          "You are a helpful assistant. Answer ONLY using the provided context. "
+          "If the answer is not in the context, say: "
+          "'I don't know based on the provided documents.'"
+      )
+
+
+      def build_rag_prompt(question: str, chunks: list[str]) -> str:
+          """Join retrieved chunks into a context block, then format the prompt."""
+          context = "\n\n---\n\n".join(chunks)
+          return f"""Use the following context to answer the question.
+
+      Context:
+      {context}
+
+      Question: {question}
+      Answer:"""
+
+
+      # --- Example usage ---
+
+      retrieved_chunks = [
+          "RAG stands for Retrieval-Augmented Generation.",
+          "The three steps of RAG are: retrieve, augment, and generate.",
+      ]
+
+      prompt = build_rag_prompt(
+          question="What are the steps in a RAG pipeline?",
+          chunks=retrieved_chunks,
+      )
+
+      print(prompt)
+      # Use the following context to answer the question.
+      #
+      # Context:
+      # RAG stands for Retrieval-Augmented Generation.
+      #
+      # ---
+      #
+      # The three steps of RAG are: retrieve, augment, and generate.
+      #
+      # Question: What are the steps in a RAG pipeline?
+      # Answer:
+    narration: >
+      Here is the core function you will implement in today's exercise, shown in
+      full so you can see exactly what it does. The GROUNDING_SYSTEM_PROMPT
+      constant is a system-level instruction you will pass as the system message
+      when you call ollama.chat. It does two things: it tells the model to treat
+      the provided context as its sole source of truth, and it gives the model an
+      honest escape route — "I don't know based on the provided documents" — for
+      questions the context cannot answer. That escape route is important; you
+      want the system to fail gracefully, not confidently fabricate. The
+      build_rag_prompt function itself is straightforward. It takes the user's
+      question and a list of text chunks. It joins the chunks with a triple-dash
+      separator, which visually and semantically distinguishes one chunk from the
+      next. Then it wraps everything in a f-string template with a clear
+      Context/Question/Answer structure. Notice there is no logic here — no
+      scoring, no filtering, no ranking. By the time this function is called, the
+      retrieval step has already selected the right chunks. This function's only
+      job is assembly: take the pieces and format them into a prompt the model can
+      read. The example at the bottom shows exactly what the output looks like.
+      What you are producing is a readable, structured document that any language
+      model can parse without further instructions.
+
+  - type: exercise
+    heading: "Exercise 1: Build a RAG Prompt"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement
+      `build_rag_prompt(question, chunks)` → str. The function should join the
+      chunks with a clear separator, then format them as a context block before
+      the question, using the Context: / Question: / Answer: template shown in
+      the lesson. Automated checks verify: (1) the function exists and is
+      callable, (2) the output contains the question text, (3) all chunks appear
+      in the output, (4) the chunks are separated by the `---` separator, and
+      (5) the output ends with `Answer:` so the model knows where to begin
+      generating.
+    hint: >
+      Use `'\n\n---\n\n'.join(chunks)` to separate the chunks into a single
+      context block, then wrap it with a Context: / Question: / Answer: template
+      inside an f-string. Make sure the final line of the returned string is
+      exactly `Answer:` with no trailing text.
+    narration: >
+      Your task is to implement build_rag_prompt from scratch. It is a short
+      function — under ten lines — but getting the details right matters. The
+      separator between chunks should be `\n\n---\n\n`: two newlines before and
+      after the dashes so each chunk reads as its own paragraph, and the dashes
+      provide a clear visual break. The template labels — Context:, Question:,
+      Answer: — must appear in that order, and the string must end with `Answer:`
+      because that colon is the cue that tells the model to start generating its
+      response. Everything after `Answer:` is what the model will write; you want
+      the model to start immediately, without any filler text. The automated
+      checks test each of these requirements individually, so if a check fails the
+      message will tell you exactly which part is missing. Once all five checks
+      pass, read the printed output carefully. Notice how readable it is — the
+      context is clearly labelled, the chunks are clearly separated, the question
+      is clearly posed. That readability is not accidental. A well-formatted prompt
+      is easier for the model to parse, and easier parsing means fewer errors in
+      the response. Prompt structure is part of the engineering.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "RAG solves the knowledge gap: LLMs don't know your private data, but they can reason over it if you provide it"
+      - "Three steps: retrieve relevant chunks, augment the prompt with them, generate a grounded answer"
+      - "The augmented prompt is just a formatted string — the 'magic' is careful prompt assembly"
+      - "Next: how to chunk your documents so retrieval actually finds the right pieces"
+    narration: >
+      Let's lock in what you learned in this lesson. The knowledge gap problem is
+      real: language models have a training cutoff, they have never seen your
+      private documents, and when asked about things they do not know they tend to
+      hallucinate rather than admit ignorance. RAG solves this by making the model
+      a reasoning engine rather than a knowledge store. You retrieve the relevant
+      text, you hand it to the model in the prompt, and the model reads and
+      reasons over what you gave it. The three steps are clean and composable:
+      retrieve uses your Day 11 and 12 semantic search skills; augment is a
+      Python function that formats a string; generate is the ollama.chat call you
+      have been making since Day 1. The whole pipeline is less mysterious than it
+      sounds — it is careful prompt engineering that happens to involve a vector
+      database. In Lesson 2 you will go deeper on the retrieval step by examining
+      chunking strategies — how you split your source documents into chunks before
+      indexing them. Chunking turns out to be one of the most consequential
+      decisions in a RAG system: chunks that are too large dilute the signal,
+      chunks that are too small lose context, and chunks that split at the wrong
+      boundary can make a retrieval system fail even when the answer is right
+      there in the corpus.

@@ -1,0 +1,236 @@
+day: "013"
+lesson: "03"
+title: "Indexing a Document Corpus"
+
+slides:
+
+  - type: title
+    heading: "Indexing a Document Corpus"
+    subheading: "Turn raw text into a searchable knowledge base"
+    narration: >
+      Welcome to Lesson 3. In Lesson 2 you built chunk_document — a function that
+      splits a single piece of text into overlapping windows. That was one small piece
+      of a larger pipeline. In this lesson you will zoom out and assemble the full
+      ingestion pipeline: take a list of raw documents, chunk each one, embed every
+      chunk, and store everything in ChromaDB with the metadata needed to trace any
+      result back to its source. By the end of this lesson you will have a single
+      function called index_corpus that accepts a list of document dicts and returns
+      the total number of chunks stored. That function is the foundation of every
+      RAG system you will build from here forward.
+
+  - type: concept
+    label: "The ingestion pipeline"
+    heading: "Chunk → Embed → Store: The One-Time Cost"
+    body: >
+      Building a searchable knowledge base has two distinct phases. The ingestion
+      pipeline runs once — or whenever your documents change — and produces the index.
+      The query pipeline runs on every user request and searches that index. This
+      lesson is entirely about the first phase.
+    bullets:
+      - "Chunk — split each document into overlapping windows of fixed token size"
+      - "Embed — convert each chunk into a numeric vector with a text embedding model"
+      - "Store — write the vector, the raw text, and source metadata to ChromaDB"
+      - "This cost is paid once up front; retrieval at query time is fast because the index already exists"
+    narration: >
+      Think of indexing the same way you think about building a book's index. You do
+      the hard work once, when the book is printed. Every reader who looks something up
+      afterwards gets an instant answer because you already did the scanning. The
+      ingestion pipeline is exactly that: a one-time scan of your document corpus.
+      Chunking breaks long documents into pieces that fit inside an embedding model's
+      context window. Embedding converts each piece into a point in high-dimensional
+      space. Storing writes that point — along with the original text and metadata
+      — into ChromaDB so you can retrieve it later. The query pipeline, which you will
+      build in Lesson 4, does none of this up-front work. It embeds a single question
+      and then asks ChromaDB to find the nearest points. Keeping these two phases
+      separate is one of the most important architectural decisions in a RAG system.
+
+  - type: how_it_works
+    label: "Document format"
+    heading: "What a Document Looks Like"
+    body: >
+      The index_corpus function accepts a list of dicts. Each dict has exactly two
+      keys: text holds the raw string content, and source holds a filename or URL that
+      identifies where the text came from. Every chunk produced from that document
+      inherits the source value in its metadata.
+    bullets:
+      - "text: str — the full raw text of the document"
+      - "source: str — a unique identifier such as a filename or URL"
+      - "Each chunk produced from a doc is tagged with {source, chunk_index} in ChromaDB metadata"
+      - "This lets you filter results by source and trace any retrieved chunk back to its origin"
+    narration: >
+      The document format is deliberately minimal. You only need two fields: the text
+      to index and a label that says where that text came from. The source field is
+      what makes retrieval results trustworthy. When you pull a chunk back out of
+      ChromaDB during a query, the metadata tells you exactly which file or URL it
+      came from and which chunk position within that file. Without that metadata, a
+      retrieved chunk is just a fragment of text with no provenance. With it, you can
+      tell the user "this answer came from section 3 of ml_basics.txt" — or you can
+      filter your query to only search within a specific document. The chunk_index
+      field in the metadata is also useful for reconstructing context: if you retrieve
+      chunk 7 and want to read what came before it, you know to look for chunk 6 from
+      the same source.
+
+  - type: code
+    label: "The function"
+    heading: "index_corpus: Chunk, Embed, and Store"
+    code: |
+      import ollama
+      import chromadb
+      from lesson_02 import chunk_document  # from today's Lesson 2
+
+
+      def index_corpus(
+          docs: list[dict],
+          collection,
+          chunk_size: int = 400,
+          overlap: int = 50,
+      ) -> int:
+          """Chunk, embed, and store documents. Returns total chunk count."""
+          total = 0
+          for doc in docs:
+              chunks = chunk_document(doc["text"], chunk_size, overlap)
+              for i, chunk in enumerate(chunks):
+                  chunk_id = f"{doc['source']}_{i:04d}"
+                  emb = ollama.embeddings(model="nomic-embed-text", prompt=chunk)
+                  collection.add(
+                      ids=[chunk_id],
+                      embeddings=[emb["embedding"]],
+                      documents=[chunk],
+                      metadatas=[{"source": doc["source"], "chunk_index": i}],
+                  )
+                  total += 1
+          return total
+
+
+      # Usage:
+      client = chromadb.Client()
+      coll = client.get_or_create_collection("my_docs")
+      docs = [
+          {"text": "Python is a language...", "source": "python_intro.txt"},
+          {"text": "Machine learning is...", "source": "ml_basics.txt"},
+      ]
+      count = index_corpus(docs, coll)
+      print(f"Indexed {count} chunks into {coll.name}")
+    narration: >
+      Walk through the function top to bottom. The signature takes the list of
+      document dicts, the ChromaDB collection object, and the chunk_size and overlap
+      settings — both with sensible defaults so callers do not need to think about
+      them unless they want to tune. The outer loop iterates over documents. For each
+      document it calls chunk_document — the function you built in Lesson 2 — to
+      produce the list of text windows. The inner loop then iterates over those chunks.
+      For each chunk it does three things: it builds a unique ID string, it calls
+      ollama.embeddings to get the vector, and it calls collection.add to write the
+      chunk into ChromaDB. Notice that collection.add takes lists even when you are
+      adding one chunk at a time — that is just the ChromaDB API convention. The
+      function counts every chunk it stores and returns the total, so the caller gets
+      a concrete confirmation: how many chunks are now in the index. The usage block
+      at the bottom shows the complete workflow: create a client, get or create a
+      collection, define the docs list, call index_corpus, and print the result.
+
+  - type: concept
+    label: "ID generation"
+    heading: "Unique IDs: Why They Matter and How to Build Them"
+    body: >
+      ChromaDB requires every stored item to have a unique string ID. If you add two
+      items with the same ID, the second one overwrites the first — silently. A
+      reliable ID scheme prevents collisions and makes individual chunks addressable
+      and deletable.
+    bullets:
+      - "Pattern: f\"{source}_{chunk_index:04d}\" — e.g. ml_basics.txt_0003"
+      - "The :04d format pads the index to four digits, keeping IDs lexicographically sortable"
+      - "IDs are deterministic: the same input always produces the same ID, which enables safe re-indexing"
+      - "If source strings can collide, add a hash prefix — but for most use cases the filename is enough"
+    narration: >
+      The ID might look like a minor detail, but it has real consequences. ChromaDB is
+      an upsert store: if you call add with an ID that already exists, the existing
+      entry is overwritten. That means a consistent ID scheme makes re-indexing safe
+      — you can run index_corpus again on the same documents and the old entries are
+      cleanly replaced rather than duplicated. The f-string pattern combines the
+      source name and the chunk index with an underscore separator. The colon-zero-four-d
+      format specifier pads the integer to four digits with leading zeros. That padding
+      does two things: it keeps IDs the same length for easy visual scanning, and it
+      makes them sort correctly in lexicographic order — chunk 0003 comes before 0010
+      even in a plain string sort. For most projects the filename is a good enough
+      source identifier. If you are indexing URLs or have sources with special
+      characters, consider hashing the source string first to keep IDs filesystem-safe
+      and bounded in length.
+
+  - type: how_it_works
+    label: "Collection setup"
+    heading: "get_or_create_collection: Idempotent and Disk-Backed"
+    body: >
+      ChromaDB's get_or_create_collection is idempotent: calling it with the same name
+      twice returns the existing collection without error. This makes it safe to call
+      at every startup. For persistence across restarts, swap Client() for
+      PersistentClient(path="./chroma_db").
+    bullets:
+      - "client.get_or_create_collection(name) — returns existing collection or creates a new one"
+      - "chromadb.Client() — in-memory only; data is lost when the process exits"
+      - "chromadb.PersistentClient(path='./chroma_db') — writes to disk; survives restarts"
+      - "collection.count() — quick check that returns the number of stored items"
+    narration: >
+      In Day 12 you first encountered get_or_create_collection. It is worth
+      revisiting in the context of an ingestion pipeline because idempotency matters
+      here more than anywhere else. An ingestion pipeline might run as a script, as a
+      scheduled job, or at application startup. In every case you do not want it to
+      fail or create duplicates just because the collection already exists from a
+      previous run. get_or_create_collection gives you that guarantee: whether the
+      collection is brand new or has been accumulating data for weeks, you get back a
+      valid handle and no exception is raised. The choice between Client and
+      PersistentClient is a deployment decision, not an API decision. During
+      development and in exercises, the in-memory Client is convenient — no files to
+      clean up, no state carried between notebook restarts. In any real application you
+      will want PersistentClient so the index you spent time building is not discarded
+      every time the server restarts. Switching requires only a one-line change in the
+      code that creates the client.
+
+  - type: exercise
+    heading: "Exercise 3: Index a Corpus"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement index_corpus(docs, collection,
+      chunk_size, overlap) -> int. For each document dict in docs, chunk its text
+      field using chunk_document(), embed each chunk with
+      ollama.embeddings(model='nomic-embed-text', prompt=chunk)['embedding'], and
+      store it in collection using collection.add() with a unique ID, the embedding,
+      the raw chunk text, and metadata containing source and chunk_index. Return the
+      total number of chunks stored.
+    hint: >
+      Use chunk_document() from Lesson 2 for the chunking step. Build each chunk ID
+      as f"{doc['source']}_{i:04d}" where i is the chunk's position in the list.
+      Pass the embedding as ollama.embeddings(model='nomic-embed-text',
+      prompt=chunk)['embedding']. Remember that collection.add() takes lists even for
+      a single item: ids=[chunk_id], embeddings=[emb], documents=[chunk],
+      metadatas=[{...}]. Verify your work with collection.count() after indexing.
+    narration: >
+      Your turn. The exercise notebook provides the imports, a sample corpus of three
+      short documents, and the function signature. Your job is to wire together the
+      three steps: chunking, embedding, and storing. If you get stuck, trace through
+      the code slide from earlier in this lesson one step at a time. The most common
+      mistake is forgetting to wrap single values in lists when calling collection.add
+      — ChromaDB always expects list arguments, even for one item. A second common
+      mistake is indexing the embedding dict incorrectly: ollama.embeddings returns a
+      dict, and the vector is under the key "embedding". Once your implementation
+      passes, call collection.count() and confirm the number matches what you expect
+      given the chunk_size and overlap settings. When the checks are green, move on
+      to the summary.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "The ingestion pipeline is a one-time cost: chunk → embed → store, done before any queries"
+      - "Each chunk gets a unique ID, its embedding, the raw text, and source metadata"
+      - "get_or_create_collection is idempotent — safe to call every startup; use PersistentClient for disk-backed storage"
+      - "Next: query time — embedding the question and finding the closest chunks"
+    narration: >
+      Three things to lock in. First: the ingestion pipeline runs once and produces
+      a durable index. Everything you paid in CPU time and API calls to embed your
+      corpus pays off every time a query arrives — retrieval is fast because the work
+      was done up front. Second: every detail of the stored item matters. The ID makes
+      items addressable and enables safe re-indexing. The embedding is what makes
+      semantic search possible. The raw text is what you will hand to the language
+      model in Lesson 5. The metadata is what makes results traceable and filterable.
+      Skip any one of those four and the system degrades. Third: get_or_create_collection
+      and PersistentClient together make your index resilient to restarts. In Lesson 4
+      you will see the other side of this pipeline: embedding a query, calling
+      collection.query, and getting back the most relevant chunks. The index you built
+      today is what makes that query fast and accurate.

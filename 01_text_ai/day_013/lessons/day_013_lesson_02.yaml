@@ -1,0 +1,269 @@
+day: "013"
+lesson: "02"
+title: "Chunking for Retrieval"
+
+slides:
+
+  - type: title
+    heading: "Chunking for Retrieval"
+    subheading: "The unit of search is the unit of meaning"
+    narration: >
+      You have seen chunking before — back on Day 7 you split long documents into
+      overlapping slices so each piece would fit inside the model's context window.
+      That was chunking for summarisation. Today you are doing something subtly but
+      importantly different: chunking for retrieval. In a RAG pipeline the model
+      does not process every chunk — it processes only the few chunks that are
+      returned by the search step. That changes everything about how you think about
+      chunk design. This lesson covers why chunk size is a trade-off, how overlap
+      protects you at boundaries, how retrieval chunking differs from summarisation
+      chunking, and how to tag each chunk with metadata so you can cite sources
+      later. By the end you will have implemented chunk_document — the function
+      that feeds every lesson from here through Day 14.
+
+  - type: concept
+    label: "Why chunk size matters"
+    heading: "Too Large or Too Small — Both Break Retrieval"
+    body: >
+      Chunk size is not a free parameter. Going too large and too small each cause
+      a different failure mode in retrieval.
+    bullets:
+      - "Too large: each chunk covers many topics — the embedding averages over all of them, so the similarity score is diluted and the wrong chunk gets returned"
+      - "Too small: the chunk captures only a fragment — even if it is retrieved, it does not contain enough context for the model to produce a useful answer"
+      - "The goal is chunks that are large enough to be self-contained but small enough to be topically focused"
+      - "Rule of thumb: 300–800 characters (~75–200 tokens) covers a coherent idea without averaging over too many topics"
+    narration: >
+      Think about what happens at the extremes. If your chunks are very large —
+      say, entire pages of a document — the embedding vector has to represent
+      hundreds of distinct ideas at once. The resulting vector sits somewhere in
+      the middle of all those ideas, and when a query comes in, the cosine
+      similarity between the query vector and that averaged-out chunk vector is
+      low for everything, even the one sentence that actually answers the question.
+      Retrieval misses. On the other end, if your chunks are tiny — a single
+      sentence — you get very precise matching but the retrieved chunk gives the
+      model nothing to work with. Imagine retrieving the sentence "The answer is
+      forty-two." That is a perfect semantic match for a lot of queries, but with
+      no surrounding context the model cannot produce a useful response. The sweet
+      spot — the 300 to 800 character range — is where a chunk covers a single coherent
+      idea, a paragraph or two. It is focused enough that the embedding is
+      informative, and complete enough that a model handed just that chunk can
+      say something meaningful. You will tune this number for specific document
+      types as you gain experience, but this range is the right starting point.
+
+  - type: concept
+    label: "Overlap recap"
+    heading: "Overlap Prevents Key Sentences From Being Cut in Half"
+    body: >
+      Sliding the window by less than chunk_size means consecutive chunks share a
+      region of text — the overlap. Any sentence that falls at a chunk boundary
+      will appear in full in at least one of the two chunks.
+    bullets:
+      - "step = chunk_size - overlap — the cursor advances by step, not by chunk_size"
+      - "Typical overlap: 10–20% of chunk_size (e.g. 50 chars for a 400-char chunk)"
+      - "Without overlap: a key sentence split across two chunks may be fully present in neither"
+      - "With overlap: the same sentence appears near the tail of one chunk and near the head of the next"
+    narration: >
+      You built this mechanic in Day 7, so this is a quick recap with a retrieval
+      lens. When the cursor advances by the full chunk_size, two consecutive chunks
+      share no characters. If a critical sentence happens to straddle the boundary
+      — starting in chunk three and finishing in chunk four — neither chunk contains
+      the complete sentence. The embedding for chunk three does not represent that
+      sentence fully, and neither does chunk four's. Overlap fixes this by
+      re-including a tail of the previous chunk at the start of the next one. The
+      step is chunk_size minus overlap. For a chunk size of 400 characters and an
+      overlap of 50, the step is 350. Chunk one covers characters zero to 399;
+      chunk two covers 350 to 749, sharing the fifty characters from 350 to 399
+      with chunk one. Any sentence that started in that overlap region is now
+      fully present in chunk two. You pay a small cost in extra chunks and
+      slightly redundant text; you gain the guarantee that no sentence is
+      silently fragmented.
+
+  - type: how_it_works
+    label: "RAG vs summarisation"
+    heading: "RAG Chunks Must Stand Alone — Summarisation Chunks Do Not"
+    body: >
+      The chunking algorithm is identical. The requirement on each chunk is
+      fundamentally different.
+    bullets:
+      - "Summarisation: every chunk is processed in sequence — earlier chunks set context for later ones"
+      - "RAG retrieval: only the top-k matching chunks are returned — a chunk may be the ONLY piece the model sees"
+      - "RAG consequence: each chunk must make sense on its own, without assuming the reader has seen any other chunk"
+      - "Practical implication: prefer slightly larger chunks for RAG so each one contains a complete thought"
+    narration: >
+      Here is the key distinction between the two uses of chunking. In a
+      summarisation pipeline you process every chunk, one after another. The model
+      builds understanding across the sequence — chunk three can refer back to
+      something established in chunk one, at least indirectly through the map
+      results you feed into the reduce step. In retrieval-augmented generation the
+      search step selects the top-k most relevant chunks and passes only those to
+      the model. If k is three, and your document has forty chunks, the model
+      never sees thirty-seven of them. The three it does see must each be
+      independently understandable. A chunk that starts with "As mentioned above,
+      the previous study found..." is perfectly fine in a summarisation pipeline
+      but nearly useless in RAG — "above" and "previous study" refer to text the
+      model does not have. When you design RAG chunks, aim for units that contain
+      a complete thought: a full paragraph, a complete definition, a question and
+      its answer. This often means accepting slightly larger chunks than you might
+      use for summarisation. The retrieval precision cost is worth the answer
+      quality gain.
+
+  - type: how_it_works
+    label: "Practical sizes and signature"
+    heading: "300–800 Characters, 10–20% Overlap — And the Function You Will Implement"
+    body: >
+      For most prose documents, 300–800 characters with a 10–20% overlap is a
+      reliable starting point. The chunk_document function encodes these defaults.
+    code: |
+      def chunk_document(
+          text: str,
+          chunk_size: int = 400,
+          overlap: int = 50,
+      ) -> list[str]:
+          """
+          Split text into overlapping chunks for retrieval indexing.
+
+          Args:
+              text:       The source document as a plain string.
+              chunk_size: Maximum number of characters per chunk. Default 400
+                          (~100 tokens), covering roughly one dense paragraph.
+              overlap:    Characters shared between consecutive chunks. Default 50
+                          (~12.5% overlap) to prevent boundary fragmentation.
+                          Must be strictly less than chunk_size.
+
+          Returns:
+              A list of non-empty strings ready to be embedded and indexed.
+              The last chunk may be shorter than chunk_size.
+          """
+          ...
+    narration: >
+      Before you write the implementation in the exercise, it is worth spending a
+      moment on the defaults. chunk_size of 400 characters is roughly 100 tokens
+      at the standard four-characters-per-token estimate — that covers one dense
+      paragraph, which is usually a single coherent idea. overlap of 50 characters
+      is twelve and a half percent of chunk_size, which is squarely in the ten to
+      twenty percent range that works well in practice. Both values are keyword
+      arguments with defaults so callers can override them when the document type
+      calls for it: code files benefit from larger chunks, short FAQ answers from
+      smaller ones, legal clauses from near-zero overlap because boundaries often
+      align with numbered sections. The docstring spells out the units — characters,
+      not tokens — which avoids any ambiguity at the call site. Return type is
+      list[str], same as Day 7's chunk_text. The ellipsis is where your
+      implementation goes in the exercise.
+
+  - type: code
+    label: "Implementation"
+    heading: "Implementing chunk_document With a Sliding Window"
+    code: |
+      def chunk_document(text: str, chunk_size: int = 400, overlap: int = 50) -> list[str]:
+          """Split text into overlapping chunks for retrieval."""
+          chunks = []
+          step = chunk_size - overlap
+          if step <= 0:
+              raise ValueError("overlap must be less than chunk_size")
+          start = 0
+          while start < len(text):
+              end = start + chunk_size
+              chunks.append(text[start:end])
+              start += step
+          return chunks
+
+      # Example: a 1020-char document → 3 chunks of 400 chars with 50-char overlap
+      doc = "Python is a programming language. " * 30
+      chunks = chunk_document(doc, chunk_size=400, overlap=50)
+      print(f"{len(chunks)} chunks, first: '{chunks[0][:60]}...'")
+    narration: >
+      Let us walk through the implementation line by line. First, compute the step
+      — chunk_size minus overlap. If that result is zero or negative it means the
+      overlap equals or exceeds the chunk_size, which would make the cursor
+      stationary and create an infinite loop. The ValueError guard catches that
+      before anything else runs. Then initialise an empty list and a start cursor
+      at zero. The while loop condition is start less than the length of the text
+      — when the cursor reaches the end, stop. Inside the loop, end is start plus
+      chunk_size. You slice text from start to end: Python's slicing clips
+      automatically at the string boundary, so the last chunk is whatever remains
+      without any special-case code. Append the slice, advance start by step, and
+      repeat. At the bottom, the quick test multiplies a short string thirty times to
+      create a document of 1020 characters, then chunks it with size 400
+      and overlap 50, giving a step of 350. You should get three chunks: characters
+      0–399, 350–749, and 700–1049. That last end index overshoots by 29 characters,
+      but the slice handles it. Run this and verify the chunk count before moving on.
+
+  - type: concept
+    label: "Chunk metadata"
+    heading: "Tag Every Chunk With Source and Index"
+    body: >
+      When you add chunks to a vector index, attach a metadata dict to each one.
+      At minimum, record the source document and the chunk's position within it.
+    bullets:
+      - "`source` — the filename, URL, or document ID the chunk came from"
+      - "`chunk_index` — the zero-based position of this chunk in the original document"
+      - "Why it matters: retrieval returns chunks, not documents — without source tags you cannot tell the user where the answer came from"
+      - "On Day 14 these metadata fields become the citation in the final answer"
+    narration: >
+      Chunking produces a list of plain strings, and that is enough to get
+      embeddings and store them. But retrieval is only useful if you can tell
+      the user where the answer came from. Imagine your RAG system returns three
+      chunks that together answer a question — if those chunks carry no metadata
+      you know what the answer says but not which document to cite or which part
+      of it to point to. The fix is simple: when you build the list of items to
+      index, wrap each chunk in a small dict that includes the chunk text plus a
+      metadata payload. The two fields you always want are source — the document
+      identifier, whether that is a filename, a URL, or a database ID — and
+      chunk_index, the zero-based position of this chunk in the original document.
+      chunk_index lets you reconstruct the order of chunks if you ever need to
+      display surrounding context, and it lets you sort citations in document
+      order. You will use both fields in Lesson 4 when you write the retrieval
+      function, and again on Day 14 when the final answer includes a citations
+      list. Adding them now costs nothing and saves significant refactoring later.
+
+  - type: exercise
+    heading: "Exercise 2: Chunk a Document"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement chunk_document(text, chunk_size, overlap)
+      returning a list[str]. Use a sliding window that advances by (chunk_size - overlap)
+      each step. The automated checks verify: the function is callable; a document shorter
+      than chunk_size produces exactly one chunk; consecutive chunks share the correct
+      overlap region; overlap >= chunk_size raises ValueError; and a 1000-character
+      document with chunk_size=400 and overlap=50 produces the expected number of chunks.
+    hint: >
+      step = chunk_size - overlap. Guard against step <= 0 with a ValueError before the
+      loop. Start at 0, slice text[start:start+chunk_size], append the slice, then
+      advance start by step each iteration. Python's slice clips at the string boundary
+      automatically, so no special case is needed for the last chunk.
+    narration: >
+      Your turn. The notebook is in the exercises folder and the function signature
+      with its docstring is already there — you fill in the body. Start with the
+      guard clause: if step is zero or negative, raise ValueError immediately. Then
+      write the sliding window loop. The five automated checks cover the key
+      correctness properties. The single-chunk check verifies that a short document
+      does not get split unnecessarily. The overlap check is the most important one:
+      it takes two consecutive chunks and confirms that the tail of the first matches
+      the head of the second character for character — not just in length, but in
+      content. The chunk-count check uses a 1000-character document with chunk_size
+      400 and overlap 50, so the step is 350. Work out how many chunks that produces
+      by hand before you run the check — that is a useful habit for validating your
+      own reasoning. All five checks should pass before you move to Lesson 3.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Chunk size is a trade-off: bigger = more context per chunk, harder to find exactly; smaller = precise retrieval, less context per hit"
+      - "Overlap prevents key sentences from being cut off at a boundary"
+      - "RAG chunks differ from summarisation chunks: each must stand alone, since it may be the only one returned"
+      - "Tag each chunk with metadata (source, index) — you'll need it for citations on Day 14"
+      - "Next: indexing these chunks into ChromaDB so retrieval is fast and persistent"
+    narration: >
+      Let us lock in the four ideas from this lesson. First, chunk size is a
+      genuine trade-off with failure modes at both ends — too large dilutes the
+      embedding, too small loses context. The 300 to 800 character range is where
+      most prose documents hit the sweet spot. Second, overlap is the fix for
+      boundary fragmentation. A step of chunk_size minus overlap means consecutive
+      chunks share a tail-to-head region, and any sentence that straddles a
+      boundary will appear in full in at least one chunk. Third, and most
+      importantly, RAG chunking has a stricter requirement than summarisation
+      chunking. Because retrieval returns only the top-k matches, any individual
+      chunk might be the only text the model sees. Design chunks that can stand
+      alone — complete thoughts, not dangling fragments. Fourth, metadata is not
+      optional. Source and chunk_index are the minimum you need to turn a retrieved
+      chunk into a citable answer. In Lesson 3 you will index these chunks into
+      ChromaDB — a persistent vector store — so that retrieval is fast, survives
+      process restarts, and scales beyond what fits in a Python list.

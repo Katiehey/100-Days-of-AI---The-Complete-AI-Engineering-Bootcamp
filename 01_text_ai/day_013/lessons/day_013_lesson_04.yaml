@@ -1,0 +1,238 @@
+day: "013"
+lesson: "04"
+title: "Retrieval and Context Assembly"
+
+slides:
+
+  - type: title
+    heading: "Retrieval and Context Assembly"
+    subheading: "Find the right pieces, then put them together"
+
+  - type: concept
+    label: "Index time vs query time"
+    heading: "Two Phases: Index Once, Query Many Times"
+    body: >
+      Building a RAG system has two distinct phases. Understanding where the work happens — and
+      why — shapes every design decision you make.
+    bullets:
+      - "Index time: chunk the corpus, embed every chunk, write vectors to ChromaDB — done once"
+      - "Query time: embed the question, search ChromaDB, retrieve matching chunks — done on every request"
+      - "Indexing is expensive (many embedding calls); querying is fast (one embedding call + ANN search)"
+      - "Today's Lessons 2 and 3 covered index time; this lesson covers query time"
+      - "The separation means you can update the index without touching the query logic, and vice versa"
+    narration: >
+      Before you write a single line of retrieval code it is worth pausing to be clear about
+      the two phases of a RAG system. Index time is the slow, one-off setup: you take your
+      corpus, run it through chunk_document and index_corpus, and end up with a ChromaDB
+      collection full of vectors. That work is expensive because you are calling an embedding
+      model once for every chunk in your documents. But you only pay that cost once — or
+      whenever the corpus changes. Query time is everything that happens when a user asks a
+      question. It is fast because you only embed one string — the question itself — and
+      ChromaDB's approximate nearest-neighbour index does the heavy lifting of finding the
+      closest chunks in milliseconds. This separation matters because it means your application
+      can serve thousands of queries against a corpus that was indexed hours or days ago. You
+      are not re-embedding every document on every question. That is the core efficiency of the
+      RAG pattern, and it is why understanding both phases is essential before you write the
+      retrieval step.
+
+  - type: how_it_works
+    label: "Query time steps"
+    heading: "What Happens at Query Time"
+    body: >
+      Every retrieval call follows the same three-step sequence. Learn it once and it applies
+      to every RAG system you build.
+    bullets:
+      - "Step 1 — Embed the question: `ollama.embeddings(model, prompt=question)` → dict with `'embedding'`"
+      - "Step 2 — Query the collection: `collection.query(query_embeddings=[emb], n_results=top_k)` → result dict"
+      - "Step 3 — Extract the texts: `result['documents'][0]` → list of matching chunk strings"
+      - "`result['documents']` is a batch list (one entry per query); `[0]` selects your single query"
+      - "`result['distances'][0]` gives the corresponding similarity scores if you need them"
+    narration: >
+      At query time your code always follows the same three steps. First, you embed the
+      question. You call ollama.embeddings with the nomic-embed-text model and your question
+      string, and you pull the vector out of the response dict using the 'embedding' key —
+      exactly what you learned in Day 11. Second, you hand that vector to ChromaDB. You call
+      collection.query and pass the embedding wrapped in a list as query_embeddings, along
+      with n_results telling ChromaDB how many matching chunks to return. Third, you extract
+      the actual text strings from the result dict. ChromaDB returns a batch-shaped structure
+      because the query method supports sending multiple queries at once. Since you are sending
+      one query, the outer list always has exactly one element, and you index into it with
+      [0] to get your list of matching strings. These three steps are the entire retrieval
+      pipeline. Once you have written this function once, you can drop it into any RAG project
+      without modification — the only thing that changes is the collection you pass in.
+
+  - type: code
+    label: "retrieve_context function"
+    heading: "Implementing retrieve_context"
+    code: |
+      def retrieve_context(
+          question: str,
+          collection,
+          top_k: int = 3,
+      ) -> list[str]:
+          """Embed the question and return the top-k matching chunk texts."""
+          q_emb = ollama.embeddings(model="nomic-embed-text", prompt=question)
+          results = collection.query(
+              query_embeddings=[q_emb["embedding"]],
+              n_results=top_k,
+          )
+          return results["documents"][0]   # [0] because we sent one query
+    narration: >
+      Here is the complete retrieve_context function. Read through it top to bottom and notice
+      how directly it maps to the three query-time steps you just saw. The function takes three
+      arguments: the question string, the ChromaDB collection object, and top_k which defaults
+      to 3. Inside, the first line calls ollama.embeddings — this is the same call signature
+      you used in Day 11, with model and prompt as the two arguments, and you pull the vector
+      out with the 'embedding' key. The second call is collection.query. You wrap the embedding
+      in a list because query_embeddings is a batch parameter — ChromaDB expects a list of
+      vectors, one per query. You pass top_k as n_results to control how many chunks come back.
+      The return statement does the unwrapping: results['documents'] is the outer batch list,
+      and [0] selects the results for your single query, giving you a plain list of strings.
+      Each string in that list is one chunk of text from your indexed corpus — the chunks most
+      semantically similar to your question. That list is exactly what build_rag_prompt from
+      Lesson 1 expects as its second argument.
+
+  - type: concept
+    label: "top_k trade-off"
+    heading: "Choosing top_k: More Context vs Context Window"
+    body: >
+      top_k is a dial with real consequences. Setting it correctly balances answer quality
+      against context window limits.
+    bullets:
+      - "Larger top_k → more chunks → richer context for the LLM → potentially better answers"
+      - "Larger top_k → longer prompt → may exceed the model's context window → errors or truncation"
+      - "Smaller top_k → tighter context → faster inference → less noise from irrelevant chunks"
+      - "3–5 is a safe default for most corpora and models"
+      - "If answers are vague, try increasing top_k; if you hit context limits, decrease it"
+    narration: >
+      The top_k parameter looks simple — it is just an integer — but it has a real impact on
+      how well your RAG system performs. When you increase top_k you pull in more chunks of
+      context, which gives the language model more material to work with. For questions that
+      require synthesising information from multiple parts of a document, a higher top_k can
+      dramatically improve the quality of the answer. But every chunk you add also increases
+      the length of the prompt you send to the LLM. Every model has a context window — a
+      maximum number of tokens it can process in a single call. If your assembled prompt
+      exceeds that window, you will either get an error or the model will silently truncate
+      the input and lose information. The practical sweet spot is 3 to 5 chunks. At 3 you
+      get focused, relevant context with minimal noise. At 5 you get broader coverage while
+      staying well inside the context window of most modern models. Think of top_k as a dial
+      you tune per project: start at 3, evaluate answer quality, and adjust from there. If
+      answers feel incomplete or vague, increase it. If you are hitting token limits, decrease
+      it. The default of 3 in retrieve_context is a sensible starting point for any new project.
+
+  - type: how_it_works
+    label: "Reading ChromaDB query results"
+    heading: "Understanding the ChromaDB Result Structure"
+    body: >
+      ChromaDB's query result is a dict with batch-shaped lists. Once you understand the
+      shape, reading it is straightforward.
+    code: |
+      results = collection.query(
+          query_embeddings=[q_emb["embedding"]],
+          n_results=3,
+      )
+
+      # Results shape — outer list is one entry per query sent:
+      # results["documents"]  → [ ["chunk A", "chunk B", "chunk C"] ]
+      # results["metadatas"]  → [ [{...}, {...}, {...}] ]
+      # results["distances"]  → [ [0.12, 0.18, 0.31] ]
+
+      texts  = results["documents"][0]    # list of 3 strings
+      scores = results["distances"][0]    # list of 3 floats (lower = more similar)
+
+      for rank, (text, score) in enumerate(zip(texts, scores), start=1):
+          print(f"{rank}. score={score:.4f}  {text[:80]}...")
+    narration: >
+      Let us look at the ChromaDB result structure in detail, because the double-indexing
+      trips people up the first time they see it. When you call collection.query and pass
+      query_embeddings as a list of one vector, ChromaDB returns a dict where each value is
+      a list of lists — the outer list has one element per query you sent. Because you sent
+      one query, every outer list has exactly one element, and you index it with [0] to reach
+      the actual data. results['documents'][0] gives you a list of strings — the text of the
+      matching chunks, ordered from most to least similar. results['distances'][0] gives you
+      the corresponding distance scores as floats. In ChromaDB's default metric, lower distance
+      means higher similarity — so the first chunk in the list is the closest match and will
+      have the smallest score. results['metadatas'][0] gives you the metadata dicts you
+      attached when indexing, which is useful if you want to show the user which source
+      document each chunk came from. The code example here shows how to zip documents and
+      distances together to print a ranked list — that is a useful debugging pattern when you
+      are tuning top_k and want to see exactly what the retrieval step is finding.
+
+  - type: code
+    label: "Full RAG context assembly"
+    heading: "Assembling the Full RAG Pipeline (Lessons 1–4)"
+    code: |
+      # Putting Lessons 1–4 together:
+      question = "What is supervised learning?"
+      chunks = retrieve_context(question, coll, top_k=3)
+      prompt = build_rag_prompt(question, chunks)
+
+      # Now ready to call the LLM — that's Lesson 5
+      print(f"Retrieved {len(chunks)} chunks")
+      print(f"Prompt length: {len(prompt)} chars")
+      print("First chunk:", chunks[0][:100], "...")
+    narration: >
+      This is the moment where all four lessons of the day connect. You have build_rag_prompt
+      from Lesson 1, which knows how to format a question and a list of context strings into a
+      grounded prompt. You have chunk_document and index_corpus from Lessons 2 and 3, which
+      turned your raw corpus into a searchable ChromaDB collection. And you now have
+      retrieve_context from this lesson, which embeds a question and returns the most relevant
+      chunks. Put them together and the pipeline is just two lines: retrieve_context gives you
+      the chunks, build_rag_prompt turns them into a prompt. The three print statements at the
+      bottom are a lightweight diagnostic you will find useful during development. Printing the
+      number of retrieved chunks confirms that top_k is being respected. Printing the prompt
+      length gives you a rough token estimate — if it is unexpectedly large, you know to
+      reduce top_k or your chunk size. Printing the start of the first chunk tells you whether
+      the retrieval step actually found relevant material, which is the fastest way to diagnose
+      a retrieval quality problem before you even involve the LLM. After this lesson, the only
+      missing piece is the call to the language model itself — that is exactly what Lesson 5
+      covers.
+
+  - type: exercise
+    heading: "Exercise 4: Retrieve Relevant Context"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `retrieve_context(question, collection,
+      top_k=3)` that returns a `list[str]`. Embed the question using
+      `ollama.embeddings("nomic-embed-text", prompt=question)`, call
+      `collection.query(query_embeddings=[emb], n_results=top_k)`, and return the list of
+      matching document strings.
+    hint: >
+      `collection.query(query_embeddings=[emb], n_results=top_k)` returns a dict.
+      The texts are in `result['documents'][0]` — the `[0]` unwraps the single-query batch
+      dimension. Pull the embedding out of the ollama response with `response['embedding']`
+      before wrapping it in a list for `query_embeddings`.
+    narration: >
+      This exercise is short — retrieve_context is only five lines of code — but every line
+      matters. The goal is to make sure you can write this function from scratch without
+      referring back to the slide, because this is the function you will reuse in every RAG
+      project you build. Focus on two things. First, the query_embeddings argument: you need
+      to pass a list containing one vector, not the vector itself. If you pass the flat list
+      of floats directly, ChromaDB will interpret each float as a separate query and raise an
+      error. Wrap it: [q_emb['embedding']]. Second, the return value: result['documents'] is
+      a list of lists. You want the inner list for your single query, so index with [0]. The
+      automated checks verify that the function returns a list of strings, that the length
+      matches top_k, and that the returned chunks are semantically relevant to the question —
+      so retrieval quality is tested, not just structure.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Query time: embed the question once, then call collection.query() for instant nearest-neighbour search"
+      - "collection.query returns a batch result — result['documents'][0] is the list for your single query"
+      - "top_k is a dial: 3 is a safe default; increase for richer context, decrease if hitting context window limits"
+      - "The output of retrieve_context feeds directly into build_rag_prompt — the chain is complete"
+      - "Next: the final step — calling the LLM with the grounded prompt and controlling hallucination"
+    narration: >
+      Let us lock in the four ideas from this lesson. First, query time has a clear three-step
+      shape: embed the question, call collection.query, extract documents[0]. Once you have
+      written retrieve_context once, that shape is encoded and reusable forever. Second,
+      ChromaDB always returns batch-shaped results. Every outer list in the result dict has one
+      element per query sent. Because you send one query at a time, you always index with [0]
+      to reach the actual data. Third, top_k is a tuning parameter, not a constant. Start at
+      3, evaluate answer quality against your corpus, and adjust. More chunks means more
+      context and a longer prompt; fewer means tighter focus and a shorter prompt. Neither
+      direction is universally better — it depends on your data and your model's context
+      window. Fourth, the chain is now complete: you have a function that takes a question and
+      a collection and returns a list of relevant strings, and you have build_rag_prompt that
+      turns that list into a grounded prompt. In Lesson 5 you will close the loop by calling
+      the LLM with that prompt and learning how to interpret and control the generated answer.
