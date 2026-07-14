@@ -1,0 +1,221 @@
+day: "015"
+lesson: "02"
+title: "The Chat Turn"
+
+slides:
+
+  - type: title
+    heading: "The Chat Turn"
+    subheading: "One function, one conversation step"
+
+  - type: concept
+    label: "What happens in a single turn"
+    heading: "Anatomy of One Conversation Step"
+    body: >
+      Every exchange in a multi-turn conversation follows the same four-step
+      sequence. Understanding that sequence is what lets you wrap it cleanly
+      into a single reusable function.
+    bullets:
+      - "User types — you receive a plain string of input"
+      - "History gets a user message — the input is packaged as {role: user, content: ...}"
+      - "Model is called with full history — every prior message goes in the request"
+      - "Response extracted and appended — the reply joins the history as an assistant message"
+    narration: >
+      Before writing any code, let's walk through what actually happens each time
+      a user sends a message. You start with a history list — the system prompt
+      and every prior exchange. The user's new text arrives as a plain string.
+      You package it into a message dict with role "user" and content set to that
+      string, then hand the entire history — including the new message — to the
+      model. The model reads everything and produces a reply. You extract that
+      reply text from the response dict, then call append_turn to record both the
+      user message and the assistant reply in the history. That updated history is
+      what you'll pass into the next turn. Four steps, every single time, without
+      exception. Once you see that regularity, wrapping it in one function becomes
+      obvious.
+
+  - type: how_it_works
+    label: "The turn as a pipeline"
+    heading: "Four Steps, One Function"
+    body: >
+      chat_turn is a pipeline with four clearly ordered stages. Each stage feeds
+      directly into the next — no branching, no side effects.
+    bullets:
+      - "Step 1 — build the messages list: history + [{role: user, content: user_input}]"
+      - "Step 2 — call ollama.chat with that full messages list and the model name"
+      - "Step 3 — extract the reply string: response[\"message\"][\"content\"]"
+      - "Step 4 — call append_turn(history, user_input, reply) to get updated_history"
+    narration: >
+      Think of chat_turn as a four-stage assembly line. The first stage builds the
+      complete messages list the model needs to see — that's your existing history
+      with the new user message tacked on the end. You don't modify history in place;
+      you create a new list by concatenation. Stage two hands that list to
+      ollama.chat along with the model name, exactly the way you learned back on
+      Day 3. Stage three drills into the response dict to pull out the plain text
+      reply — response, then "message", then "content". Stage four calls the
+      append_turn function from Lesson 1, which packages both the user message and
+      the assistant reply into the history and returns the updated list. Notice that
+      history itself is never mutated at any point. The function takes it in, uses
+      it, and hands back a new version. That immutability is what makes the function
+      safe to call in a loop.
+
+  - type: code
+    label: "Implementation"
+    heading: "chat_turn — the Full Implementation"
+    code: |
+      import ollama
+      from lesson_01 import append_turn  # from today's Lesson 1
+
+      def chat_turn(
+          history: list[dict],
+          user_input: str,
+          model: str = "llama3.2",
+      ) -> tuple[str, list[dict]]:
+          """
+          Execute one conversational turn.
+
+          Args:
+              history:    Current message history (system prompt + prior turns).
+              user_input: The user's new message.
+              model:      Ollama model name.
+
+          Returns:
+              (response_text, updated_history) — display response_text, pass
+              updated_history to the next call.
+          """
+          messages = history + [{"role": "user", "content": user_input}]
+          response = ollama.chat(model=model, messages=messages)
+          reply = response["message"]["content"]
+          new_history = append_turn(history, user_input, reply)
+          return reply, new_history
+
+      # Three-turn example:
+      history = [{"role": "system", "content": "You are a helpful assistant."}]
+      for question in ["What is 2+2?", "And 3+3?", "What were my two questions?"]:
+          reply, history = chat_turn(history, question)
+          print(f"Q: {question}")
+          print(f"A: {reply[:80]}\n")
+    narration: >
+      Here is the complete implementation. The signature takes history as a list
+      of dicts, the user's input as a string, and the model name with a default
+      of llama3.2. The return type annotation is a tuple of string and list of
+      dicts — that tells anyone reading the code exactly what comes back. Inside
+      the body, the first line builds messages by concatenating history with a
+      one-item list containing the new user message. That single line replaces
+      what would otherwise be a multi-step mutation pattern. Then ollama.chat gets
+      the full messages list and model name, matching the call signature you've
+      used since Day 3. The reply is extracted in one line. append_turn handles
+      the history update, returning a new list. The function closes by returning
+      both pieces as a tuple. The three-turn loop at the bottom is the real test —
+      notice how the third question, "What were my two questions?", can only be
+      answered correctly if the model has seen the full history. Run this and you'll
+      see it works.
+
+  - type: concept
+    label: "Why return a tuple"
+    heading: "Returning Both the Reply and the History"
+    body: >
+      A function that only returned the reply text would leave the caller unable
+      to continue the conversation. A function that only returned the updated
+      history would force the caller to dig out the last message every time.
+      Returning both solves both problems at once.
+    bullets:
+      - "reply — the string to display, log, or pass to downstream logic right now"
+      - "updated_history — the list to hand to the next call of chat_turn"
+      - "Tuple unpacking keeps the call site clean: reply, history = chat_turn(...)"
+      - "The caller never needs to inspect the history dict to find the last reply"
+    narration: >
+      You might wonder why the function returns a tuple instead of just the reply
+      text. After all, the caller has the original history — couldn't they just
+      append to it themselves? They could, but then you'd be splitting the four-step
+      pipeline across two places: the function handles steps one through three,
+      and the caller is responsible for step four. That's a leaky abstraction.
+      Every caller would have to know to call append_turn after every chat_turn
+      call. Returning the updated history keeps the abstraction whole. The caller
+      gets exactly what they need: the text to show the user right now, and the
+      list to pass in on the next call. Python's tuple unpacking makes this feel
+      natural — one line, two names, both populated. You'll see this return pattern
+      appear throughout the course as functions that advance some state and need to
+      hand both a result and the new state back to the caller.
+
+  - type: how_it_works
+    label: "Calling in a loop"
+    heading: "chat_turn Across Multiple Turns"
+    body: >
+      Because chat_turn returns the updated history, calling it repeatedly in a
+      loop is straightforward. Each call receives the history returned by the
+      previous one.
+    bullets:
+      - "First call: history has only the system prompt; model answers with no prior context"
+      - "Second call: history now includes turn 1; model can reference what was said"
+      - "Third call: history includes turns 1 and 2; model remembers both"
+      - "The loop body stays identical every iteration — unpack, print, repeat"
+    code: |
+      # Pattern: always unpack into (reply, history)
+      history = [{"role": "system", "content": "You are a helpful assistant."}]
+
+      reply, history = chat_turn(history, "Hello!")
+      print(reply)
+
+      reply, history = chat_turn(history, "What did I just say?")
+      print(reply)  # Model will remember "Hello!"
+    narration: >
+      This is the pattern you'll use everywhere once you start building real chat
+      applications. You initialise history with the system prompt, then call
+      chat_turn as many times as you need. After the first call, history contains
+      three entries: the system prompt, the user message, and the assistant reply.
+      After the second call it contains five. The model sees all of them on every
+      subsequent call, which is exactly what gives it "memory" of the conversation.
+      Notice that the loop body or sequential calls look identical — always the same
+      unpack pattern, always the same variable names. That consistency is the whole
+      point of the abstraction. You're not thinking about dict structure or API
+      response formats anymore. You call the function, unpack two values, and move
+      on. The second example makes the memory concrete: ask the model what you just
+      said and it will quote "Hello!" back to you, because that message is in the
+      history list it received.
+
+  - type: exercise
+    heading: "Exercise 2: Implement chat_turn"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement
+      chat_turn(history, user_input, model='llama3.2') -> tuple[str, list[dict]].
+      Build the full messages list (history + user message dict), call ollama.chat
+      with that list, extract the reply string, and return (reply, updated_history)
+      using append_turn. The automated checks verify that the return type is a
+      tuple, that the reply is a non-empty string, that the original history list
+      is not mutated, and that the model correctly recalls an earlier turn when
+      called a second time with the returned history.
+    hint: >
+      Don't modify history in place. Build messages = history + [{"role": "user",
+      "content": user_input}], call ollama.chat with that full list and model=model,
+      extract reply = response["message"]["content"], then return
+      (reply, append_turn(history, user_input, reply)).
+    narration: >
+      Your turn. The notebook gives you a stub with the correct signature and four
+      automated checks. The implementation is short — the goal is to get each of
+      the four pipeline steps in the right order with the right variable names. Work
+      through the checks in sequence: first confirm the return is a tuple with a
+      string and a list, then check that the original history is unchanged after
+      the call, then run the two-turn conversation check that tests model recall.
+      That last check is the most satisfying — it proves the entire pipeline is
+      working end to end, not just that the types are right. Come back here when
+      all checks are green.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "chat_turn bundles the three steps of a turn — append user message, call model, append reply — into one reusable function"
+      - "Returning tuple[str, list[dict]] gives the caller both what to display and what to pass to the next turn"
+      - "The model's 'memory' is the full history list — the third question in the example proves it remembers earlier turns"
+      - "Next: what happens when the history grows too long — truncation to stay within the context window"
+    narration: >
+      Three things to carry forward. First, chat_turn is a complete turn abstraction
+      — you hand it a history and a string, and it gives you back a reply and an
+      updated history. The caller never needs to know about dict structure, API
+      response formats, or how append_turn works. Second, the tuple return is a
+      deliberate design choice: one value for now, one value for later, cleanly
+      separated. Third, the model's recall is entirely a function of what's in the
+      history list you pass it — there's no magic server-side memory. The third
+      question working correctly in the example is proof of that. In Lesson 3
+      you'll look at what happens as that history list keeps growing across a long
+      conversation, and why you eventually need to trim it to stay within the
+      model's context window.

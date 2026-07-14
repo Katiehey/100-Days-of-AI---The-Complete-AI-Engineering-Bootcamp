@@ -1,0 +1,282 @@
+day: "015"
+lesson: "05"
+title: "Formatting and the Full Chatbot"
+
+slides:
+
+  - type: title
+    heading: "Formatting and the Full Chatbot"
+    subheading: "Wire the pieces into a product"
+    narration: >
+      Welcome to the last lesson of Day 15. Over the past four lessons you
+      built five functions: append_turn, chat_turn, truncate_history, and
+      reset_history. Right now those functions sit in a notebook as isolated
+      building blocks. In this lesson you are going to add one final utility —
+      format_history, which turns the raw messages list into a human-readable
+      transcript — and then wire all five functions together into a complete,
+      working CLI chatbot. By the end you will have something genuinely
+      shippable: a multi-turn chatbot that handles commands, manages its own
+      context window, and lets the user read their conversation history on
+      demand. Let's finish the build.
+
+  - type: concept
+    label: "Why format_history"
+    heading: "Users Need a Transcript, Not a Python List"
+    body: >
+      When the user types /history, they want to read their conversation — not
+      stare at a list of dicts with role and content keys. format_history takes
+      the raw history list and renders it as a clean, labelled transcript that
+      any non-programmer could read.
+    bullets:
+      - "Skips the system message at index 0 — that is internal plumbing, not conversation"
+      - "Labels each user turn 'You:' and each assistant turn 'Bot:'"
+      - "Returns a single string ready to pass straight to print()"
+      - "Returns an empty string when the conversation has no user or assistant messages yet"
+    narration: >
+      Think about the user experience for a moment. The /history command only
+      has one job: let the user scroll back through what they said and what the
+      bot said. The system prompt is none of their business — it is a developer
+      configuration detail, and surfacing it would just add noise. So
+      format_history deliberately skips any message whose role is 'system' and
+      only processes user and assistant turns. It labels them with plain English
+      words — 'You' and 'Bot' — instead of the role strings, because 'You:' is
+      instantly readable while 'user:' requires the reader to remember what the
+      role field means. The result is a string you can drop straight into a
+      print call, which is exactly the interface the chatbot loop expects.
+
+  - type: code
+    label: "format_history implementation"
+    heading: "Render History as a Readable Transcript"
+    code: |
+      def format_history(history: list[dict]) -> str:
+          """
+          Render conversation history as a readable transcript.
+
+          Skips the system message. Labels user turns 'You:' and assistant turns 'Bot:'.
+          Returns an empty string if history contains only the system prompt or is empty.
+          """
+          labels = {"user": "You", "assistant": "Bot"}
+          lines = []
+          for msg in history:
+              if msg["role"] == "system":
+                  continue
+              label = labels.get(msg["role"], msg["role"].capitalize())
+              lines.append(f"{label}: {msg['content']}")
+          return "\n".join(lines)
+
+      # Example:
+      history = [{"role": "system", "content": "You are a helpful assistant."}]
+      history = append_turn(history, "Hi there!", "Hello! How can I help?")
+      history = append_turn(history, "What is 2+2?", "2+2 equals 4.")
+      print(format_history(history))
+    narration: >
+      The implementation is short but worth reading carefully. The labels dict
+      maps the two role strings to the display words — 'You' for user, 'Bot'
+      for assistant. You iterate over every message in history. If the role is
+      'system' you skip it with continue; for everything else you look up the
+      label, build the formatted line, and append it to the lines list. The
+      fallback in labels.get — msg["role"].capitalize() — is a safety net for
+      any unexpected role string that might appear; it won't crash, it will just
+      capitalise whatever it finds. At the end, "\n".join(lines) stitches the
+      lines into a single string with a newline between each turn. If there were
+      no user or assistant messages at all, lines is empty and join returns an
+      empty string — the caller can check for that and print a friendly message
+      instead. Notice the example at the bottom: after two calls to append_turn
+      the output is four lines, alternating You and Bot, exactly as a user would
+      expect to see it.
+
+  - type: how_it_works
+    label: "The complete chatbot loop"
+    heading: "Init → Input → Command-or-Chat → Truncate → Repeat"
+    body: >
+      The chatbot loop follows a single, repeating pattern. Every step maps to
+      one of the five functions built across today's lessons, and the loop only
+      exits when the user explicitly says /quit or sends an interrupt signal.
+    bullets:
+      - "Init: build the starting history with the system prompt at index 0"
+      - "Input: read a line from the user; handle empty input and keyboard interrupts gracefully"
+      - "Command check: /quit exits, /reset calls reset_history, /history calls format_history"
+      - "Chat: pass non-command input to chat_turn; get back the reply and updated history"
+      - "Truncate: call truncate_history so the context window never grows unbounded"
+      - "Print: show the reply and loop back to Input"
+    narration: >
+      Step back and look at the loop as a whole. It is a straight pipeline —
+      each iteration processes exactly one user action, updates the history, and
+      goes around again. The command check sits between input and the model call
+      so that /quit, /reset, and /history never hit the network at all. That
+      makes commands feel instant even if the model is slow. The truncate call
+      happens after every chat turn, not just when the history is already too
+      long — this is the right place for it because you want to enforce the
+      limit before the next turn adds more messages, not after. And the whole
+      thing is wrapped in a try/except for EOFError and KeyboardInterrupt so
+      that Ctrl+C exits cleanly instead of dumping a stack trace in the
+      terminal. That one-liner makes the difference between a toy script and
+      something that feels like real software.
+
+  - type: code
+    label: "run_chatbot implementation"
+    heading: "The Full Chatbot — All Five Functions, One Loop"
+    code: |
+      SYSTEM_PROMPT = "You are a helpful, concise assistant. Answer clearly and briefly."
+
+      def run_chatbot(
+          system_prompt: str = SYSTEM_PROMPT,
+          model: str = "llama3.2",
+          max_turns: int = 10,
+      ) -> None:
+          """Run a multi-turn CLI chatbot until the user types /quit."""
+          history = [{"role": "system", "content": system_prompt}]
+          print("Chatbot ready. Commands: /quit  /reset  /history")
+          print("-" * 50)
+
+          while True:
+              try:
+                  user_input = input("You: ").strip()
+              except (EOFError, KeyboardInterrupt):
+                  print("\nGoodbye!")
+                  break
+
+              if not user_input:
+                  continue
+
+              if user_input.startswith("/"):
+                  # Inline command handling — simpler than the dispatch dict
+                  # for three commands; use a dispatch dict (Lesson 4) when
+                  # you have many commands or need runtime registration.
+                  if user_input == "/quit":
+                      print("Goodbye!")
+                      break
+                  elif user_input == "/reset":
+                      history = reset_history(history)
+                      print("Bot: Conversation reset.")
+                  elif user_input == "/history":
+                      transcript = format_history(history)
+                      print(transcript if transcript else "(no history yet)")
+                  else:
+                      print(f"Bot: Unknown command: {user_input}")
+                  continue
+
+              reply, history = chat_turn(history, user_input, model)
+              history = truncate_history(history, max_turns)
+              print(f"Bot: {reply}")
+    narration: >
+      Here is run_chatbot in full. Notice the three parameters at the top —
+      system_prompt, model, and max_turns — all with sensible defaults. That
+      design means you can call run_chatbot() with no arguments and it works
+      immediately, but you can also override any of the three to customise the
+      persona, swap the model, or tighten the context window. The history is
+      initialised inside the function, not passed in, so every call to
+      run_chatbot starts a fresh conversation. The command-routing block
+      handles the four possible slash commands and uses continue to skip the
+      chat_turn call for all of them. Everything below the command block is the
+      normal conversation path: chat_turn calls the model and returns the reply
+      plus the updated history, truncate_history enforces the window limit, and
+      the reply is printed with the Bot: prefix to match the transcript format
+      from format_history. The whole function is about thirty lines and covers
+      every user interaction you could reasonably expect in a CLI chatbot.
+
+  - type: concept
+    label: "The product mindset"
+    heading: "Five Functions, One Shippable Product"
+    body: >
+      The five functions from today's lessons are not academic exercises — they
+      are the real building blocks of production chatbot infrastructure. Each one
+      does exactly one thing, takes well-defined inputs, and returns well-defined
+      outputs. That design is what makes them composable and independently
+      testable.
+    bullets:
+      - "append_turn — manages message-level history construction"
+      - "chat_turn — owns the model call and integrates the reply into history"
+      - "truncate_history — enforces the context-window contract"
+      - "reset_history — gives the user a clean slate without restarting"
+      - "format_history — translates internal state into user-facing output"
+    narration: >
+      One of the most valuable habits in software engineering is decomposing a
+      system into units that can be tested in total isolation. Every function
+      you wrote today satisfies that test: you can open a notebook, pass any
+      valid input, and assert on the output without running a live model. That
+      property does not happen by accident — it comes from keeping each function
+      focused on a single responsibility and making sure it communicates only
+      through its arguments and return value. When something breaks in the
+      chatbot loop — and something will always break eventually — you can
+      narrow the bug down to one function, write a targeted test, fix it there,
+      and be confident the fix does not affect the other four. That is how
+      professional engineers ship reliable software, and it is exactly the
+      mindset you are building here.
+
+  - type: concept
+    label: "What's missing vs production"
+    heading: "Gaps Between This Chatbot and a Production System"
+    body: >
+      The chatbot you just built is genuinely functional, but a production
+      deployment would need several more capabilities. Each gap maps directly to
+      a future lesson, so none of them are dead ends — they are signposts for
+      the rest of the course.
+    bullets:
+      - "Streaming output (Day 16) — right now the bot is silent until the full reply is ready; streaming shows tokens as they arrive"
+      - "Tool use (Day 17) — the bot can only talk; tool use lets it search the web, run code, or call an API"
+      - "Persistence — closing the terminal loses the conversation; you would need to serialise history to disk or a database"
+      - "Error handling — network failures, model timeouts, and malformed responses all need graceful recovery"
+    narration: >
+      It is worth being honest about what this chatbot cannot do yet, because
+      naming the gaps is how you turn a demo into a learning plan. The most
+      noticeable limitation in practice is that the bot goes quiet while the
+      model generates its reply. For a short answer that is fine; for a long
+      one it feels like the program has frozen. Streaming, which you will build
+      on Day 16, fixes that by printing tokens to the terminal as soon as they
+      arrive. Tool use, coming on Day 17, is the other big leap — it is the
+      difference between a chatbot that knows things and one that can actually
+      do things. Persistence is something you will implement later in the course
+      when you work with databases. Error handling is woven throughout the rest
+      of Section 1. The point is that none of these are mysterious — each one is
+      a concrete, learnable addition to the foundation you have just built.
+
+  - type: exercise
+    heading: "Exercise 5: Format History"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement
+      `format_history(history)` → str. Skip the system message
+      (role == 'system'). For each remaining message, prefix it with 'You: '
+      (user) or 'Bot: ' (assistant). Join all lines with newlines and return
+      the result. Return an empty string if there are no user or assistant
+      messages.
+    hint: >
+      Iterate over history, skip messages where msg['role'] == 'system'. Use a
+      dict like {'user': 'You', 'assistant': 'Bot'} to look up the label.
+      Build a list of 'Label: content' strings and return '\n'.join(lines).
+    narration: >
+      For this exercise you are implementing format_history from scratch. The
+      automated checks will verify four things: that the system message is
+      absent from the output, that user turns are labelled 'You:' and assistant
+      turns are labelled 'Bot:', that the lines are joined with newlines rather
+      than spaces or commas, and that an empty history returns an empty string
+      rather than crashing. Once the checks pass, try calling it on a real
+      history you built with append_turn and printing the result — it should
+      look exactly like a chat transcript you would want to share with someone.
+      If you want to go further, wire your five functions together in the
+      notebook and run a short conversation with the model; at any point type
+      /history to see the transcript your format_history produces. That is the
+      full chatbot working end to end.
+
+  - type: summary
+    heading: "Day 15 Complete — Next: Streaming"
+    bullets:
+      - "format_history renders the messages list as a human-readable transcript — essential for the /history command"
+      - "The full chatbot loop: init → input → command-or-chat → truncate → repeat; all five functions from this lesson compose cleanly"
+      - "These five functions are independently testable — that is how you ship reliable chatbots"
+      - "What's missing: streaming output (Day 16), tool use (Day 17), persistence — each is a future lesson"
+      - "Project: build your own multi-turn CLI chatbot with a custom persona, all four commands, and history truncation"
+    narration: >
+      That is Day 15 complete. You started this morning with a blank file and
+      ended with a working, structured, testable multi-turn chatbot built from
+      five clean functions. Take a moment to appreciate that: you did not just
+      copy a tutorial — you built each piece from first principles, understood
+      why each design decision was made, and composed the pieces into something
+      real. The project for this section is to take those five functions,
+      customise the system prompt to give the bot a personality of your
+      choosing, and ship it as a standalone script that anyone can run from the
+      command line. On Day 16 you are going to make that chatbot feel
+      dramatically more responsive by adding streaming output — tokens will
+      appear in the terminal as soon as the model generates them, instead of
+      arriving all at once at the end. It is one of the most satisfying
+      improvements you can make to a language model interface. See you there.

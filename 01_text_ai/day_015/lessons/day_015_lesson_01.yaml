@@ -1,0 +1,207 @@
+day: "015"
+lesson: "01"
+title: "The Message History Model"
+
+slides:
+
+  - type: title
+    heading: "Building a Chatbot"
+    subheading: "Turn a one-shot call into a real conversation"
+    narration: >
+      Welcome to Day 15. On Day 3 you made your first call to ollama.chat and
+      passed it a list of messages. You may have noticed that when you wanted
+      the model to remember something from earlier in the conversation, you
+      had to keep appending to that list yourself. Today you are going to
+      understand exactly why that works — and formalise it into a clean,
+      reusable function. By the end of this lesson you will have a solid mental
+      model of how multi-turn conversation state works in a large language model,
+      and you will have written your first piece of the chatbot infrastructure
+      that carries you through the rest of Day 15. Let's get into it.
+
+  - type: concept
+    label: "Multi-turn memory"
+    heading: "The Model's Memory Is the List You Pass It"
+    body: >
+      On Day 3 you passed a growing messages list to ollama.chat on every loop
+      iteration. That was not a coincidence — it is exactly how LLM memory
+      works. The model has no state of its own between calls. Its entire
+      "memory" of the conversation is whatever list of messages you hand it.
+    bullets:
+      - "Each ollama.chat call is stateless — the model forgets everything between calls"
+      - "To give it context, you include previous turns in the messages list you pass"
+      - "A longer list means more context; a shorter list means less"
+      - "You are the one keeping track of history — the model just reads what you give it"
+    narration: >
+      This is the single most important insight for building chatbots with
+      local or API-hosted language models. The model does not remember you.
+      Every time you call ollama.chat you are starting completely fresh from
+      the model's perspective. What makes it feel like a conversation is that
+      you are feeding the previous turns back in with every request. On Day 3
+      you did this informally — you had a while loop that appended messages and
+      passed the whole list each time. Today you are going to understand the
+      structure of that list precisely, and then wrap the appending logic in a
+      function so it is easy to reuse and hard to get wrong.
+
+  - type: concept
+    label: "The three roles and their positions"
+    heading: "System at [0], Then User and Assistant Alternate"
+    body: >
+      Every message in the list is a dict with two keys: role and content.
+      There are three valid roles, and their positions in the list follow a
+      strict pattern that the model expects.
+    bullets:
+      - "`system` — always at index 0, sets the model's persona and ground rules; never repeated"
+      - "`user` — a message from the human; appears after system and after every assistant turn"
+      - "`assistant` — the model's reply; always follows a user message"
+      - "The full list is sent to the model on every call — it reads the whole conversation each time"
+    narration: >
+      Think of the messages list as a transcript. At the top of every
+      transcript there is a system prompt — a set of instructions that tell
+      the model who it is and how it should behave. That prompt goes in at
+      index zero and stays there for the entire conversation; you never repeat
+      it mid-conversation. After that, user and assistant messages alternate:
+      the human says something, the model replies, the human says something
+      else, the model replies again, and so on. The model expects this
+      alternating pattern. If you accidentally send two user messages in a row
+      without an assistant message in between, most models will either complain
+      or produce odd output. Keeping the structure correct is part of what
+      today's functions are designed to enforce automatically.
+
+  - type: how_it_works
+    label: "Building the history step by step"
+    heading: "Start With System, Then Append Pairs"
+    body: >
+      Here is what the messages list looks like after two full turns of
+      conversation. The system message anchors everything at index 0, and each
+      turn contributes exactly two new entries: one user dict and one assistant
+      dict.
+    bullets:
+      - "Turn 0 (start): `[{\"role\": \"system\", \"content\": \"...\"}]`"
+      - "After turn 1: system + user_1 + assistant_1  →  3 messages total"
+      - "After turn 2: system + user_1 + assistant_1 + user_2 + assistant_2  →  5 messages total"
+      - "Pattern: length is always `1 + 2 × (number of turns)`"
+    narration: >
+      Let's make this concrete. You start with a list containing only the
+      system message. That is your initial state — one item at index zero.
+      After the first turn, the user has said something and the model has
+      replied, so you append two dicts and the list grows to three items. After
+      the second turn you append two more and reach five items. The pattern
+      holds indefinitely: the list always has an odd number of entries because
+      you start at one and add two each turn. That arithmetic also gives you a
+      handy sanity check at any point: if `len(history)` is even, something
+      has gone wrong with your history management. Keeping this mental model
+      clear is what makes the next function easy to write and easy to trust.
+
+  - type: code
+    label: "append_turn implementation"
+    heading: "Return a New List With One User + Assistant Pair"
+    code: |
+      def append_turn(
+          history: list[dict],
+          user_text: str,
+          assistant_text: str,
+      ) -> list[dict]:
+          """
+          Return a new history list with one user+assistant turn appended.
+
+          Does NOT mutate the input list — returns a new list so the caller
+          can keep a clean snapshot before passing to ollama.chat.
+          """
+          return history + [
+              {"role": "user",      "content": user_text},
+              {"role": "assistant", "content": assistant_text},
+          ]
+
+      # Usage:
+      system_msg = {"role": "system", "content": "You are a helpful assistant."}
+      history = [system_msg]
+
+      history = append_turn(history, "What is Python?", "Python is a high-level language.")
+      history = append_turn(history, "Who made it?",     "Guido van Rossum created Python.")
+
+      print(f"{len(history)} messages: 1 system + {(len(history)-1)//2} turn(s)")
+    narration: >
+      Here is the complete implementation. The function takes the current
+      history list, the text the user said, and the text the model replied
+      with, and it returns a brand-new list that contains all the original
+      messages plus the two new dicts. Notice the return statement uses list
+      concatenation — the plus operator — not append or extend. That is
+      deliberate. Concatenation creates a new list object, leaving the original
+      history untouched. In the usage example at the bottom you can see the
+      calling pattern: you reassign history to the return value, so the variable
+      always holds the latest snapshot. After two calls you have five messages —
+      one system plus two turns of two messages each — and the f-string at the
+      bottom confirms that with the odd-length arithmetic we just discussed.
+
+  - type: concept
+    label: "Why immutability matters"
+    heading: "Never Mutate the History You Pass to the Model"
+    body: >
+      If you use history.append() instead of list concatenation, you modify
+      the original list in place. This creates subtle state bugs: any variable
+      that still holds a reference to the old list will silently see the new
+      content, even though you never intended to update it.
+    bullets:
+      - "Mutation: `history.append(msg)` changes the list every reference points to"
+      - "Concatenation: `history + [msg]` creates a fresh list; the original is unchanged"
+      - "Safe pattern: always reassign — `history = append_turn(history, user, reply)`"
+      - "Future benefit: immutable snapshots make it easy to branch conversations or roll back"
+    narration: >
+      This might feel like an overly careful distinction right now, but it
+      becomes important as soon as your chatbot does anything beyond a single
+      linear conversation. Imagine you want to show the user two different
+      model responses to the same question and let them pick one. If your
+      history is mutable, the moment you append the first response you have
+      already modified the shared list, and branching becomes messy. With
+      immutable snapshots — where each call to append_turn returns a new list —
+      you can create two separate histories from the same parent just by
+      assigning the return value to two different variables. The immutability
+      habit also makes bugs easier to find: if the history looks wrong, you can
+      print a snapshot from any earlier point in the conversation because those
+      earlier lists still exist exactly as they were.
+
+  - type: exercise
+    heading: "Exercise 1: Append a Turn"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement
+      `append_turn(history, user_text, assistant_text)` → list[dict].
+      Return a new list — do not mutate the original. Append the user message
+      first, then the assistant message.
+    hint: >
+      Use list concatenation: return history + [{"role": "user", "content":
+      user_text}, {"role": "assistant", "content": assistant_text}]. Never use
+      history.append() — that mutates the original and will break the
+      state-management pattern.
+    narration: >
+      Your task in the notebook is to implement append_turn from scratch. The
+      function signature and docstring are already there — you only need to
+      fill in the body. The automated checks will verify three things: that the
+      return value is a new list rather than the original, that the original
+      history is unchanged after the call, and that the returned list ends with
+      the correct user and assistant dicts in the right order. If any of those
+      checks fail, the most likely culprit is using append instead of
+      concatenation. Once the checks pass, take a moment to print the returned
+      list and confirm that it looks exactly like the two-turn example from the
+      how-it-works slide — that mental model and this code should feel like the
+      same thing expressed two different ways.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "The messages list IS the conversation — the model has no memory beyond what you pass each call"
+      - "System prompt lives at index 0 and is never repeated; user and assistant messages alternate after it"
+      - "append_turn returns a NEW list — immutable history snapshots prevent subtle state bugs"
+      - "Next: wrapping a complete chat turn — embed user input, call the model, and get back the updated history in one function"
+    narration: >
+      Let's lock in the three ideas from this lesson. First: the model has no
+      memory of its own. Its entire understanding of the conversation comes from
+      the list you pass it on each call. Second: that list has a fixed
+      structure — system at index zero, then strictly alternating user and
+      assistant pairs. Violating that structure causes problems, which is
+      exactly why it is worth encapsulating in a function. Third: append_turn
+      returns a new list rather than modifying the existing one, which keeps
+      your history snapshots clean and opens the door to more advanced patterns
+      like conversation branching later. In Lesson 2 you will build on this by
+      writing chat_turn — a function that takes a history and a user message,
+      calls ollama.chat to get the model's reply, and returns the updated
+      history in a single step. That function is the engine of your chatbot.

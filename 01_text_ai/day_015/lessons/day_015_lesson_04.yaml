@@ -1,0 +1,222 @@
+day: "015"
+lesson: "04"
+title: "Conversation Reset"
+
+slides:
+
+  - type: title
+    heading: "Conversation Reset"
+    subheading: "Start fresh without restarting"
+    narration: >
+      You have a working multi-turn chatbot that remembers everything. That memory
+      is the whole point — but it also means the conversation accumulates. Topics
+      drift, the model gets confused by old context, or you simply want to start a
+      new topic without closing the terminal and losing your running process. This
+      lesson gives you a clean solution: a /reset command that wipes the conversation
+      history back to just the system prompt, so the chatbot forgets everything you
+      said but keeps its persona. You will also see the broader pattern of chat
+      commands — how real chatbots intercept slash-prefixed lines before they ever
+      reach the model.
+
+  - type: concept
+    label: "Why reset matters"
+    heading: "The Model's Context Is the History — Reset Clears the Slate"
+    body: >
+      The model has no persistent memory of its own. Everything it "knows" about
+      your conversation lives in the history list you pass on each call. Resetting
+      that list is equivalent to starting a brand-new conversation — except the
+      system prompt stays, so the chatbot keeps its configured persona and
+      instructions without you needing to re-enter them.
+    bullets:
+      - "History is the only memory — the model sees nothing that is not in the list"
+      - "Resetting returns history to [system_prompt], not to []"
+      - "The persona (system prompt) is preserved; all user and assistant turns are gone"
+      - "No restart needed — the running process continues with a clean slate"
+    narration: >
+      Here is the key insight: the model does not remember anything between calls.
+      Every time you call chat_turn, you hand it the entire history list, and that
+      list is all it has. If that list grows to fifty messages, the model has fifty
+      messages of context. If you hand it a list with just the system prompt, it
+      behaves as if you just opened a fresh conversation — same persona, no prior
+      turns. That is exactly what reset_history does. It does not wipe the system
+      prompt, because that is the thing you configured deliberately — the chatbot's
+      identity. It wipes every user message and every assistant reply, leaving the
+      model's instructions intact. The result is a clean slate without a restart.
+
+  - type: concept
+    label: "Chat commands as a pattern"
+    heading: "Slash Commands — Intercepted Before the Model Sees Them"
+    body: >
+      Real chatbots intercept lines that start with "/" at the chat loop level,
+      before those lines are ever sent to the model. This keeps command handling
+      separate from conversation handling and makes the set of commands easy to
+      extend. Three commands cover the core needs of a CLI chatbot.
+    bullets:
+      - "/quit — exit the loop and end the process cleanly"
+      - "/reset — call reset_history and confirm the conversation was cleared"
+      - "/history — display the current transcript without sending anything to the model"
+      - "Any unrecognised /command gets a helpful error instead of confusing the model"
+    narration: >
+      Think about what happens without this pattern. If a user types /reset and
+      your loop sends it straight to the model, the model will try to answer it as
+      a question. It might say something like "I'm not sure what you mean by slash
+      reset." That is not what you want. The fix is simple: before you do anything
+      else with the user's input, check whether it starts with a forward slash. If
+      it does, you are looking at a command, not a message, and you route it to a
+      command handler instead of to chat_turn. This separation is the same pattern
+      you will find in Discord bots, IRC clients, and terminal-based chat tools.
+      The three commands — /quit, /reset, /history — cover the most common
+      in-session needs, and the pattern makes it trivial to add more later.
+
+  - type: how_it_works
+    label: "Implementing the command check"
+    heading: "One startswith Check — Before the Model Call"
+    body: >
+      The command check lives at the top of the chat loop body, before the call to
+      chat_turn. If the input starts with "/", execution branches to a command
+      handler. Otherwise, the input is a normal message and chat_turn is called as
+      usual. The loop structure stays the same; the branch is just a guard.
+    code: |
+      while True:
+          user_input = input("You: ").strip()
+          if not user_input:
+              continue
+
+          if user_input.startswith("/"):
+              message, history = handle_command(user_input, history)
+              print(message)
+              if history is None:      # /quit signals exit with None
+                  break
+              continue                 # command handled — go back to the prompt
+
+          reply, history = chat_turn(history, user_input)
+          print(f"Assistant: {reply}")
+    narration: >
+      The structure is worth reading carefully. The very first check after stripping
+      the input is whether it starts with a slash. If it does, handle_command takes
+      over. That function returns two things: a message to display to the user, and
+      the new history. If the new history is None, that is the signal that /quit was
+      issued, so the loop breaks. If history is a list, execution continues back at
+      the top of the while loop. Only when the input does not start with a slash
+      does the code fall through to chat_turn. This means the model never sees slash
+      commands, and the command handler never has to worry about managing the model
+      call. Each piece has one job.
+
+  - type: code
+    label: "reset_history + command dispatch"
+    heading: "reset_history — Strip Turns, Keep the System Prompt"
+    code: |
+      def reset_history(history: list[dict]) -> list[dict]:
+          """
+          Return a new history containing only the system prompt (if present).
+
+          The chatbot's persona is preserved; all conversation turns are erased.
+          """
+          if history and history[0]["role"] == "system":
+              return [history[0]]
+          return []
+
+      # Usage:
+      history = [{"role": "system", "content": "You are a pirate."}]
+      history = append_turn(history, "Hello!", "Arr, ahoy!")
+      history = append_turn(history, "Tell me more.", "Shiver me timbers!")
+      print(f"Before reset: {len(history)} messages")
+
+      history = reset_history(history)
+      print(f"After reset:  {len(history)} messages (system prompt preserved)")
+      print(f"System: {history[0]['content']}")
+    narration: >
+      The implementation mirrors the pattern you have seen in this section: pure
+      function, new list returned, original never mutated. The logic is two lines.
+      If the history is non-empty and the first message is a system prompt, return a
+      new list containing only that first message. Otherwise — if history is empty,
+      or history[0] is not a system message — return an empty list. That is it. The
+      usage example shows why this matters in practice: you start with three messages
+      (system, user, assistant), call reset_history, and you are left with one — the
+      system prompt. The chatbot will greet the next user message as if nothing came
+      before, but it is still a pirate.
+
+  - type: how_it_works
+    label: "Command dispatch dict"
+    heading: "A Dict Maps Commands to Handlers — No if/elif Chain Needed"
+    body: >
+      Instead of a growing if/elif chain for each command, a COMMANDS dict maps
+      command strings to handler functions. handle_command looks up the command in
+      the dict, calls the handler, and decides what message and history to return.
+      Adding a new command means adding one entry to the dict — nothing else changes.
+    code: |
+      COMMANDS = {
+          "/quit":    lambda h: None,         # signal to exit the loop
+          "/reset":   reset_history,          # returns fresh history
+          "/history": lambda h: h,            # no-op (caller prints the history)
+      }
+
+      def handle_command(user_input: str, history: list[dict]) -> tuple[str, list[dict] | None]:
+          """
+          Handle a slash command. Returns (message_to_display, new_history_or_None).
+          None history signals the caller to exit.
+          """
+          cmd = user_input.strip().lower()
+          if cmd not in COMMANDS:
+              return f"Unknown command: {cmd}", history
+          new_history = COMMANDS[cmd](history)
+          if cmd == "/quit":
+              return "Goodbye!", None
+          if cmd == "/reset":
+              return "Conversation reset.", new_history
+          if cmd == "/history":
+              return f"{(len(history)-1)//2} turns in history.", history
+          return "", history
+    narration: >
+      The dispatch dict is a small but important design choice. Compare it to the
+      alternative: an if/elif block that checks for "/quit", then "/reset", then
+      "/history", then falls through to an else. That works, but every new command
+      requires editing the middle of the function. The dict separates the mapping —
+      which command does what — from the response logic — what message to show the
+      user. Adding "/clear" or "/save" later means one new line in COMMANDS and one
+      new if-block in handle_command for the user-facing message. The handler
+      functions themselves stay simple: reset_history does the real work for /reset,
+      and the lambdas for /quit and /history are intentionally trivial. None signals
+      exit; returning the unchanged history means the loop continues normally.
+
+  - type: exercise
+    heading: "Exercise 4: Reset History"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `reset_history(history)` so
+      that it returns a new list containing only the system message when
+      `history[0]["role"] == "system"`. If there is no system message — either
+      because history is empty or because history[0] is not a system turn — return
+      an empty list. Do not mutate the original history list.
+    hint: >
+      Check `history and history[0]["role"] == "system"` before slicing. Return
+      `[history[0]]` for a history that starts with a system prompt, `[]` otherwise.
+      Like append_turn, this returns a new list — never mutate history in place.
+    narration: >
+      Your turn. The function is short, but the automated checks are testing the
+      edges carefully. There will be a check with a history that has a system prompt
+      followed by several turns — your function must return a list of length one
+      containing only the system message. There will be a check with an empty history
+      — your function must return an empty list without raising an IndexError. There
+      will be a check where the first message is a user turn, not a system turn —
+      your function must return an empty list in that case too. And there will be a
+      check confirming that the original history list was not mutated. Write the
+      function, run the checks, and then read back through the COMMANDS dict and
+      handle_command above to see exactly where reset_history plugs in.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "reset_history strips all turns and returns a fresh list with only the system prompt — persona preserved, conversation erased"
+      - "Chat commands are intercepted BEFORE the model call: check user_input.startswith('/') in the loop"
+      - "A command dispatch dict maps command strings to handler functions — cleaner than if/elif chains and easy to extend"
+      - "Next: format_history to pretty-print the transcript, then wiring all five functions into a complete CLI chatbot"
+    narration: >
+      You now have four of the five functions that make up the complete chatbot.
+      You can build a history, append turns to it, truncate it when it grows too
+      long, and reset it on demand without restarting the process. You also have the
+      command dispatch pattern that keeps slash commands cleanly separated from
+      conversation flow. The last piece is format_history — a function that takes
+      the raw list of dicts and renders it as a readable transcript, which is what
+      /history will display. Once that is in place, Lesson 5 wires everything
+      together into a single CLI chatbot that you can actually run, type into, and
+      use. That is the capstone for Day 15, and it is closer than it looks.

@@ -1,0 +1,220 @@
+day: "015"
+lesson: "03"
+title: "History Truncation"
+
+slides:
+
+  - type: title
+    heading: "History Truncation"
+    subheading: "Conversations can't grow forever"
+    narration: >
+      Welcome to Lesson 3. In the last two lessons you built the backbone of a
+      multi-turn chatbot: a history list that grows one user/assistant pair at a time,
+      and a chat_turn function that feeds the whole list to the model on every call.
+      That design is correct — but it has a slow-burning problem baked in. Every time
+      you call append_turn, the history gets longer. At some point it gets so long that
+      it no longer fits inside the model's context window, and the next API call either
+      throws an error or silently drops the oldest messages. In this lesson you will
+      add truncate_history: a single function that keeps the conversation healthy no
+      matter how long the user talks.
+
+  - type: concept
+    label: "The overflow problem"
+    heading: "Why History Overflows"
+    body: >
+      Each turn adds two messages to the history — one from the user and one from the
+      assistant. After 20 to 30 turns, even a modest 4096-token context window is full.
+      When the next request exceeds the limit, the API raises a token-limit error or
+      the model quietly drops content you were counting on.
+    bullets:
+      - "Turn 1 adds ~2× the text of that exchange; by turn 20 you might have 3 000+ tokens in history alone"
+      - "A 4096-token window fills up fast when each assistant reply is 50–150 tokens"
+      - "The model can't tell you it ran out of room — it just stops seeing the oldest turns"
+      - "Silent truncation is worse than an error: the chatbot appears to work but has forgotten its own earlier answers"
+    narration: >
+      Here is the math that makes the problem concrete. Suppose each user message
+      averages 20 tokens and each assistant reply averages 80 tokens — fairly typical
+      for a question-and-answer chatbot. That is 100 tokens per turn. Add a 50-token
+      system prompt and you hit 4096 tokens at roughly turn 40. But assistant replies
+      can easily run much longer, and your context window might be smaller than 4096.
+      In practice, developers hit this wall somewhere between turn 15 and turn 50 for
+      the first time, usually by surprise. The real danger is not the error — errors are
+      visible. The danger is silent truncation, where the API quietly drops the oldest
+      messages to fit within the window. Your chatbot continues responding, but it has
+      quietly forgotten everything it said in the first half of the conversation. The
+      fix is to truncate deliberately, on your terms, before the API has to do it for you.
+
+  - type: concept
+    label: "What to keep"
+    heading: "Keep the System Prompt. Drop the Oldest Turns."
+    body: >
+      Not all history is equally valuable. The system prompt defines the chatbot's
+      persona, rules, and constraints — it must never be dropped. The most recent
+      user/assistant pairs give the model the context it needs right now. The oldest
+      pairs are the safest to discard first.
+    bullets:
+      - "history[0] is the system prompt — always keep it; losing it changes the chatbot's behaviour entirely"
+      - "The most recent max_turns pairs contain the live thread of the conversation"
+      - "Older pairs add token cost but diminishing relevance — the user has moved on"
+      - "Drop oldest first: the model needs to know what was just said, not what was said 25 turns ago"
+    narration: >
+      Think of it like a stack of notes on your desk. The sticky note at the top with
+      your standing instructions — "always respond formally", "you are a Python tutor"
+      — is the system prompt. You never throw that away. The notes from the last few
+      exchanges are the ones you actually refer to when composing your next reply. The
+      notes from 30 exchanges ago are probably irrelevant to whatever the user is asking
+      right now, and they are taking up space. Truncation formalises that intuition:
+      always keep the system prompt, keep the most recent N pairs, and discard
+      everything in between. N is your max_turns parameter — a dial you can tune to
+      balance context quality against token cost. Ten turns is a reasonable default for
+      most conversational assistants.
+
+  - type: how_it_works
+    label: "Slicing the history"
+    heading: "Slicing the History List"
+    body: >
+      The full history is a flat list — system message at index 0, then alternating
+      user and assistant messages. Truncation separates the system message, takes only
+      the last max_turns * 2 non-system messages, and prepends the system message back.
+    bullets:
+      - "history[0] — the system prompt (if present); extracted separately so it is never sliced away"
+      - "history[1:] — all user/assistant messages; these are the candidates for dropping"
+      - "tail[-(max_turns * 2):] — Python negative slice: keep the last max_turns pairs (2 messages each)"
+      - "system + keep — prepend the system message back to produce the final truncated list"
+    narration: >
+      The slice operation is the heart of the function, and it is surprisingly compact.
+      Once you separate the system message from the rest of the list, you have a tail
+      of alternating user and assistant messages. Each pair occupies exactly two
+      consecutive positions. To keep the most recent max_turns pairs, you multiply by
+      two and take a negative slice: tail[-(max_turns * 2):]. Python's negative slice
+      counts from the end, so this reliably gives you the last max_turns * 2 messages
+      regardless of how long the tail is. If the tail is shorter than max_turns * 2 —
+      for example, on a brand-new conversation with only three turns — the slice returns
+      the whole tail unchanged. Then you glue the system message back on at the front,
+      and you are done. The whole operation is two lines of real logic.
+
+  - type: code
+    label: "Implementation"
+    heading: "truncate_history"
+    code: |
+      def truncate_history(
+          history: list[dict],
+          max_turns: int = 10,
+      ) -> list[dict]:
+          """
+          Keep the system prompt and the most recent max_turns user/assistant pairs.
+
+          Args:
+              history:   Full message history (system at [0], then user/assistant pairs).
+              max_turns: Maximum number of turns (pairs) to retain.
+
+          Returns:
+              Truncated history: [system] + last (max_turns * 2) non-system messages.
+              If history has no system message, returns the last max_turns * 2 messages.
+          """
+          if not history:
+              return []
+          if history[0]["role"] == "system":
+              system = [history[0]]
+              tail   = history[1:]
+          else:
+              system = []
+              tail   = history
+          keep = tail[-(max_turns * 2):]   # last max_turns pairs (2 msgs each)
+          return system + keep
+
+      # Example:
+      system = [{"role": "system", "content": "You are a helpful assistant."}]
+      msgs   = system.copy()
+      for i in range(8):          # simulate 8 turns
+          msgs = append_turn(msgs, f"Question {i}", f"Answer {i}")
+
+      print(f"Before: {len(msgs)} messages ({(len(msgs)-1)//2} turns)")
+      msgs = truncate_history(msgs, max_turns=3)
+      print(f"After:  {len(msgs)} messages ({(len(msgs)-1)//2} turns)")
+      print(f"Oldest retained: '{msgs[1]['content']}'")
+    narration: >
+      Here is the complete implementation. The first guard handles an empty history —
+      nothing to slice, return an empty list. The second block checks whether position
+      zero holds a system message by inspecting the role field. If it does, the system
+      message is extracted into a one-element list and the rest of the history becomes
+      the tail. If there is no system message — which can happen if you are working with
+      a history that was assembled without one — system is set to an empty list and tail
+      is the full history. Either way, the negative slice on tail gives you the last
+      max_turns * 2 messages, and concatenating system + keep produces the result. The
+      example at the bottom simulates eight turns, then truncates to three. Before
+      truncation you have 17 messages: one system plus 16 user/assistant messages.
+      After truncation you have 7: one system plus the 6 messages from the last three
+      turns. The print on the last line confirms which turn is now oldest — it should
+      be Question 5, the fifth of the eight turns, since turns 0 through 4 were dropped.
+
+  - type: concept
+    label: "The pair invariant"
+    heading: "Always Cut on Pair Boundaries"
+    body: >
+      User and assistant messages always come in pairs. Truncation must cut at pair
+      boundaries — even offsets from position 1 in the list — to avoid leaving an
+      orphaned user message with no corresponding assistant reply.
+    bullets:
+      - "A well-formed history after the system message looks like: user, assistant, user, assistant, ..."
+      - "Cutting at an odd offset (from position 1) would leave a user message with no assistant reply at the start of the retained window"
+      - "max_turns * 2 ensures the cut always lands between a pair — never inside one"
+      - "An orphaned user message at the front confuses the model and can cause the API to reject the request"
+    narration: >
+      This constraint is easy to overlook because it is invisible when the code is
+      working correctly. The formula max_turns * 2 automatically produces even numbers
+      — 2, 4, 6, 20 — and an even-length slice of a well-formed tail always starts on
+      a user message and ends on an assistant message. The problem only surfaces if you
+      try to truncate by an odd number of messages, or if you calculate the cut point
+      differently and accidentally land on an assistant message at the boundary. The
+      model expects a strict alternating pattern, and most APIs will either reject a
+      request where two user messages appear consecutively or produce unpredictable
+      output. The pair invariant is the reason the function works in terms of turns
+      rather than individual messages — it is the natural unit that preserves the
+      structure.
+
+  - type: exercise
+    heading: "Exercise 3: Truncate History"
+    prompt: >
+      Implement truncate_history(history, max_turns=10) -> list[dict]. Keep the system
+      message (if present at [0]) plus the last max_turns user/assistant pairs. Pairs
+      always come in twos — slice history[1:] in chunks of 2 from the end.
+    hint: >
+      Separate the system message first: system = [history[0]] if history and
+      history[0]['role'] == 'system' else []. Then keep = history[1:][-(max_turns * 2):]
+      (or tail[-(max_turns * 2):] after slicing off the system). Return system + keep.
+    narration: >
+      Your turn. The exercise notebook has a history list already built for you — a
+      system message followed by several turns of simulated conversation — so you can
+      focus entirely on the slicing logic. Start by handling the edge cases: what if
+      history is empty? What if there is no system message at position zero? Then write
+      the core slice. The automated checks will test a history shorter than max_turns
+      to make sure you return it unchanged, a history longer than max_turns to verify
+      the oldest turns are dropped, and a history with no system message to make sure
+      your function does not crash when position zero is a user message. If all checks
+      pass, you have a production-ready truncation function. Come back for the summary
+      when you are done.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "History grows by ~2 messages per turn — truncation prevents context window overflow"
+      - "Always keep the system prompt: it defines the chatbot's persona and rules"
+      - "Drop the OLDEST turns first — the most recent context is most relevant to the current question"
+      - "Slice on pair boundaries (max_turns * 2) to avoid leaving an orphaned user message with no reply"
+      - "Next: resetting the conversation — starting fresh without restarting the program"
+    narration: >
+      Four things to carry forward. First: the overflow problem is not hypothetical —
+      it hits every chatbot that holds history in memory, usually somewhere between
+      turn 15 and turn 50 depending on how long the replies are. Truncation is not an
+      optimisation you add later; it is a correctness requirement from the start. Second:
+      the system prompt is sacred. It is the one part of the history that must survive
+      every truncation. Without it the model reverts to its default behaviour and all
+      the persona engineering you put into it is silently lost. Third: always drop from
+      the oldest end. The conversation is almost always about something that happened
+      recently, not something that was established 30 turns ago. Dropping newest-first
+      would be actively harmful. Fourth: the pair invariant is why the formula is
+      max_turns * 2, not max_turns. Messages come in user/assistant pairs and must be
+      removed as pairs to keep the history structurally valid. In Lesson 4 you will
+      build the reset function — a way to wipe the conversation slate clean and start
+      a fresh session without restarting your program.
