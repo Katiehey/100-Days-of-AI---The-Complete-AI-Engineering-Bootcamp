@@ -1,0 +1,158 @@
+day: "017"
+lesson: "04"
+title: "The Tool Turn"
+
+slides:
+
+  - type: title
+    heading: "The Tool Turn"
+    subheading: "One function for the complete tool-use loop"
+    narration: >
+      You have four building blocks: has_tool_call detects whether the model
+      requested a function, extract_tool_call pulls out the name and arguments,
+      execute_tool runs the Python function, and append_tool_result threads the
+      output back into the messages list. This lesson combines them into a single
+      function — tool_turn — that handles one complete user turn including any
+      tool call the model makes. tool_turn is the streaming-turn equivalent from
+      Day 16 for the tool-use world: a drop-in replacement for chat_turn that
+      also handles function calls.
+
+  - type: how_it_works
+    label: "The tool_turn flow"
+    heading: "tool_turn: Two Possible Paths Through the Loop"
+    body: >
+      tool_turn sends the user message to the model and follows one of two
+      paths. If the model replies directly (no tool call), it appends the turn
+      to history and returns the reply. If the model requests a tool call, it
+      executes the function, threads the result back, calls the model a second
+      time, and returns the final reply.
+    code: |
+      # Path A — direct reply (no tool call):
+      user message → model → assistant reply → append_turn → done
+
+      # Path B — tool call:
+      user message → model → tool call detected
+                           → execute_tool
+                           → append_tool_result
+                           → model (second call) → final reply
+                           → append_turn → done
+
+      # In both cases tool_turn returns (reply, new_history)
+      # — the same contract as chat_turn from Day 15
+    narration: >
+      The two paths share the same entry and exit points. Both receive the same
+      inputs — history and user_input — and both return the same output — a
+      (reply, new_history) tuple. The caller does not need to know which path
+      was taken; it just gets the reply and the updated history. This is the
+      right abstraction: the complexity of the tool loop is hidden inside
+      tool_turn, and the chatbot loop above it remains as simple as it was on
+      Day 15. Callers that used chat_turn can switch to tool_turn without
+      changing anything else.
+
+  - type: code
+    label: "tool_turn"
+    heading: "tool_turn — The Complete Tool-Use Turn"
+    code: |
+      def tool_turn(
+          history: list[dict],
+          user_input: str,
+          tools: list[dict],
+          registry: dict,
+          model: str = "llama3.2",
+      ) -> tuple[str, list[dict]]:
+          """
+          Send user_input to the model and handle any tool call it makes.
+
+          If the model calls a tool: execute it, thread the result back, and
+          call the model again to get the final reply.
+          Returns (reply, new_history) in both the direct and tool-call paths.
+          """
+          messages = history + [{"role": "user", "content": user_input}]
+          response = ollama.chat(model=model, messages=messages, tools=tools)
+
+          if has_tool_call(response):
+              fn_name, fn_args = extract_tool_call(response)
+              tool_output = execute_tool(fn_name, fn_args, registry)
+              messages = append_tool_result(messages, response["message"], tool_output)
+              response = ollama.chat(model=model, messages=messages, tools=tools)
+
+          reply = response["message"]["content"]
+          return reply, append_turn(history, user_input, reply)
+    narration: >
+      Read through tool_turn step by step. First, the user message is added to
+      the messages list and the model is called. If the response contains a tool
+      call, four things happen: extract_tool_call pulls the name and arguments,
+      execute_tool runs the function, append_tool_result adds the assistant
+      tool-call message and the tool result to messages, and the model is called
+      a second time with the updated context. After either path, the final reply
+      is extracted from response["message"]["content"] and append_turn from Day
+      15 adds the clean user+assistant pair to history. Notice that append_turn
+      is called with the original history — not the extended messages list — so
+      the tool-call and tool-result messages are only in the intermediate
+      messages variable and do not pollute the long-term history. This keeps
+      history clean while still giving the model the context it needs for the
+      tool call.
+
+  - type: concept
+    label: "History vs messages"
+    heading: "history (clean) vs messages (extended for tool calls)"
+    body: >
+      tool_turn maintains two separate lists. messages is the full extended
+      context including tool calls and results — used for model calls within this
+      turn. history is the clean long-term record — only user and assistant turns
+      that will persist across future turns. append_turn updates history, not
+      messages.
+    bullets:
+      - "messages: user + tool-call + tool-result — full context for model calls within this turn"
+      - "history: user + final reply only — persists across turns, stays clean"
+      - "Keeping tool messages out of history prevents them from cluttering future turns"
+      - "append_turn(history, user_input, reply) — updates the clean history with just the final reply"
+    narration: >
+      This separation is a deliberate design choice. If you stored every tool
+      call and tool result in history permanently, the history would grow very
+      quickly with internal plumbing that is not useful to the user or to future
+      model calls. The user typed "What is 2847 * 193?" and the model replied
+      "The answer is 549,471." That exchange is what belongs in history. The
+      intermediate tool call and its raw numeric result are scaffolding — they
+      served their purpose within this turn and can be discarded. The only thing
+      that needs to persist is the clean user question and the final natural-
+      language reply. This approach also means truncate_history from Day 15
+      works correctly on the clean history without needing to know about tool
+      messages.
+
+  - type: exercise
+    heading: "Exercise 4: Tool Turn"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `tool_turn(history,
+      user_input, tools, registry, model)`. Call the model once. If
+      `has_tool_call` returns True, execute the tool, thread the result back
+      with `append_tool_result`, and call the model a second time. Extract the
+      final reply and return `(reply, append_turn(history, user_input, reply))`.
+    hint: >
+      Follow the code in the lesson: `messages = history + [user_msg]`, call
+      `ollama.chat`, check `has_tool_call`, branch on it, then always extract
+      `reply = response["message"]["content"]` and call `append_turn` at the
+      end.
+    narration: >
+      The checks test tool_turn against both paths: a prompt that triggers the
+      calculate tool (path B) and a simple greeting that gets a direct reply
+      (path A). Both checks verify the return type, that the reply is a non-empty
+      string, and that the history grew by exactly 2 messages. The tool-call path
+      also verifies that the reply contains the correct numeric result.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "tool_turn handles both paths: direct reply (one model call) and tool call (two model calls)"
+      - "Same contract as chat_turn: (history, user_input) in, (reply, new_history) out"
+      - "Separate messages (extended with tool plumbing) from history (clean user+reply pairs only)"
+      - "append_turn is called on the original history — tool messages stay in messages, not history"
+      - "Next: the tool-using chatbot — wiring tool_turn into a full multi-turn loop"
+    narration: >
+      tool_turn is the payoff for the four building blocks you spent the first
+      three lessons assembling. Each piece had a single clear responsibility, and
+      tool_turn composes them in the right order without any of the pieces needing
+      to know about each other. The clean history versus extended messages
+      distinction is a pattern you will encounter again whenever you build
+      multi-step reasoning loops: keep the long-term record clean and use
+      temporary extended context only within the scope where it is needed.

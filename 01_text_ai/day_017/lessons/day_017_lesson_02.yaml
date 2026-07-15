@@ -1,0 +1,234 @@
+day: "017"
+lesson: "02"
+title: "Defining Tools"
+
+slides:
+
+  - type: title
+    heading: "Defining Tools"
+    subheading: "Describing your functions so the model can call them"
+    narration: >
+      The model cannot call a Python function it does not know about. You
+      describe each function to the model using a tool definition — a
+      dictionary that specifies the function's name, what it does, and what
+      parameters it accepts. In this lesson you will write tool definitions for
+      a calculator and a weather lookup, and you will build a tool registry that
+      maps function names to the actual Python callables. By the end you will
+      have everything the model needs to decide which function to call and what
+      arguments to pass.
+
+  - type: concept
+    label: "Tool definition structure"
+    heading: "A Tool Definition Is a Dict the Model Reads as Documentation"
+    body: >
+      A tool definition follows a fixed schema: type, function name,
+      description, and a parameters block that uses JSON Schema to describe each
+      argument. The description is the most important part — it is what the model
+      reads to decide whether to call this tool for a given user request.
+    bullets:
+      - "type: 'function' — the only supported type today"
+      - "function.name: the string the model will put in tool_calls[0].function.name"
+      - "function.description: plain English — what this function does and when to use it"
+      - "function.parameters: JSON Schema object describing the arguments"
+    narration: >
+      Think of a tool definition as documentation that the model can act on.
+      When you write a docstring for a Python function, you are telling human
+      readers what the function does. A tool definition tells the model the same
+      thing in a structured format it can parse and use to make decisions. The
+      name field must exactly match the Python function you will execute — if the
+      model returns tool_calls[0].function.name equal to "calculate", you need
+      a Python function registered under exactly that key. The description is
+      plain English and is critical: a vague description leads to the model
+      calling the wrong tool or misunderstanding when to use it. Write
+      descriptions the way you would write a clear docstring: what the function
+      does, what inputs it expects, and what it returns.
+
+  - type: code
+    label: "Tool definition example"
+    heading: "Calculator and Weather Tool Definitions"
+    code: |
+      TOOLS = [
+          {
+              "type": "function",
+              "function": {
+                  "name": "calculate",
+                  "description": (
+                      "Evaluate a mathematical expression and return the numeric result. "
+                      "Use this for any arithmetic, including +, -, *, /, **, and %. "
+                      "Pass the expression as a string, e.g. '2847 * 193'."
+                  ),
+                  "parameters": {
+                      "type": "object",
+                      "properties": {
+                          "expression": {
+                              "type": "string",
+                              "description": "A Python math expression, e.g. '12 * 34' or '(100 - 32) * 5/9'",
+                          }
+                      },
+                      "required": ["expression"],
+                  },
+              },
+          },
+          {
+              "type": "function",
+              "function": {
+                  "name": "get_weather",
+                  "description": (
+                      "Return the current temperature for a city. "
+                      "Use this when the user asks about current weather or temperature."
+                  ),
+                  "parameters": {
+                      "type": "object",
+                      "properties": {
+                          "city": {
+                              "type": "string",
+                              "description": "City name, e.g. 'London' or 'Tokyo'",
+                          }
+                      },
+                      "required": ["city"],
+                  },
+              },
+          },
+      ]
+    narration: >
+      Two tools: one for arithmetic, one for weather. The calculator takes a
+      single string parameter called expression. The description tells the model
+      to use this tool for any arithmetic and shows it what an expression looks
+      like — the example strings in the description help the model produce
+      well-formed arguments. The weather tool takes a city name. Both tools have
+      a parameters block that uses JSON Schema: type is "object", properties
+      maps parameter names to their type and description, and required lists the
+      parameters that must always be provided. The model uses this schema to
+      populate the arguments dict in its tool call. Keep parameter schemas
+      simple — the model struggles with deeply nested objects and rarely needs
+      more than one or two flat string or number fields per tool.
+
+  - type: how_it_works
+    label: "The tool registry"
+    heading: "A Dict Maps Tool Names to Python Callables"
+    body: >
+      The tool registry is a simple dict: keys are tool name strings, values
+      are the Python functions to call. When the model returns a tool call with
+      a name, you look up the name in the registry and call the function with
+      the arguments the model provided.
+    code: |
+      import ast
+      import operator
+
+      def calculate(expression: str) -> str:
+          """Evaluate a safe arithmetic expression and return the result as a string."""
+          allowed = {
+              ast.Add: operator.add, ast.Sub: operator.sub,
+              ast.Mult: operator.mul, ast.Div: operator.truediv,
+              ast.Pow: operator.pow, ast.Mod: operator.mod,
+              ast.USub: operator.neg,
+          }
+          def _eval(node):
+              if isinstance(node, ast.Constant):
+                  return node.value
+              if isinstance(node, ast.BinOp):
+                  return allowed[type(node.op)](_eval(node.left), _eval(node.right))
+              if isinstance(node, ast.UnaryOp):
+                  return allowed[type(node.op)](_eval(node.operand))
+              raise ValueError(f"Unsafe expression: {ast.dump(node)}")
+          result = _eval(ast.parse(expression, mode="eval").body)
+          return str(result)
+
+      def get_weather(city: str) -> str:
+          """Return a simulated current temperature for a city."""
+          # Simulated — a real implementation would call a weather API
+          temperatures = {"london": "12°C", "tokyo": "22°C", "paris": "15°C",
+                          "new york": "18°C", "sydney": "24°C"}
+          temp = temperatures.get(city.lower(), "20°C")
+          return f"The current temperature in {city} is {temp}."
+
+      TOOL_REGISTRY = {
+          "calculate": calculate,
+          "get_weather": get_weather,
+      }
+    narration: >
+      Two implementation decisions here deserve attention. First, the calculate
+      function uses Python's ast module to parse and evaluate the expression
+      safely, rather than calling eval() directly. Never call eval() on model-
+      provided input — the model might generate expressions like
+      __import__('os').system('rm -rf /') and eval would execute them. The ast
+      approach allows only arithmetic operators and numeric constants; anything
+      else raises a ValueError. This is the minimum safety bar for any function
+      that executes model-generated code. Second, get_weather is simulated with
+      a dictionary lookup rather than a live API call. For a real deployment you
+      would call a weather API like OpenWeatherMap. The simulation keeps the
+      exercise zero-cost and zero-dependency, while the interface — the function
+      takes a city name and returns a string — is exactly what a real
+      implementation would look like.
+
+  - type: concept
+    label: "execute_tool"
+    heading: "execute_tool — Look Up and Call the Right Function"
+    body: >
+      execute_tool takes a function name, a dict of arguments, and the registry,
+      and returns the tool's string output. It is the bridge between the model's
+      structured request and your Python functions.
+    code: |
+      def execute_tool(fn_name: str, fn_args: dict, registry: dict) -> str:
+          """
+          Look up fn_name in the registry and call it with fn_args.
+
+          Returns the tool output as a string. Raises KeyError for unknown tools.
+          """
+          if fn_name not in registry:
+              raise KeyError(f"Unknown tool: {fn_name!r}")
+          return registry[fn_name](**fn_args)
+
+      # Example:
+      result = execute_tool("calculate", {"expression": "2847 * 193"}, TOOL_REGISTRY)
+      print(result)   # "549471"
+
+      result = execute_tool("get_weather", {"city": "Tokyo"}, TOOL_REGISTRY)
+      print(result)   # "The current temperature in Tokyo is 22°C."
+    narration: >
+      execute_tool is intentionally thin. Its only job is to look up the
+      function, call it with the arguments the model provided using **fn_args to
+      unpack the dict as keyword arguments, and return the string result. Raising
+      KeyError for unknown tools is the right behaviour here: if the model
+      hallucinated a tool name that does not exist in your registry, you want an
+      immediate, visible error rather than a silent None. In a production system
+      you would catch that KeyError at a higher level and either return an error
+      message to the model or log and skip the call. For today's exercises, the
+      explicit raise is the clearest signal of what went wrong.
+
+  - type: exercise
+    heading: "Exercise 2: Define Tools and Execute"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `execute_tool(fn_name,
+      fn_args, registry)`. It should look up `fn_name` in `registry` and call
+      the function with `**fn_args`. Raise `KeyError` for unknown tools.
+    hint: >
+      `registry[fn_name](**fn_args)` is the core. Check `fn_name not in
+      registry` first and raise `KeyError`. The registry is already provided;
+      you only need to implement the dispatch function.
+    narration: >
+      The checks test execute_tool against the provided calculate and
+      get_weather functions with several inputs: a correct arithmetic expression,
+      a city lookup, an unknown tool name (should raise KeyError), and a
+      multi-argument call. All checks use the provided registry — you do not
+      need to write the tool functions themselves.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "A tool definition is a dict: type, function name, description (critical for model decisions), and a JSON Schema parameters block"
+      - "The description tells the model when and how to use the tool — write it like a clear docstring"
+      - "TOOL_REGISTRY: dict mapping tool name strings to Python callables"
+      - "Never use eval() on model-provided expressions — use ast to parse and evaluate only safe arithmetic"
+      - "execute_tool(fn_name, fn_args, registry) — looks up the function and calls it with **fn_args"
+      - "Next: append_tool_result — adding the tool output to the messages list so the model can use it"
+    narration: >
+      The tool definition and the tool registry are the two halves of the
+      connection between the model and your code. The definition is what you
+      show the model — the contract it uses to decide what to call and how to
+      form the arguments. The registry is what you use internally — the map from
+      that contract to actual executable code. Keeping them separate means you
+      can update one without touching the other: add a new tool by writing the
+      function, adding an entry to the registry, and adding a definition to the
+      TOOLS list. In the next lesson you will see how to thread the tool result
+      back into the conversation so the model can use it in its final reply.

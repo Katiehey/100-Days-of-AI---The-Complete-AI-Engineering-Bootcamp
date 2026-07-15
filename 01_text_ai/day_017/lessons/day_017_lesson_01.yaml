@@ -1,0 +1,159 @@
+day: "017"
+lesson: "01"
+title: "What Is Tool Use?"
+
+slides:
+
+  - type: title
+    heading: "What Is Tool Use?"
+    subheading: "From talking to doing"
+    narration: >
+      Welcome to Day 17. Up to now your chatbot can talk — it can answer
+      questions, summarise text, classify, extract, and generate. But it cannot
+      do anything. If you ask it to calculate 2847 times 193, it will attempt
+      to do arithmetic in its head and probably get a wrong answer. If you ask
+      it what the current weather is, it will tell you it cannot access the
+      internet. Tool use — also called function calling — fixes this by letting
+      the model call Python functions you define. The model decides when to call
+      a tool, what arguments to pass, and how to incorporate the result into its
+      reply. Today you will build an assistant that can accurately calculate and
+      look up weather by wiring tools into the conversation loop.
+
+  - type: concept
+    label: "The gap between knowing and doing"
+    heading: "LLMs Know; Tools Do"
+    body: >
+      Language models are trained on text. They know a great deal about the
+      world as it was when training ended, and they can reason about things
+      described in their context. But they cannot execute code, query a live
+      database, or fetch a URL. Tools bridge that gap by giving the model
+      handles to functions that can actually do those things.
+    bullets:
+      - "LLM strength: language, reasoning, summarisation, generation"
+      - "LLM weakness: arithmetic precision, live data, side effects (sending email, writing files)"
+      - "Tool use: the model triggers a Python function; your code executes it; the result flows back"
+      - "The model never runs your code directly — it only requests a call with arguments"
+    narration: >
+      Think about what a language model actually is: a very sophisticated
+      pattern-matcher over tokens trained on human-written text. It has read
+      millions of pages about mathematics and can explain calculus beautifully,
+      but that does not mean it can reliably compute 2847 times 193. Arithmetic
+      is a mechanical operation over symbols, and the model was never designed
+      to do it mechanically. Similarly, the model can describe what the weather
+      is like in Paris in July based on what it has read, but it cannot tell
+      you what the temperature is right now. Tools give the model the ability to
+      delegate those tasks to code that can actually execute them. The key
+      insight is that the model never runs anything itself — it generates a
+      structured request saying "please call this function with these arguments",
+      your code executes the function, and then you hand the result back to the
+      model so it can incorporate it into a natural-language reply.
+
+  - type: concept
+    label: "The tool use loop"
+    heading: "The Tool Loop: Request → Execute → Reply"
+    body: >
+      Tool use adds a new step to the conversation loop you built on Days 15 and
+      16. Instead of immediately returning a reply, the model may return a tool
+      call request. You execute the function, append the result to the messages
+      list, and call the model again. The model then generates a final reply
+      incorporating the tool result.
+    bullets:
+      - "Step 1: Send messages to the model — it may return a tool call instead of a reply"
+      - "Step 2: Detect the tool call, extract the function name and arguments"
+      - "Step 3: Execute the function in Python — this is your code, not the model's"
+      - "Step 4: Append the tool result as a tool message; call the model again"
+      - "Step 5: Model generates a final natural-language reply using the result"
+    narration: >
+      The loop is the heart of tool use. On Day 15 the conversation loop was
+      simple: user message in, assistant reply out. Tool use adds a branch in
+      the middle. When you send messages to the model, it has two possible
+      responses: it can reply directly in natural language, or it can return a
+      tool call — a structured request saying which function to call and with
+      what arguments. If it returns a tool call, you extract the function name
+      and arguments, execute the corresponding Python function, then add the
+      result back to the messages list as a new message with role "tool". You
+      then call the model again with this extended history. The model sees the
+      tool result and generates its final natural-language reply. This loop can
+      repeat — the model can call multiple tools in sequence before it decides
+      it has enough information to reply. Today's implementation will handle one
+      tool call per turn, which covers the vast majority of real-world uses.
+
+  - type: how_it_works
+    label: "Ollama tool use support"
+    heading: "Ollama's Tool Use — Same JSON, Local Model"
+    body: >
+      Ollama supports tool use with compatible models like llama3.2. The API is
+      nearly identical to OpenAI's function-calling interface: you pass a list
+      of tool definitions alongside the messages, and the model returns either a
+      normal message or a message with a tool_calls field.
+    code: |
+      import ollama
+
+      # The model returns a message — check whether it contains tool calls:
+      response = ollama.chat(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "What is 12 * 34?"}],
+          tools=[...],   # list of tool definitions — covered in Lesson 2
+      )
+      msg = response["message"]
+
+      if msg.get("tool_calls"):
+          # Model wants to call a tool
+          call = msg["tool_calls"][0]
+          fn_name = call["function"]["name"]
+          fn_args = call["function"]["arguments"]   # dict of argument values
+      else:
+          # Model replied directly
+          reply = msg["content"]
+    narration: >
+      The Ollama API for tool use follows the same pattern as the chat endpoint
+      you have used since Day 3, with two additions: a tools parameter that
+      carries the tool definitions, and a check on the returned message for a
+      tool_calls field. The tools parameter is a list of dictionaries describing
+      your functions — their names, descriptions, and the parameters they accept.
+      When the model decides to use a tool, the returned message has a
+      tool_calls field instead of (or in addition to) a content field. Each
+      element of tool_calls has a function sub-dict with a name and arguments.
+      The arguments are a plain Python dict — the model has already parsed them
+      from JSON for you. You take that dict, call the corresponding Python
+      function, and continue the loop.
+
+  - type: exercise
+    heading: "Exercise 1: Detect a Tool Call"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `has_tool_call(response)`
+      that returns True if the model's response contains at least one tool call,
+      and False otherwise. Then implement `extract_tool_call(response)` that
+      returns a tuple `(fn_name, fn_args)` from the first tool call in the
+      response.
+    hint: >
+      Check `response["message"].get("tool_calls")` for truthiness. Extract
+      `call["function"]["name"]` and `call["function"]["arguments"]` from
+      `response["message"]["tool_calls"][0]`.
+    narration: >
+      These two functions are the detection layer at the heart of every tool-use
+      loop. has_tool_call answers "did the model want to call something?", and
+      extract_tool_call answers "what did it want to call, and with what
+      arguments?" Together they let you branch cleanly between the direct-reply
+      path and the tool-call path in the conversation loop. The checks test
+      them against synthetic response dicts so you do not need a running model
+      to verify correctness — this is the same testability principle you applied
+      to every function since Day 4.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "LLMs talk; tools do — the model generates a call request, your code executes it, the result returns to the model"
+      - "The tool loop: send messages → detect tool call → execute function → append result → call model again → final reply"
+      - "Ollama supports tool use with llama3.2: pass tools=[...] and check response['message'].get('tool_calls')"
+      - "has_tool_call detects whether the model requested a function; extract_tool_call returns (fn_name, fn_args)"
+      - "Next: define tools — the JSON schema that tells the model what functions are available and what arguments they accept"
+    narration: >
+      The tool use loop is the fundamental pattern that separates a chatbot from
+      an assistant. A chatbot responds to what it knows; an assistant acts on
+      the world by calling functions. Everything else in today's lesson builds on
+      the loop you just learned: define tools so the model knows what functions
+      exist, execute them when requested, and wire it all into the conversation
+      so the model can use tools transparently inside a multi-turn chat. On the
+      next slide you will see how to describe functions to the model in a way it
+      can understand and act on.

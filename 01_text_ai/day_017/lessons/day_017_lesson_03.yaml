@@ -1,0 +1,152 @@
+day: "017"
+lesson: "03"
+title: "Threading Results Back"
+
+slides:
+
+  - type: title
+    heading: "Threading Results Back"
+    subheading: "Adding tool output to the conversation"
+    narration: >
+      You can detect a tool call and execute the function. The missing piece is
+      putting the result back into the messages list so the model can read it.
+      The messages list is the model's entire memory, so if the tool result is
+      not in there, the model cannot use it. This lesson covers the exact message
+      format for tool results and the function that appends them correctly.
+
+  - type: concept
+    label: "The tool result message"
+    heading: "Tool Results Go into the Messages List as Role 'tool'"
+    body: >
+      After you execute a tool, you add two messages to the history: the
+      assistant's tool-call message (what the model requested) and a new message
+      with role "tool" containing the function output. The model reads both on
+      the next call and generates its final natural-language reply.
+    bullets:
+      - "First append: the assistant message containing the tool call (role 'assistant')"
+      - "Second append: the tool result message (role 'tool') with the function output"
+      - "role 'tool' is new — you have seen 'system', 'user', and 'assistant'; 'tool' is the fourth"
+      - "The model needs both to generate a grounded final reply"
+    narration: >
+      Think about what the model sees on the second call. It has the original
+      messages, then it sees its own tool call request — the assistant message it
+      generated on the first call — then it sees the tool result, the new tool
+      message you added. Only with both of those in context can it generate a
+      reply that incorporates the result. If you skip the assistant tool-call
+      message and only add the tool result, the model sees an orphaned tool
+      message with no corresponding request and most models handle this
+      incorrectly. If you skip the tool result and only re-call the model, it
+      will try to answer from its internal knowledge, defeating the point of the
+      tool call. Both messages are required, in that order.
+
+  - type: code
+    label: "Tool message format"
+    heading: "The Two Messages You Append After a Tool Call"
+    code: |
+      # After detecting a tool call:
+      fn_name, fn_args = extract_tool_call(response)
+      tool_output = execute_tool(fn_name, fn_args, TOOL_REGISTRY)
+
+      # Append 1: the assistant's tool-call message (what the model generated)
+      assistant_tool_msg = response["message"]   # role="assistant", has tool_calls field
+
+      # Append 2: the tool result message
+      tool_result_msg = {
+          "role": "tool",
+          "content": tool_output,          # the string returned by your function
+      }
+
+      # Updated messages list for the second model call:
+      messages = messages + [assistant_tool_msg, tool_result_msg]
+
+      # Call the model again — it now generates the final reply
+      final_response = ollama.chat(model="llama3.2", messages=messages, tools=TOOLS)
+      reply = final_response["message"]["content"]
+    narration: >
+      The structure is clean. After executing the tool, you take the message
+      object the model returned on the first call — response["message"] — and
+      append it to messages as the assistant turn. Then you construct a new dict
+      with role "tool" and content set to the string output of the function, and
+      append that too. The messages list now has the original conversation, the
+      model's tool-call request, and the tool's answer. You call ollama.chat
+      again with this extended list and the model generates a final reply that
+      weaves the tool result into natural language. Notice that you still pass
+      tools=TOOLS on the second call — the model might decide to call another
+      tool based on the first result, and you want that option to remain open.
+
+  - type: how_it_works
+    label: "append_tool_result"
+    heading: "append_tool_result — Immutable History Update"
+    body: >
+      Following the immutable history pattern from Day 15, append_tool_result
+      takes the current messages list and returns a new list with the two
+      additional messages appended. It never mutates the input list.
+    code: |
+      def append_tool_result(
+          messages: list[dict],
+          assistant_msg: dict,
+          tool_output: str,
+      ) -> list[dict]:
+          """
+          Return a new messages list with the assistant tool-call message and
+          the tool result appended.
+
+          assistant_msg: the response["message"] dict from the first model call
+          tool_output:   the string returned by the executed tool function
+          """
+          tool_result = {"role": "tool", "content": tool_output}
+          return messages + [assistant_msg, tool_result]
+
+      # Example:
+      original = [{"role": "user", "content": "What is 12 * 34?"}]
+      updated = append_tool_result(original, assistant_msg, "408")
+      # updated has 3 messages: user, assistant (tool call), tool result
+      assert len(updated) == 3
+      assert updated[-1]["role"] == "tool"
+      assert updated[-1]["content"] == "408"
+    narration: >
+      append_tool_result is deliberately minimal: it builds the tool result dict
+      and returns messages + [assistant_msg, tool_result]. Like append_turn from
+      Day 15, it is a pure function — same inputs always produce the same
+      outputs, the original list is never touched. This makes it easy to test:
+      call it with any messages list and any strings, verify the output, and
+      never worry about shared state. The function takes assistant_msg rather
+      than extracting it from a response object so that the tool-result concerns
+      are fully separated from the model-call concerns.
+
+  - type: exercise
+    heading: "Exercise 3: Append Tool Result"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement `append_tool_result(
+      messages, assistant_msg, tool_output)`. Return a new list with
+      `assistant_msg` and `{"role": "tool", "content": tool_output}` appended.
+      Do not mutate the input list.
+    hint: >
+      `return messages + [assistant_msg, {"role": "tool", "content": tool_output}]`.
+      The immutable history pattern from Day 15 applies here: never mutate the
+      input list.
+    narration: >
+      The checks test append_tool_result against several scenarios: an empty
+      starting list, a list with existing messages, verification that the
+      original list was not mutated, and verification that the last message has
+      role 'tool' with the correct content. One line of real logic — but getting
+      the format exactly right matters because a wrong role or missing content
+      key causes silent failures in the model's second call.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "After a tool call, append TWO messages: the assistant's tool-call message (role 'assistant') then the tool result (role 'tool')"
+      - "role 'tool' is the fourth role alongside 'system', 'user', and 'assistant'"
+      - "The model needs both messages on the second call to generate a grounded reply"
+      - "append_tool_result(messages, assistant_msg, tool_output) — pure function, returns new list"
+      - "Next: the full tool loop — combining detection, execution, and threading into one complete turn"
+    narration: >
+      The tool result message format is simple — role 'tool', content is the
+      function output as a string — but getting it right is essential. The model
+      has no way to infer the result of a function call; it can only read what
+      is explicitly in its context. append_tool_result ensures the result is in
+      exactly the right place in exactly the right format. In the next lesson
+      you will combine has_tool_call, extract_tool_call, execute_tool, and
+      append_tool_result into a complete tool_turn function that handles the
+      entire tool-use loop for one user message.

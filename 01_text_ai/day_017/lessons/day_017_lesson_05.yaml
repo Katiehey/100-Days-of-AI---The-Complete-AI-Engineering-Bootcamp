@@ -1,0 +1,169 @@
+day: "017"
+lesson: "05"
+title: "The Tool-Using Chatbot"
+
+slides:
+
+  - type: title
+    heading: "The Tool-Using Chatbot"
+    subheading: "Wire tool_turn into a full conversation loop"
+    narration: >
+      You have built five functions: has_tool_call, extract_tool_call,
+      execute_tool, append_tool_result, and tool_turn. This final lesson wires
+      them into a complete multi-turn chatbot that can answer questions, do
+      accurate arithmetic, and look up weather — all within a single conversation.
+      The chatbot loop is almost identical to run_chatbot from Day 15. The only
+      change is substituting tool_turn for chat_turn. Every other piece —
+      commands, history management, truncation — is unchanged.
+
+  - type: concept
+    label: "What changes from Day 015"
+    heading: "One Substitution — tool_turn Replaces chat_turn"
+    body: >
+      run_tool_chatbot is run_chatbot with tool_turn in place of chat_turn. The
+      loop structure, command handling, history truncation, and Ctrl+C exit are
+      identical. The new parameters are tools (the definitions list) and registry
+      (the name-to-callable dict), both passed through to tool_turn.
+    bullets:
+      - "Replace chat_turn(history, user_input, model) with tool_turn(history, user_input, tools, registry, model)"
+      - "Add tools and registry as parameters to run_tool_chatbot"
+      - "Everything else — /quit /reset /history, truncate_history, try/except — unchanged"
+      - "The user never sees tool calls — they just get accurate answers"
+    narration: >
+      This is the same pattern you saw on Day 16 when swapping chat_turn for
+      stream_chat_turn. Because every turn function shares the same contract —
+      (history, user_input) in, (reply, new_history) out — the chatbot loop
+      above it never changes structurally, only the function it calls. On Day 15
+      you built the loop. On Day 16 you added streaming. Today you add tool use.
+      Each of these is a one-function substitution at the turn level. This is
+      what good abstraction looks like in practice: the loop is stable, the turn
+      function is swappable.
+
+  - type: code
+    label: "run_tool_chatbot"
+    heading: "run_tool_chatbot — The Complete Tool-Using Loop"
+    code: |
+      SYSTEM_PROMPT = (
+          "You are a helpful assistant with access to a calculator and weather lookup. "
+          "Use the calculate tool for any arithmetic. "
+          "Use the get_weather tool when asked about current temperature or weather."
+      )
+
+      def run_tool_chatbot(
+          tools: list[dict] = TOOLS,
+          registry: dict = TOOL_REGISTRY,
+          system_prompt: str = SYSTEM_PROMPT,
+          model: str = "llama3.2",
+          max_turns: int = 10,
+      ) -> None:
+          """Run a multi-turn chatbot that can call tools."""
+          history = [{"role": "system", "content": system_prompt}]
+          print("Tool chatbot ready. Try asking for a calculation or weather.")
+          print("Commands: /quit  /reset  /history")
+          print("-" * 50)
+
+          while True:
+              try:
+                  user_input = input("You: ").strip()
+              except (EOFError, KeyboardInterrupt):
+                  print("\nGoodbye!")
+                  break
+
+              if not user_input:
+                  continue
+
+              if user_input.startswith("/"):
+                  if user_input == "/quit":
+                      print("Goodbye!")
+                      break
+                  elif user_input == "/reset":
+                      history = reset_history(history)
+                      print("Bot: Conversation reset.")
+                  elif user_input == "/history":
+                      transcript = format_history(history)
+                      print(transcript if transcript else "(no history yet)")
+                  else:
+                      print(f"Bot: Unknown command: {user_input}")
+                  continue
+
+              reply, history = tool_turn(history, user_input, tools, registry, model)
+              history = truncate_history(history, max_turns)
+              print(f"Bot: {reply}")
+    narration: >
+      Read through run_tool_chatbot and compare it to run_chatbot from Day 15.
+      The only structural differences are the tools and registry parameters, the
+      updated system prompt that tells the model what tools are available, and
+      the call to tool_turn instead of chat_turn. The system prompt matters here:
+      you are explicitly telling the model it has access to a calculator and a
+      weather tool and when to use each. Without that guidance the model might
+      answer arithmetic questions from its internal knowledge — sometimes
+      correctly, often with rounding errors — rather than reaching for the
+      calculate tool. A clear system prompt that names the tools and their
+      purposes dramatically improves tool selection accuracy.
+
+  - type: concept
+    label: "System prompt for tools"
+    heading: "Tell the Model What Tools It Has and When to Use Them"
+    body: >
+      The tool definitions describe HOW to call each tool. The system prompt
+      describes WHEN to use each tool. Both are needed. Without guidance in the
+      system prompt, the model may attempt to answer from memory even when a tool
+      would give a better result.
+    bullets:
+      - "Tool definition: tells the model the function's name, parameters, and what it returns"
+      - "System prompt: tells the model when to reach for each tool vs answering directly"
+      - "'Use calculate for any arithmetic' — prevents the model from doing mental math"
+      - "'Use get_weather when asked about current temperature' — prevents stale knowledge answers"
+    narration: >
+      Think of the tool definition as the API documentation and the system
+      prompt as the usage policy. The definition answers "how do I call this
+      function?" The system prompt answers "when should I call this function?"
+      Without a clear usage policy, the model must guess from context whether
+      the user's request warrants a tool call or a direct reply. For arithmetic,
+      a capable model might correctly decide to use the calculate tool most of
+      the time — but it will sometimes attempt mental arithmetic, especially for
+      simpler expressions. Explicitly saying "use calculate for any arithmetic"
+      in the system prompt converts a probabilistic behaviour into a reliable
+      one. The same principle applies to every tool you add: name it in the
+      system prompt and describe exactly when to use it.
+
+  - type: exercise
+    heading: "Exercise 5: Tool Chatbot (Scripted Demo)"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement `run_tool_chatbot(tools,
+      registry, system_prompt, model, max_turns)`. It should be identical to
+      `run_chatbot` from Day 15 but call `tool_turn` instead of `chat_turn`.
+      The checks run a scripted multi-turn session to verify correct tool use.
+    hint: >
+      Copy the structure from Day 15's `run_chatbot`. Replace `chat_turn` with
+      `tool_turn(history, user_input, tools, registry, model)`. Add `tools` and
+      `registry` parameters.
+    narration: >
+      The checks do not call run_tool_chatbot interactively. Instead, they call
+      tool_turn directly with a calculate prompt and verify the result is numeric
+      and correct, then call tool_turn with a weather prompt and verify a
+      temperature appears in the reply. A final check verifies that history
+      management still works — truncate_history and reset_history from Day 15
+      compose with tool_turn the same way they composed with chat_turn.
+
+  - type: summary
+    heading: "Day 17 Complete — Next: Cost & Token Control"
+    bullets:
+      - "run_tool_chatbot = run_chatbot + tool_turn substitution + tools and registry parameters"
+      - "System prompt tells the model WHEN to use tools; tool definitions tell it HOW"
+      - "The user never sees tool calls — they see accurate natural-language replies powered by real function results"
+      - "The turn-function contract (history+user_input → reply+new_history) makes tool_turn a drop-in for chat_turn"
+      - "Project: extend the tool chatbot with at least one new tool of your own design"
+    narration: >
+      You now have a tool-using assistant built from five clean functions. Ask it
+      "what is 2847 times 193?" and it will call calculate and give you the exact
+      answer. Ask it "what's the weather in Tokyo?" and it will return the
+      simulated temperature. The project for this day is to extend the tool
+      registry with at least one new tool of your own — a unit converter, a
+      dictionary lookup, a string manipulation utility, anything that benefits
+      from code execution rather than the model's internal knowledge. The pattern
+      is always the same: write the Python function, add an entry to the
+      registry, add a definition to TOOLS, and mention it in the system prompt.
+      On Day 18 you will zoom out and look at cost and token control — how to
+      run LLMs affordably at scale by measuring token usage, caching prompts, and
+      estimating cost before sending requests.
