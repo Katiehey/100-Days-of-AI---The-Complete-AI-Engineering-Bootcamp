@@ -1,0 +1,177 @@
+day: "016"
+lesson: "02"
+title: "Collecting a Stream"
+
+slides:
+
+  - type: title
+    heading: "Collecting a Stream"
+    subheading: "From token iterator to full string"
+    narration: >
+      You can now stream tokens to the terminal one by one. But there is a
+      problem: once you have shown the reply on screen, you also need to store it
+      in the history list so the next turn has context. That means you need the
+      full reply as a string, not just a series of printed tokens. This lesson
+      covers collect_stream — a function that consumes the token iterator and
+      assembles the complete reply. Along the way you will learn why generators
+      can only be consumed once, and why "".join() is the right tool for
+      assembling strings from parts.
+
+  - type: concept
+    label: "Generators consumed once"
+    heading: "A Generator Iterator Can Only Be Consumed Once"
+    body: >
+      stream_tokens returns a generator. Generators are iterators — once you have
+      looped through all the values, the generator is exhausted. Iterating a
+      second time produces nothing. This means if you want to both print tokens as
+      they arrive AND collect them into a string, you must do both in a single
+      pass over the iterator.
+    bullets:
+      - "stream_tokens() returns a generator object, not a list of strings"
+      - "After the for loop completes, the generator is exhausted — it yields nothing further"
+      - "Passing the same generator to two functions sequentially: the second gets nothing"
+      - "Fix: iterate once, doing both jobs inside the same loop"
+    narration: >
+      This is the most common mistake when working with generators. Suppose you
+      write tokens = stream_tokens(messages). Then you pass tokens to print_stream,
+      which loops over it and prints every token. Then you pass the same tokens
+      variable to collect_stream, which tries to join all the tokens into a string
+      — but the generator is already exhausted, so "".join(tokens) returns an
+      empty string. Nothing crashed, but the reply is lost. The fix is simple once
+      you understand the rule: a generator can only be consumed once. Either
+      iterate once and do everything in that single pass, or convert the generator
+      to a list with list() before doing anything — but note that converting to a
+      list means waiting for all tokens before printing any of them, which loses
+      the streaming UX. The clean solution for stream_chat_turn in Lesson 4 is a
+      single loop that both prints and appends simultaneously.
+
+  - type: concept
+    label: "join vs concatenation"
+    heading: "''.join(tokens) — Efficient String Assembly"
+    body: >
+      When you have a sequence of strings to combine, "".join(seq) is the correct
+      tool. String concatenation inside a loop — result += token — creates a brand-
+      new string on every iteration and is quadratic in the number of tokens.
+      join() measures the total length first, allocates once, then copies each
+      piece exactly once.
+    bullets:
+      - "result += token in a loop: O(n²) — a new string allocated on every iteration"
+      - "''.join(tokens): O(n) — one allocation, one copy per token, always"
+      - "For a 500-token reply, join is roughly 250× faster than loop concatenation"
+      - "Standard Python idiom — expected by every reader of professional code"
+    narration: >
+      Python strings are immutable. Every time you write result += token, Python
+      must allocate a brand-new string containing the previous result plus the new
+      token, then discard the old one. For a reply with five hundred tokens, that
+      is five hundred allocations, each slightly larger than the last. The total
+      work grows as n-squared. "".join(tokens) avoids this entirely: Python first
+      measures the total length of all the pieces, allocates one buffer of exactly
+      that size, then copies each token in once. One allocation, linear total work.
+      The performance difference is negligible for twenty tokens but measurable for
+      hundreds. More importantly, "".join is the idiomatic Python way to assemble
+      strings from parts, and experienced engineers will expect to see it. Write it
+      habitually — not just for performance, but as a signal that you know the
+      language well.
+
+  - type: code
+    label: "collect_stream"
+    heading: "collect_stream — Consume the Iterator, Return the Full String"
+    code: |
+      def collect_stream(tokens) -> str:
+          """
+          Consume a token iterator and return the full reply as a string.
+
+          Works with any iterable of strings — a generator from stream_tokens,
+          a list, or any other sequence. Returns "" for an empty iterable.
+          """
+          return "".join(tokens)
+
+      # Works with a live generator:
+      messages = [{"role": "user", "content": "Name three colours."}]
+      tokens = stream_tokens(messages)
+      full_reply = collect_stream(tokens)
+      print(full_reply)
+
+      # Works with any iterable — easy to test without a running model:
+      assert collect_stream(iter(["Hello", " ", "world"])) == "Hello world"
+      assert collect_stream(iter([])) == ""
+    narration: >
+      collect_stream is deliberately minimal: one line of real logic. It accepts
+      any iterable of strings — a generator from stream_tokens, a list built from
+      a test fixture, or any other sequence. The type annotation is intentionally
+      broad because the function does not care what kind of iterable it receives,
+      only that the items are strings. "".join(tokens) consumes the iterator in a
+      single pass and returns the assembled string. Notice the two assert lines at
+      the bottom: they show that collect_stream works with any iterable, not just
+      a live stream. This is what makes the function easy to test — you do not
+      need a running model to verify it; you can pass a list of strings and check
+      the result immediately. That separation between the streaming concern and the
+      string-assembly concern is a recurring design theme: each function does
+      exactly one thing, which makes each one independently testable.
+
+  - type: how_it_works
+    label: "collect vs print"
+    heading: "collect_stream and print_stream — Two Separate Responsibilities"
+    body: >
+      collect_stream assembles tokens silently — no output, returns a string.
+      print_stream in the next lesson displays tokens as they arrive — no return
+      value. Keeping them separate means each can be tested and reused
+      independently. stream_chat_turn in Lesson 4 will combine the two jobs
+      manually in a single loop because generators can only be consumed once.
+    bullets:
+      - "collect_stream: silent accumulation — background processing, logging, storing in history"
+      - "print_stream: live display — interactive terminal output only"
+      - "Neither does both — single responsibility keeps each one testable in isolation"
+      - "stream_chat_turn iterates once, printing and appending simultaneously"
+    narration: >
+      Keeping collect_stream and print_stream as separate functions is a
+      deliberate design choice. If you combined them into one print_and_collect
+      function, you would have a function that is harder to test (you have to
+      capture stdout to verify the string), harder to reuse (what if you want to
+      collect without printing, or print without collecting), and harder to read.
+      Separate functions with single responsibilities compose cleanly. The fact
+      that stream_chat_turn needs to do both does not mean you should build a
+      combined helper — stream_chat_turn is the composition layer, and its loop
+      is three lines. That is a reasonable amount of composition logic to keep in
+      the caller rather than pushing it into a helper function. Know when to
+      compose and when to abstract: three lines of combining logic is composition,
+      not duplication.
+
+  - type: exercise
+    heading: "Exercise 2: Collect Stream"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `collect_stream(tokens)`.
+      It should consume any iterable of strings and return them joined into a
+      single string. Return an empty string for an empty iterable.
+    hint: >
+      One line: `return "".join(tokens)`. The function accepts any iterable —
+      pass a list for easy testing, or a generator from `stream_tokens` for real
+      use.
+    narration: >
+      The implementation is a single line, but the checks test it against several
+      inputs: the empty iterator case, a single-token case, a multi-token case,
+      and a live stream from stream_tokens. Read through the checks to understand
+      what the function must handle before you implement it. Once all checks pass,
+      notice that collect_stream does not care whether it receives a list or a
+      generator — "".join works with any iterable. That generality is what makes
+      it easy to use in tests with synthetic data and in production with a live
+      stream.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Generators are consumed once — iterating a second time yields nothing; plan your single pass before writing the loop"
+      - "''.join(tokens) assembles a string in O(n) — the standard idiom; never use result += token in a loop"
+      - "collect_stream accepts any iterable of strings — easy to test with lists, works with live generators"
+      - "collect_stream and print_stream are separate functions with single responsibilities — each independently testable"
+      - "Next: print_stream — displaying tokens as they arrive with print(end='', flush=True)"
+    narration: >
+      The key habit from this lesson is to reach for "".join() any time you are
+      assembling a string from a sequence of pieces. It is faster, idiomatic, and
+      signals Python competence. The generator-consumed-once rule will come up
+      again every time you work with streaming or any other lazy iterator —
+      remember it as you would remember that a file handle reads from start to
+      finish: after you reach the end, there is nothing left to read. In the next
+      lesson you will build print_stream, which is the display counterpart to
+      collect_stream. Together they cover the two things you need to do with a
+      token stream: show it and save it.

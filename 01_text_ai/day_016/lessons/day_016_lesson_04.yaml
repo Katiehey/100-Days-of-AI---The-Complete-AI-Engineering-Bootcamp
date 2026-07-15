@@ -1,0 +1,174 @@
+day: "016"
+lesson: "04"
+title: "The Streaming Turn"
+
+slides:
+
+  - type: title
+    heading: "The Streaming Turn"
+    subheading: "Print and collect in one pass"
+    narration: >
+      You have three functions: stream_tokens generates tokens, collect_stream
+      assembles them into a string, and print_stream displays them in the
+      terminal. The chatbot loop on Day 15 needed two things from each turn: the
+      reply text to print to the user, and the updated history list for the next
+      call. This lesson shows why you cannot satisfy both needs by chaining
+      collect_stream and print_stream separately on the same generator, and how
+      to solve it with a single loop that does both jobs simultaneously.
+
+  - type: concept
+    label: "The one-pass constraint"
+    heading: "One Generator, One Pass — You Cannot Split It"
+    body: >
+      If you pass a stream_tokens generator to print_stream first and then to
+      collect_stream, the collect step gets nothing — the generator was already
+      exhausted by print_stream. The only way to both display tokens as they
+      arrive AND assemble the full reply is to do both in a single iteration over
+      the generator.
+    bullets:
+      - "tokens = stream_tokens(messages) — creates a generator, nothing runs yet"
+      - "print_stream(tokens) — exhausts the generator; all tokens consumed"
+      - "collect_stream(tokens) — generator already empty; returns '' (silent bug)"
+      - "Fix: one loop that calls both print() and .append() on every iteration"
+    narration: >
+      This is the constraint that forces stream_chat_turn to contain its own
+      loop rather than delegating to print_stream and collect_stream separately.
+      The generator from stream_tokens is a one-way tape: you move forward through
+      it, and once a token is yielded it is gone. print_stream reads the whole
+      tape. When collect_stream then tries to read the same tape, the read head is
+      already at the end. No error, no exception — just an empty join result and a
+      missing reply in your history. This class of bug is subtle precisely because
+      it produces no error: the function returns, the history entry gets an empty
+      string for the assistant content, and the chatbot quietly forgets what it
+      just said. The fix is architectural: stream_chat_turn owns the single
+      iteration and does both jobs inside that one loop.
+
+  - type: how_it_works
+    label: "Single-pass design"
+    heading: "Print and Append in the Same Loop Body"
+    body: >
+      The solution is a loop that calls print() and appends to a list on every
+      iteration. After the loop, "".join(parts) assembles the full reply. This
+      is the same "".join pattern from Lesson 2, applied here where it solves the
+      one-pass constraint.
+    code: |
+      # The core of stream_chat_turn — do both jobs in one pass:
+      tokens = stream_tokens(messages, model)
+      parts = []
+      for token in tokens:
+          print(token, end="", flush=True)   # display as it arrives
+          parts.append(token)                # collect for history
+      print()                                # final newline
+      reply = "".join(parts)                 # assemble full reply O(n)
+    narration: >
+      Three things happen on every iteration of this loop: the token is printed
+      immediately to the terminal so the user sees it; it is appended to parts so
+      the text is not lost; and the generator advances to the next token. After
+      the loop, "".join(parts) assembles the full reply string in one allocation.
+      This is exactly the pattern you used in Lesson 2 when discussing why join
+      is better than concatenation — the parts list accumulates pieces during the
+      loop, and join combines them all at the end. The loop contains no branching,
+      no buffering, and no state beyond the parts list. It is as simple as a
+      streaming loop can be while still doing both necessary jobs.
+
+  - type: code
+    label: "stream_chat_turn"
+    heading: "stream_chat_turn — The Streaming Turn Function"
+    code: |
+      def stream_chat_turn(
+          history: list[dict],
+          user_input: str,
+          model: str = "llama3.2",
+      ) -> tuple[str, list[dict]]:
+          """
+          Stream the model reply to stdout and return (reply, new_history).
+
+          Integrates with append_turn from Day 15 — the history contract is
+          identical to chat_turn. Tokens are printed as they arrive; the full
+          reply is assembled and stored in history.
+          """
+          messages = history + [{"role": "user", "content": user_input}]
+          tokens = stream_tokens(messages, model)
+          parts = []
+          for token in tokens:
+              print(token, end="", flush=True)
+              parts.append(token)
+          print()
+          reply = "".join(parts)
+          return reply, append_turn(history, user_input, reply)
+    narration: >
+      stream_chat_turn is the streaming counterpart to chat_turn from Day 15.
+      The signature and return type are identical: it takes history and user_input,
+      it returns a (reply, new_history) tuple. The internal implementation is
+      what differs. Instead of one blocking ollama.chat call that returns a
+      complete response, it calls stream_tokens to get a generator, runs the
+      single-pass loop to print and collect simultaneously, then calls
+      append_turn — the immutable history function from Day 15 — to produce the
+      new history list. All five invariants from Day 15 hold: the original history
+      is never mutated, the system prompt at index 0 is preserved, the assistant
+      turn is appended after the user turn, the return value is a new list, and
+      the reply stored in history exactly matches the reply returned to the caller.
+      The only difference is that the user sees tokens on screen as they are
+      generated rather than all at once at the end.
+
+  - type: concept
+    label: "Integration with Day 015"
+    heading: "Slot In for chat_turn — Same Contract, Streaming Behaviour"
+    body: >
+      stream_chat_turn has the same signature and return type as chat_turn from
+      Day 15. Any code that used chat_turn can switch to stream_chat_turn without
+      changing the surrounding logic. The history management, truncation, and
+      reset functions from Day 15 all continue to work unchanged.
+    bullets:
+      - "Same signature: (history, user_input, model) — drop-in replacement"
+      - "Same return type: tuple[str, list[dict]] — (reply, new_history)"
+      - "append_turn, truncate_history, reset_history, format_history all unchanged"
+      - "Only the user-visible behaviour changes: tokens appear progressively"
+    narration: >
+      This is the value of the design you chose on Day 15. Because append_turn
+      is a pure function that returns a new list rather than mutating in place,
+      it composes cleanly with stream_chat_turn. Because chat_turn returned a
+      tuple of (reply, new_history) rather than just modifying history directly,
+      stream_chat_turn can use the same return type. The chatbot loop from Day 15
+      needs exactly one change to become a streaming chatbot: replace chat_turn
+      with stream_chat_turn and add a "Bot: " prefix print before the call so the
+      user knows whose turn it is. Every other line of the loop stays the same.
+      That is what good function design looks like — when you add a new capability,
+      the rest of the system barely notices.
+
+  - type: exercise
+    heading: "Exercise 4: Stream Chat Turn"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `stream_chat_turn(history,
+      user_input, model)`. Build the messages list, call `stream_tokens`, iterate
+      once printing each token and appending it to a list, then return
+      `(reply, append_turn(history, user_input, reply))`.
+    hint: >
+      Build `messages = history + [{"role": "user", "content": user_input}]`,
+      call `stream_tokens(messages, model)`, run the loop with `print(token,
+      end="", flush=True)` and `parts.append(token)`, then `reply = "".join(parts)`.
+    narration: >
+      The checks test this function's return values: that it returns a two-element
+      tuple, that the first element is a non-empty string, that the second element
+      is a list with two more messages than the input history, and that the
+      assistant message in history exactly matches the returned reply string. The
+      single-pass loop is the heart of the function — get that right and the rest
+      follows directly.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Generators consumed once: passing the same generator to print_stream then collect_stream silently loses the reply — collect nothing"
+      - "Fix: one loop, two jobs — print each token and append it to parts in the same iteration"
+      - "stream_chat_turn is a drop-in replacement for chat_turn — same signature, same return type, streaming output"
+      - "append_turn, truncate_history, reset_history, format_history from Day 15 compose unchanged with streaming history"
+      - "Next: run_streaming_chatbot — wire all five functions into a complete streaming CLI chatbot"
+    narration: >
+      The one-pass constraint is the central design pressure in streaming code.
+      Every time you work with a generator — whether from stream_tokens, a file
+      iterator, or any other lazy source — ask yourself: how many passes do I
+      need over this data, and can I combine them into one? Usually you can, and
+      the resulting code is both faster and simpler than the alternative of
+      buffering everything first. In the final lesson you will wire stream_chat_turn
+      into a complete chatbot loop that handles commands, truncates history, and
+      gives the user a live streaming experience from start to finish.

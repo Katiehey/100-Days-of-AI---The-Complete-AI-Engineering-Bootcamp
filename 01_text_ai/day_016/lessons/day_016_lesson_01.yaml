@@ -1,0 +1,227 @@
+day: "016"
+lesson: "01"
+title: "Why Streaming Matters"
+
+slides:
+
+  - type: title
+    heading: "Why Streaming Matters"
+    subheading: "From silent wait to live tokens"
+    narration: >
+      Welcome to Day 16. Yesterday you built a working multi-turn chatbot that
+      takes user input, calls the model, and prints the reply. There is one
+      noticeable flaw: between pressing Enter and seeing the reply, the terminal
+      goes completely silent. For a short answer that silence lasts a fraction of
+      a second. For a longer answer it can feel like the program has frozen.
+      Today you are going to fix that by adding streaming output — tokens appear
+      in the terminal the moment the model generates them, exactly like Claude or
+      ChatGPT show their responses. This is one of the most satisfying
+      improvements you can make to a language model interface, and with Ollama
+      it requires changing exactly one parameter.
+
+  - type: concept
+    label: "The dead-air problem"
+    heading: "Non-Streaming: The Terminal Goes Silent"
+    body: >
+      In a non-streaming call, ollama.chat blocks until the model has finished
+      generating the entire reply. That can take several seconds for a detailed
+      answer. During that time nothing appears on screen — no progress indicator,
+      no partial text, nothing. From the user's perspective, the program might be
+      thinking or it might have crashed.
+    bullets:
+      - "ollama.chat() without stream=True waits for the full reply before returning"
+      - "For a ten-sentence answer the user waits in silence for several seconds"
+      - "Silence feels like a crash — even if the model is working perfectly"
+      - "Streaming fixes this by surfacing tokens as the model generates them"
+    narration: >
+      Think about the user experience in concrete terms. You type a question,
+      press Enter, and wait. The cursor sits motionless. If the model is
+      generating a three-paragraph answer, that wait might be ten seconds with no
+      visual feedback at all. Most users will wonder whether something went wrong.
+      Now compare that to watching Claude or ChatGPT type its response word by
+      word. Even if the total generation time is identical, the experience feels
+      dramatically different because you can see progress happening. The first
+      word appearing almost instantly tells you the program heard you and is
+      working. That is the entire motivation for streaming: not speed, but
+      perceived responsiveness. The model generates at the same rate either way —
+      streaming just makes the work visible as it happens.
+
+  - type: concept
+    label: "How streaming works"
+    heading: "stream=True — Iterator Instead of Completed Response"
+    body: >
+      When you add stream=True to ollama.chat, the function returns an iterator
+      immediately instead of blocking until the reply is complete. Each step of
+      the iterator yields one chunk — a small dict containing the next token or
+      two. You print each token as it arrives and the reply appears progressively
+      on screen.
+    bullets:
+      - "stream=True: ollama.chat returns immediately with an iterator"
+      - "Each iteration of that iterator yields one chunk dict"
+      - "chunk['message']['content'] is the token text for that chunk"
+      - "print(token, end='', flush=True) displays each token immediately, no newline between them"
+    narration: >
+      The mechanism is straightforward once you see it. Without stream=True,
+      ollama.chat collects all tokens internally and hands you one complete dict
+      at the end. With stream=True it hands you an iterator and starts yielding
+      chunks immediately as the model produces them. Each time your for loop calls
+      next() on that iterator you get the next chunk the model has produced. The
+      key insight is that you are not making the model generate faster — you are
+      making its output visible earlier. A model that takes five seconds to
+      produce a paragraph still takes five seconds, but with streaming the first
+      word appears almost instantly and the rest follows word by word. That one
+      change transforms the experience from "is it frozen?" to "it's working."
+
+  - type: code
+    label: "stream=True in practice"
+    heading: "Before and After — One Parameter Change"
+    code: |
+      import ollama
+
+      # Without streaming — blocks until the full reply is ready:
+      response = ollama.chat(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "What is the capital of France?"}],
+      )
+      print(response["message"]["content"])   # appears all at once after several seconds
+
+      # With streaming — tokens appear as they are generated:
+      response = ollama.chat(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "What is the capital of France?"}],
+          stream=True,
+      )
+      for chunk in response:
+          token = chunk["message"]["content"]
+          print(token, end="", flush=True)    # each token printed immediately
+      print()                                  # final newline after streaming ends
+    narration: >
+      Here is the change in full. The non-streaming version is exactly what you
+      used on Day 15: one call, one response dict, one string extracted from
+      response["message"]["content"]. The streaming version adds stream=True and
+      wraps the result in a for loop. Inside the loop each chunk has the same
+      structure as a non-streaming response — same "message" key, same "content"
+      key — but the content holds just a token or two rather than the whole reply.
+      The print statement uses two keyword arguments worth noting: end="" prevents
+      print from adding a newline after each token so tokens flow together on one
+      line, and flush=True tells Python to send output to the terminal immediately
+      rather than holding it in a buffer. Without flush=True Python might hold
+      tokens in memory and release them in batches — which defeats the purpose of
+      streaming. The final print() after the loop adds the newline that end=""
+      suppressed throughout.
+
+  - type: how_it_works
+    label: "The chunk structure"
+    heading: "Inside a Streaming Chunk"
+    body: >
+      Every chunk from a streaming ollama.chat call is a dict. Mid-stream chunks
+      carry the token text in chunk["message"]["content"]. The final chunk has an
+      empty content string and a "done" field set to True. You do not need to
+      check "done" explicitly — the for loop stops automatically when the iterator
+      is exhausted.
+    code: |
+      # A typical mid-stream chunk:
+      {
+          "model": "llama3.2",
+          "message": {"role": "assistant", "content": "Paris"},
+          "done": False,
+      }
+
+      # The final chunk (generation complete):
+      {
+          "model": "llama3.2",
+          "message": {"role": "assistant", "content": ""},
+          "done": True,
+          "total_duration": 1_234_567_890,   # nanoseconds — useful for benchmarking
+          "eval_count": 42,                  # tokens generated
+      }
+
+      # Extract the token the same way every time:
+      token = chunk["message"]["content"]    # "" on the final chunk — safe to print
+    narration: >
+      The chunk structure is deliberately consistent with the non-streaming
+      response, which makes it easy to switch between the two. The "message" key
+      is always present, always carries role "assistant", and always has "content".
+      In mid-stream chunks, content is the token text — one word, part of a word,
+      or a punctuation mark. In the final chunk, content is an empty string and
+      "done" is True. You do not need to check "done" in your loop because the for
+      loop stops when the iterator is exhausted, which happens exactly when the
+      final chunk is delivered. Printing an empty string is harmless. The extra
+      fields on the final chunk — total_duration, eval_count, and so on — are
+      performance metrics that appear only on the last chunk. They are useful later
+      if you want to measure tokens per second, but you can safely ignore them for
+      today.
+
+  - type: code
+    label: "stream_tokens"
+    heading: "stream_tokens — A Generator for Token-by-Token Output"
+    code: |
+      import ollama
+
+      def stream_tokens(messages: list[dict], model: str = "llama3.2"):
+          """
+          Yield tokens one at a time from a streaming Ollama response.
+
+          Each yielded value is a string (one token or a few characters).
+          The generator is exhausted when the model finishes generating.
+          """
+          response = ollama.chat(model=model, messages=messages, stream=True)
+          for chunk in response:
+              yield chunk["message"]["content"]
+
+      # Example:
+      messages = [{"role": "user", "content": "Name three colours."}]
+      for token in stream_tokens(messages):
+          print(token, end="", flush=True)
+      print()
+    narration: >
+      This generator function is the foundational building block for the rest of
+      today. Notice the yield keyword — that is what makes stream_tokens a
+      generator function rather than a regular function. When you call
+      stream_tokens(messages), Python does not execute any of the function body
+      immediately. It returns a generator object. The body runs only when you
+      start iterating: the for loop calls next() on the generator, which executes
+      up to the first yield, hands that value to the loop, then pauses. The next
+      call to next() resumes from after the yield, gets the next chunk, and yields
+      its content. This pause-and-resume behaviour is exactly what you want for
+      streaming: each token is delivered to the caller the moment it is available,
+      without waiting for the rest. The generator is exhausted when the ollama
+      response iterator runs out of chunks.
+
+  - type: exercise
+    heading: "Exercise 1: Stream Tokens"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `stream_tokens(messages,
+      model)`. Call `ollama.chat` with `stream=True`, iterate over the response
+      chunks, and `yield` each `chunk["message"]["content"]`.
+    hint: >
+      Use `yield` inside `for chunk in response:`. The function is a generator —
+      calling it returns an iterator immediately, nothing runs until you iterate.
+      Make sure `stream=True` is in the `ollama.chat` call.
+    narration: >
+      This is a short function — four lines of real logic — but it introduces
+      generator functions, which are a new concept. The checks will verify that
+      stream_tokens is a generator function rather than a regular function, that
+      each yielded value is a string, and that concatenating all the tokens gives
+      a non-empty reply. Once the checks pass, watch the output carefully: tokens
+      appear one by one rather than all at once. That visual difference is
+      streaming working as intended.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Non-streaming blocks until the full reply is ready — perceived as a frozen program for long answers"
+      - "stream=True makes ollama.chat return an iterator immediately; each chunk carries the next token in chunk['message']['content']"
+      - "print(token, end='', flush=True) — end='' prevents newlines between tokens; flush=True bypasses buffering so tokens appear immediately"
+      - "stream_tokens wraps the streaming call in a generator — callers iterate over tokens without managing chunks"
+      - "Next: collect_stream — reassembling the full reply string from the token stream"
+    narration: >
+      The core insight from this lesson is that streaming is entirely about
+      perception, not speed. The model generates at the same rate with or without
+      stream=True. What changes is when the user sees the output: all at once at
+      the end, or word by word as generation proceeds. That first token arriving
+      within half a second of pressing Enter is the signal that says "I heard you,
+      I am working." Everything else today builds on that. In the next lesson you
+      will see how to collect the token stream back into a complete string — which
+      you need to store the reply in history, log it, or evaluate it — without
+      losing the streaming UX you just built.

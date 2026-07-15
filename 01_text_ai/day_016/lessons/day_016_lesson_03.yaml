@@ -1,0 +1,185 @@
+day: "016"
+lesson: "03"
+title: "Printing Incrementally"
+
+slides:
+
+  - type: title
+    heading: "Printing Incrementally"
+    subheading: "Tokens on screen the moment they arrive"
+    narration: >
+      You can generate tokens and collect them. Now you need to display them
+      one by one as they arrive rather than all at once at the end. This lesson
+      covers print_stream — a function that iterates over a token generator and
+      prints each token immediately to the terminal. Two keyword arguments to
+      Python's built-in print make this possible: end="" and flush=True. You will
+      also see how to capture stdout in a test so you can verify incremental
+      output without relying on a live model.
+
+  - type: concept
+    label: "end and flush"
+    heading: "print(end='', flush=True) — Two Arguments That Enable Streaming"
+    body: >
+      Python's print() has sensible defaults for interactive use: it appends a
+      newline after each call and buffers output for efficiency. Both defaults
+      work against streaming. end="" suppresses the automatic newline so tokens
+      flow together on one line. flush=True forces Python to send output to the
+      terminal immediately rather than holding it in a buffer.
+    bullets:
+      - "Default print('hello') appends a newline — tokens would appear on separate lines"
+      - "print(token, end='') — no newline; tokens flow together on the same line"
+      - "flush=True — sends the output immediately, bypassing Python's output buffer"
+      - "Without flush=True, Python may hold tokens in memory and print them in batches"
+    narration: >
+      Python's print function has two defaults that made sense before streaming
+      existed. First, it appends a newline character after every call — that is
+      what makes print("hello") followed by print("world") appear on separate
+      lines. For streaming, you want tokens on the same line, so you override
+      this with end="". Second, Python buffers stdout by default: it holds
+      output in memory and flushes it to the terminal periodically or when the
+      buffer fills up, because writing to a terminal is slow and batching the
+      writes is more efficient. For streaming, that buffering defeats the whole
+      point — you want the user to see each token the moment it is available,
+      not in batches of fifty. flush=True forces an immediate flush after every
+      call. Without it, you might not see any tokens at all until the full reply
+      is ready, even though you are iterating over a streaming response. Those
+      two arguments — end="" and flush=True — are the entire technical trick that
+      makes streaming visible in a terminal.
+
+  - type: concept
+    label: "stdout buffering"
+    heading: "Why flush=True Is Not Optional"
+    body: >
+      Python buffers stdout for performance. In a terminal that buffer is flushed
+      when it fills up or when a newline is written. Since end="" suppresses the
+      newline, without flush=True tokens accumulate in the buffer and appear only
+      after many have been generated — negating the streaming effect entirely.
+    bullets:
+      - "Stdout buffer: Python holds output in memory before sending it to the terminal"
+      - "Flushed on newlines — but end='' suppresses newlines, so normal flushing does not happen"
+      - "Result without flush=True: long silence, then many tokens appear at once"
+      - "sys.stdout.flush() is the manual alternative — flush=True in print() does the same thing per call"
+    narration: >
+      Here is what happens without flush=True. You call print(token, end="") and
+      Python adds the token to an internal buffer. The buffer might hold four
+      kilobytes before it sends anything to the terminal. If your reply is short,
+      the entire thing fits in the buffer and appears only when the buffer is
+      flushed — which might be at the end of the program, or when a newline is
+      written, or when the buffer fills. With end="" suppressing newlines, you
+      might wait for the entire reply before seeing a single character, which is
+      exactly the dead-air problem you were trying to solve. flush=True forces the
+      buffer to drain after every single print call. The performance cost is
+      measurable — a hundred flush calls per second is more overhead than one —
+      but for the human-scale cadence of a chatbot reply, the trade-off is
+      completely worth it. The user experience is dramatically better; the CPU
+      overhead is imperceptible.
+
+  - type: code
+    label: "print_stream"
+    heading: "print_stream — Display Tokens as They Arrive"
+    code: |
+      def print_stream(tokens) -> None:
+          """
+          Print tokens to stdout as they arrive, without buffering.
+
+          Accepts any iterable of strings. Tokens are printed on the same line
+          without separators. A single newline is printed after the last token.
+          Returns None.
+          """
+          for token in tokens:
+              print(token, end="", flush=True)
+          print()   # final newline after the last token
+
+      # Example:
+      messages = [{"role": "user", "content": "Name three colours."}]
+      print_stream(stream_tokens(messages))
+      # Output appears token by token; a newline is added at the end
+    narration: >
+      The implementation is six lines including the docstring. The loop iterates
+      over the tokens iterable — which can be a generator from stream_tokens, a
+      list of strings, or any other sequence. Each token is printed with end=""
+      to suppress the newline and flush=True to force immediate output. After the
+      loop, a bare print() adds the final newline. That final newline matters: it
+      ensures that whatever the caller prints next appears on a new line rather
+      than appended to the end of the streamed reply. Without it, if the chatbot
+      loop prints "You: " after the reply, it would appear on the same line as
+      the last token. The function returns None — it has no useful value to
+      return, and signalling that explicitly (via the return type annotation) is
+      better than leaving it implicit. Callers that need the assembled string
+      should use collect_stream instead.
+
+  - type: how_it_works
+    label: "testing print_stream"
+    heading: "Capturing stdout to Test Streaming Output"
+    body: >
+      print_stream writes to stdout, not to a return value. To test it
+      automatically, you redirect sys.stdout to a StringIO buffer, call
+      print_stream, then read the buffer contents. This pattern lets you assert
+      on exactly what was printed without depending on a live model or visual
+      inspection.
+    code: |
+      import io, sys
+
+      # Redirect stdout to a string buffer:
+      old_stdout = sys.stdout
+      sys.stdout = io.StringIO()
+
+      print_stream(iter(["Hello", " ", "world"]))
+
+      output = sys.stdout.getvalue()   # "Hello world\n"
+      sys.stdout = old_stdout           # always restore, even if the test fails
+
+      assert "Hello world" in output
+      assert output.endswith("\n")      # final newline was printed
+    narration: >
+      Testing functions that write to stdout requires redirecting the output
+      somewhere you can inspect. io.StringIO() creates an in-memory string buffer
+      that behaves like a file. You replace sys.stdout with this buffer, call
+      print_stream, read the buffer with getvalue(), then restore the original
+      sys.stdout. Restoring stdout is essential — if you leave sys.stdout
+      pointing at the buffer, all subsequent print calls in the notebook will
+      write to the buffer and nothing will appear on screen. In production code
+      you would use try/finally to guarantee the restore even if an exception
+      occurs. For test helpers in exercises, the sequential pattern shown here
+      is clear enough. Two things to assert: that the expected content is in the
+      output, and that the output ends with a newline, confirming the final
+      print() executed. This same stdout-capture technique will appear in the
+      checks for exercise 03 and exercise 04.
+
+  - type: exercise
+    heading: "Exercise 3: Print Stream"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement `print_stream(tokens)`.
+      Iterate over the tokens iterable and print each token with
+      `print(token, end="", flush=True)`. After the loop, print a final newline
+      with `print()`. The function should return `None`.
+    hint: >
+      The loop is `for token in tokens: print(token, end="", flush=True)`.
+      Add `print()` after the loop for the final newline. The function accepts
+      any iterable — the checks test it with both a list and a live stream.
+    narration: >
+      The implementation is short but the checks test it carefully: that
+      print_stream returns None, that the tokens appear concatenated in stdout,
+      that the output ends with a newline, and that it works with a real stream
+      from stream_tokens. The stdout-capture pattern in the checks is the same
+      technique shown in the how-it-works slide above — read through it before
+      implementing so you understand what the checks are measuring.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "print(token, end='', flush=True) — end='' keeps tokens on one line; flush=True bypasses buffering so each token appears immediately"
+      - "Without flush=True, Python buffers output and tokens appear in batches — negating the streaming effect"
+      - "print_stream adds a final print() after the loop to ensure the next output appears on a new line"
+      - "Test stdout-writing functions by redirecting sys.stdout to io.StringIO() and reading with getvalue()"
+      - "Next: stream_chat_turn — the streaming equivalent of chat_turn, iterating once to both print and collect"
+    narration: >
+      The two arguments to print — end="" and flush=True — are a small detail
+      with a large impact on the user experience. Getting them right is the
+      difference between a chatbot that feels alive and one that still goes silent
+      while thinking. The stdout-capture testing pattern is also worth internalising:
+      any time you write a function whose output is a side effect rather than a
+      return value, you can verify it by redirecting stdout to a StringIO buffer.
+      In the next lesson you will build stream_chat_turn, which combines the
+      printing and collection into a single pass and integrates the result into
+      the history list from Day 15.

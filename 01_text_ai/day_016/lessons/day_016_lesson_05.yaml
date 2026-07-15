@@ -1,0 +1,235 @@
+day: "016"
+lesson: "05"
+title: "The Streaming Chatbot"
+
+slides:
+
+  - type: title
+    heading: "The Streaming Chatbot"
+    subheading: "Wire all five functions into a live product"
+    narration: >
+      You have built five functions across today's lessons: stream_tokens,
+      collect_stream, print_stream, stream_chat_turn, and now you will add the
+      chatbot loop itself — run_streaming_chatbot. This is the capstone that
+      wires everything together. The loop is almost identical to run_chatbot from
+      Day 15. The difference is one function call and one prefix print that
+      together turn a silent wait into a live token stream. By the end of this
+      lesson you will have a working streaming chatbot you can run from any
+      terminal.
+
+  - type: concept
+    label: "What changes from Day 015"
+    heading: "Three Lines Change — Everything Else Is the Same"
+    body: >
+      run_streaming_chatbot is run_chatbot from Day 15 with one substitution.
+      Where Day 15 called chat_turn and then printed the reply, the streaming
+      version prints "Bot: " as a prefix, then calls stream_chat_turn which
+      prints tokens as they arrive. truncate_history, reset_history, and
+      format_history are unchanged.
+    bullets:
+      - "Replace chat_turn with stream_chat_turn — same signature, streaming output"
+      - "Add print('Bot: ', end='', flush=True) before the call — prefix appears before tokens flow"
+      - "Remove the separate print(f'Bot: {reply}') — stream_chat_turn handles printing now"
+      - "All command handling, history truncation, and Ctrl+C exit are identical to Day 15"
+    narration: >
+      This is the payoff for the design discipline from Day 15. Because chat_turn
+      and stream_chat_turn share the same signature and return type, replacing one
+      with the other requires no structural changes to the loop. The only new code
+      is one print statement to show the "Bot: " prefix before the tokens start
+      flowing — without it, the first token would appear at the start of a blank
+      line and the user would not know it was the bot's reply. With stream_chat_turn
+      printing the tokens itself, the separate print(f"Bot: {reply}") line from
+      Day 15 is no longer needed. Three lines change in a function that is thirty
+      lines long. The rest — command dispatch, history management, error handling —
+      stays exactly as you designed it yesterday.
+
+  - type: code
+    label: "run_streaming_chatbot"
+    heading: "run_streaming_chatbot — Full Loop with Live Token Output"
+    code: |
+      SYSTEM_PROMPT = "You are a helpful, concise assistant. Answer clearly and briefly."
+
+      def run_streaming_chatbot(
+          system_prompt: str = SYSTEM_PROMPT,
+          model: str = "llama3.2",
+          max_turns: int = 10,
+      ) -> None:
+          """Run a streaming multi-turn CLI chatbot until the user types /quit."""
+          history = [{"role": "system", "content": system_prompt}]
+          print("Streaming chatbot ready. Commands: /quit  /reset  /history")
+          print("-" * 50)
+
+          while True:
+              try:
+                  user_input = input("You: ").strip()
+              except (EOFError, KeyboardInterrupt):
+                  print("\nGoodbye!")
+                  break
+
+              if not user_input:
+                  continue
+
+              if user_input.startswith("/"):
+                  if user_input == "/quit":
+                      print("Goodbye!")
+                      break
+                  elif user_input == "/reset":
+                      history = reset_history(history)
+                      print("Bot: Conversation reset.")
+                  elif user_input == "/history":
+                      transcript = format_history(history)
+                      print(transcript if transcript else "(no history yet)")
+                  else:
+                      print(f"Bot: Unknown command: {user_input}")
+                  continue
+
+              print("Bot: ", end="", flush=True)
+              reply, history = stream_chat_turn(history, user_input, model)
+              history = truncate_history(history, max_turns)
+    narration: >
+      Read through the loop and compare it line for line to run_chatbot from Day
+      15. The structure is identical: init history with the system prompt, print
+      the welcome banner, enter the while True loop, read input, handle Ctrl+C,
+      skip empty input, check for slash commands, then process the normal
+      conversation path. The command block is unchanged — /quit breaks, /reset
+      calls reset_history, /history calls format_history. The only differences
+      appear in the last three lines of the loop body. First, print("Bot: ",
+      end="", flush=True) displays the prefix before any token arrives — this is
+      important because stream_chat_turn starts printing tokens immediately and
+      the user needs to see "Bot: " before the first word. Second, stream_chat_turn
+      replaces chat_turn — it streams tokens, collects the reply, and returns the
+      same (reply, new_history) tuple. Third, there is no separate print for the
+      reply because stream_chat_turn already printed everything including the
+      final newline.
+
+  - type: how_it_works
+    label: "Streaming UX details"
+    heading: "Bot: Prefix Before Tokens Flow"
+    body: >
+      Printing "Bot: " with end="" and flush=True before calling stream_chat_turn
+      ensures the label appears on screen before the first token arrives. Without
+      it, the user would see a blank line begin to fill with text and not know
+      whose reply it is. The "Bot: " prefix and the streamed tokens appear as one
+      continuous line.
+    code: |
+      # The three lines that differ from Day 15's run_chatbot:
+
+      # Day 15 (non-streaming):
+      reply, history = chat_turn(history, user_input, model)
+      history = truncate_history(history, max_turns)
+      print(f"Bot: {reply}")
+
+      # Day 16 (streaming):
+      print("Bot: ", end="", flush=True)        # prefix appears before tokens
+      reply, history = stream_chat_turn(history, user_input, model)
+      history = truncate_history(history, max_turns)
+      # stream_chat_turn already printed tokens + final newline
+    narration: >
+      The ordering matters here. print("Bot: ", end="", flush=True) must come
+      before the stream_chat_turn call, not after. stream_chat_turn starts
+      printing the first token immediately, and without the prefix that first
+      token would appear at the beginning of a blank line. With the prefix, the
+      terminal shows "Bot: Paris" flowing naturally as if the bot typed both the
+      label and the content. The end="" on the prefix print is what makes the
+      prefix and the first token appear on the same line — the same technique you
+      used in print_stream. flush=True ensures the prefix text reaches the
+      terminal before the first token arrives from stream_chat_turn. These are
+      the same two arguments from Lesson 3, applied one level up in the call
+      stack.
+
+  - type: concept
+    label: "Streaming vs non-streaming trade-offs"
+    heading: "When Streaming Helps and When It Does Not"
+    body: >
+      Streaming dramatically improves perceived responsiveness for long replies.
+      For very short replies — a single word or number — the difference is
+      imperceptible. The only cost is slightly higher CPU usage from flush calls.
+      Streaming is the right default for any interactive chatbot.
+    bullets:
+      - "Long replies: streaming feels dramatically more responsive — users see progress within milliseconds"
+      - "Short replies: no perceptible difference — the whole reply arrives before the user notices"
+      - "CPU cost: extra flush() calls per token — negligible at human interaction speeds"
+      - "Default to streaming for interactive chatbots; non-streaming for background processing or logging"
+    narration: >
+      Streaming is almost always the right choice for interactive applications.
+      The perceptual gain is large — even a half-second wait with no output feels
+      longer than five seconds of watching text appear word by word. The cost is
+      a few extra flush calls per response, which at human interaction speeds is
+      completely imperceptible. The one scenario where non-streaming is preferable
+      is background processing: if you are generating replies in a batch job and
+      writing them to a log file, you do not need or want incremental output.
+      collect_stream without any printing is the right tool there. For every
+      interactive interface — terminal, web chat, IDE plugin — streaming should be
+      the default from day one.
+
+  - type: concept
+    label: "What's next"
+    heading: "Where Streaming Goes From Here"
+    body: >
+      The streaming chatbot you just built uses synchronous iteration. Later in
+      the course, two topics extend this foundation: async streaming on Day 33
+      (multiple concurrent responses without blocking), and Server-Sent Events
+      on Day 58 (streaming from a FastAPI server to a web browser in real time).
+    bullets:
+      - "Day 33 — async streaming: handle multiple concurrent streams with asyncio without blocking"
+      - "Day 58 — SSE in web apps: stream tokens from a FastAPI endpoint to a browser using Server-Sent Events"
+      - "The synchronous pattern you built today is the foundation for both extensions"
+      - "The core insight — print each token as it arrives — does not change; only the I/O model changes"
+    narration: >
+      The streaming pattern you have built is synchronous: while stream_chat_turn
+      is running, nothing else in your program can execute. For a single-user CLI
+      chatbot that is perfectly fine. On Day 33 you will add asyncio to handle
+      multiple streaming conversations concurrently — useful when you build a
+      server that serves several users at once. On Day 58 you will wire streaming
+      into a FastAPI endpoint using Server-Sent Events, which lets a web browser
+      receive tokens in real time over a normal HTTP connection. Both extensions
+      use the same conceptual model — emit a token, send it to the consumer,
+      repeat — but adapt it to different I/O patterns. The code you wrote today
+      is the reference implementation you will reach back to when those days
+      arrive.
+
+  - type: exercise
+    heading: "Exercise 5: The Streaming Chatbot"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement `run_streaming_chatbot(
+      system_prompt, model, max_turns)`. It should be identical to
+      `run_chatbot` from Day 15 except that it uses `stream_chat_turn` instead
+      of `chat_turn`, and prints `"Bot: "` (with `end=""` and `flush=True`)
+      before calling `stream_chat_turn`.
+    hint: >
+      Copy the structure from Day 15's `run_chatbot`. Replace `reply, history =
+      chat_turn(...)` with `print("Bot: ", end="", flush=True)` followed by
+      `reply, history = stream_chat_turn(...)`. Remove the `print(f"Bot: {reply}")`
+      line — `stream_chat_turn` handles printing.
+    narration: >
+      The checks for this exercise run a scripted multi-turn session using
+      stream_chat_turn directly — they do not call run_streaming_chatbot with
+      input() since that would block waiting for user input. Instead, the checks
+      verify that all five functions are defined and that they compose correctly:
+      streaming turns produce replies, history grows correctly, format_history
+      works on streaming history, and reset_history clears everything except the
+      system prompt. Once the checks pass, run run_streaming_chatbot() in a
+      separate cell and try it interactively.
+
+  - type: summary
+    heading: "Day 16 Complete — Next: Tool Use"
+    bullets:
+      - "run_streaming_chatbot is run_chatbot with three changed lines: add 'Bot: ' prefix print, replace chat_turn with stream_chat_turn, remove the separate reply print"
+      - "Print 'Bot: ' with end='' and flush=True before stream_chat_turn so the prefix appears before the first token"
+      - "Streaming is the right default for interactive chatbots — imperceptible CPU cost, dramatic UX improvement"
+      - "The sync pattern from today is the foundation for async streaming (Day 33) and SSE in web apps (Day 58)"
+      - "Project: build a streaming chatbot with a custom persona and personality"
+    narration: >
+      You now have a streaming multi-turn chatbot built from five clean,
+      independently testable functions. The change from Day 15 was small — three
+      lines — but the user-experience improvement is substantial. Take a moment
+      to run the chatbot and ask it something that requires a long answer: watching
+      the tokens appear in real time is qualitatively different from the silent
+      wait you started with. The project for this section is to take these five
+      functions, give the chatbot a custom persona with a distinctive system
+      prompt, and package the whole thing as a standalone script. On Day 17 you
+      will take the next big step: tool use. Rather than just talking, the model
+      will be able to call Python functions you define — a calculator, a weather
+      lookup, a web search — and incorporate the results into its replies. That
+      transforms a chatbot that knows things into an assistant that can actually
+      do things.
