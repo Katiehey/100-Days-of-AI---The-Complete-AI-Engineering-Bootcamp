@@ -1,0 +1,148 @@
+day: "018"
+lesson: "03"
+title: "Building a Usage Tracker"
+
+slides:
+
+  - type: title
+    heading: "Building a Usage Tracker"
+    subheading: "Accumulating stats across an entire session"
+    narration: >
+      Extracting usage from a single response is useful, but the real value
+      comes from accumulating stats across an entire session. How many tokens
+      did this conversation cost in total? How many API calls did I make? This
+      lesson shows you how to build a UsageTracker class that accumulates those
+      numbers cleanly, and why a class is the right tool for stateful
+      accumulation.
+
+  - type: concept
+    label: "Why a class?"
+    heading: "Stateful Accumulation Calls for a Class"
+    body: >
+      In Days 15–17 you used pure functions that returned new lists rather than
+      mutating state. A usage tracker is different: its entire purpose is to
+      accumulate state across multiple calls. A class with instance variables is
+      the right tool because it makes the state explicit and the interface clean.
+    bullets:
+      - "Pure function: takes inputs, returns output, no side effects — right for history management"
+      - "Class with state: accumulates data across calls — right for tracking, counting, buffering"
+      - "UsageTracker holds running totals; record(response) updates them; attributes read them"
+      - "Alternative: module-level globals — works but pollutes the namespace and is hard to reset"
+      - "Alternative: closure — possible but less readable than a named class for this pattern"
+    narration: >
+      You might wonder: could I just use a dict, with keys like 'input_tokens'
+      and 'call_count' that I update in place? You could, and it would work.
+      But a class with named attributes and methods is cleaner: the attribute
+      names are part of the class definition so typos raise AttributeError
+      instead of silently adding new keys, the record method is co-located with
+      the data it mutates, and you can easily create multiple independent
+      trackers for different sessions. The principle is: use a class when you
+      have data and behaviour that belong together and need to accumulate state
+      over time.
+
+  - type: concept
+    label: "total_tokens property"
+    heading: "Derived Values — Compute, Don't Store"
+    body: >
+      `total_tokens` is always `total_input + total_output`. You could store it
+      separately and update it in `record()`, but that is redundant — two stored
+      values that must always be kept in sync. A `@property` computes it on
+      demand from the two stored values, eliminating the risk of inconsistency.
+    bullets:
+      - "`@property def total_tokens(self): return self.total_input + self.total_output`"
+      - "Called as `tracker.total_tokens` — no parentheses, reads like an attribute"
+      - "Always consistent: derived on demand, never stored separately"
+      - "The pattern generalises: any value derivable from stored state should be a property"
+      - "Python `@property` is a descriptor — acts as a read-only computed attribute"
+    narration: >
+      Storing total_tokens as a third field would mean you have to remember to
+      update it every time you update total_input or total_output. That is two
+      operations that must happen together — a classic source of bugs when one
+      update is missed. The @property decorator solves this elegantly:
+      total_tokens is computed on the fly from total_input and total_output, so
+      it is always correct and you never have to think about keeping it in sync.
+      This is a general principle: computed values should be computed, not
+      stored. Stored state should be the minimum needed to derive everything
+      else.
+
+  - type: how_it_works
+    label: "UsageTracker implementation"
+    heading: "UsageTracker — Full Implementation"
+    body: >
+      The class has three mutable attributes set in `__init__` and one derived
+      property. The `record` method delegates response parsing to `extract_usage`
+      from Exercise 1, then accumulates the numbers.
+    code: |
+      class UsageTracker:
+          def __init__(self):
+              self.total_input  = 0
+              self.total_output = 0
+              self.call_count   = 0
+
+          @property
+          def total_tokens(self) -> int:
+              return self.total_input + self.total_output
+
+          def record(self, response: dict) -> None:
+              """Accumulate token counts from one Ollama response."""
+              usage = extract_usage(response)    # from Exercise 1
+              self.total_input  += usage["input_tokens"]
+              self.total_output += usage["output_tokens"]
+              self.call_count   += 1
+
+      # Usage across multiple turns
+      tracker = UsageTracker()
+      for msg in ["Hi", "Tell me a joke", "Goodbye"]:
+          resp = ollama.chat(model="llama3.2",
+                             messages=[{"role": "user", "content": msg}])
+          tracker.record(resp)
+
+      print(f"Calls:         {tracker.call_count}")
+      print(f"Input tokens:  {tracker.total_input}")
+      print(f"Output tokens: {tracker.total_output}")
+      print(f"Total tokens:  {tracker.total_tokens}")
+    narration: >
+      The implementation is deliberately minimal: three counters in __init__,
+      a derived property for total_tokens, and a record method that delegates
+      parsing to extract_usage. Keeping extract_usage separate — from Exercise 1
+      — means UsageTracker does not duplicate response-parsing logic. It just
+      calls extract_usage and adds the numbers. This is the single responsibility
+      principle in action: extract_usage knows how to read an Ollama response,
+      UsageTracker knows how to accumulate numbers, and neither does the other's
+      job. When Ollama changes a field name, only extract_usage changes.
+
+  - type: exercise
+    heading: "Exercise 3: UsageTracker"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement the `UsageTracker` class
+      with `record(response)`, `total_input`, `total_output`, `call_count`,
+      and a `total_tokens` property. The scaffold provides `extract_usage`
+      from Exercise 1.
+    hint: >
+      Set `self.total_input = 0`, `self.total_output = 0`, `self.call_count = 0`
+      in `__init__`. In `record`, call `extract_usage(response)` and add the
+      values. Decorate `total_tokens` with `@property` and return
+      `self.total_input + self.total_output`.
+    narration: >
+      The class has no logic beyond accumulation — and that simplicity is the
+      point. The checks verify correctness by creating a tracker, recording two
+      synthetic responses, and asserting the accumulated totals. No Ollama call
+      is needed because UsageTracker just adds up numbers from plain dicts.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Use a class when data and behaviour belong together and state accumulates over time"
+      - "UsageTracker: __init__ sets totals to 0; record() parses and accumulates; total_tokens is a @property"
+      - "Computed values (total_tokens) should be @property — eliminates sync bugs between stored fields"
+      - "record() delegates response parsing to extract_usage — single responsibility"
+      - "Next: turn those accumulated token counts into a cloud cost estimate"
+    narration: >
+      The UsageTracker is the memory of your session — it tells you everything
+      that happened in aggregate. Combined with extract_usage from Exercise 1
+      and tokens_per_second from Exercise 2, you now have a complete picture of
+      every call: how many tokens went in, how many came out, and how fast they
+      arrived. The next two exercises turn those raw numbers into something
+      actionable: a cost estimate that tells you what you would have paid on a
+      cloud API, and a TokenAwareChatbot that wraps Ollama and tracks all of
+      this automatically.

@@ -1,0 +1,150 @@
+day: "018"
+lesson: "01"
+title: "Why Tokens Matter"
+
+slides:
+
+  - type: title
+    heading: "Why Tokens Matter"
+    subheading: "The unit of LLM economics"
+    narration: >
+      Welcome to Day 18. You have built a chatbot, added streaming, and wired
+      up tool use. Today we turn to a question that becomes very important the
+      moment you move from a local model to a cloud API: what does it actually
+      cost to run an LLM, and how do you measure it? The answer starts with
+      tokens — the fundamental unit that determines both the speed of a local
+      model and the price of a cloud one. By the end of today you will read
+      token counts from every Ollama response, accumulate usage stats across a
+      session, and estimate what the same workload would cost on a paid API.
+      These habits are free to build now and will save you money later.
+
+  - type: concept
+    label: "What is a token?"
+    heading: "Tokens — Not Words, Not Characters"
+    body: >
+      LLMs do not process text character by character or word by word. They
+      process tokens — sub-word chunks produced by a byte-pair encoding
+      vocabulary. A useful rule of thumb for English is 1 token ≈ 4 characters
+      ≈ three-quarters of a word. The exact count depends on the tokenizer
+      and the vocabulary of the model.
+    bullets:
+      - "Common short word: usually 1 token — 'hello', 'the', 'model'"
+      - "Longer or rare word: 2–4 tokens — 'tokenization' splits into 'token' + 'ization'"
+      - "1 million tokens ≈ 750,000 words ≈ a 3,000-page novel"
+      - "Rule of thumb: multiply character count by 0.25 for a rough token estimate"
+      - "Code and structured data can be much denser — symbols and whitespace are their own tokens"
+    narration: >
+      When people say a model has a 128K context window, they mean it can
+      process 128,000 tokens at once — not 128,000 words or characters. Words
+      feel like the natural unit of language, but models never see words — they
+      see sub-word pieces that come from a vocabulary of typically 30,000 to
+      100,000 entries. The vocabulary is built using byte-pair encoding, which
+      merges common character sequences into single tokens. 'hello' is one token
+      because it appears millions of times in training data. A rare technical
+      term might split into four or five tokens. The practical takeaway is
+      simple: longer prompts use more tokens, and more tokens cost more time
+      locally and more money on a cloud API. Getting a feel for token counts
+      lets you reason about both.
+
+  - type: concept
+    label: "Context windows"
+    heading: "Context Windows — The Model's Working Memory"
+    body: >
+      Every LLM has a context window — a maximum number of tokens it can
+      process at once, covering both the input (prompt, history, system message)
+      and the output (the reply). When the total exceeds the window, the model
+      either errors or silently truncates input. On Day 15 you built history
+      truncation for exactly this reason.
+    bullets:
+      - "llama3.2 (local): 128K token context window"
+      - "gpt-4o: 128K tokens; claude-3-5-sonnet: 200K tokens"
+      - "Input tokens + output tokens must both fit inside the window"
+      - "Longer history → fewer tokens left for the model's reply"
+      - "Truncation is a token-budget decision, not an arbitrary feature limit"
+    narration: >
+      Context windows have grown dramatically in recent years. Early GPT-3 had
+      a 4K window; modern models routinely offer 128K or more. But bigger
+      windows do not mean token counts stop mattering — if anything, they make
+      the habit of tracking usage more important. A 128K window can hold an
+      entire book of conversation history, which means you can accidentally send
+      hundreds of thousands of tokens without noticing. On cloud APIs that
+      translates directly to cost. On local Ollama, very long contexts slow
+      generation significantly because the model must attend over every prior
+      token on each new token it generates. Token awareness is a discipline, not
+      a constraint you work around.
+
+  - type: how_it_works
+    label: "What Ollama reports"
+    heading: "Ollama Reports Token Counts for Free"
+    body: >
+      Every Ollama response includes token-count and timing fields alongside
+      the message. You do not need a separate counting library — the model
+      reports what it actually processed.
+    code: |
+      import ollama
+
+      response = ollama.chat(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "What is 2 + 2?"}],
+      )
+
+      # Token counts
+      print(response["prompt_eval_count"])   # tokens in the prompt
+      print(response["eval_count"])          # tokens the model generated
+
+      # Timing (nanoseconds)
+      print(response["eval_duration"])       # time spent generating
+      print(response["total_duration"])      # total wall time including load
+
+      # Tokens per second (preview — Exercise 2)
+      tps = response["eval_count"] / (response["eval_duration"] / 1e9)
+      print(f"{tps:.1f} tok/s")
+    narration: >
+      Ollama's response dict is not just the text reply — it includes a
+      detailed performance summary for every call. prompt_eval_count tells you
+      how many tokens were in your input — the system prompt, history, and user
+      message combined. eval_count tells you how many tokens the model
+      generated. eval_duration is the time in nanoseconds spent on generation;
+      dividing eval_count by that duration converted to seconds gives you the
+      throughput in tokens per second. total_duration adds the model load time,
+      which can be significant on the first call if the model was not already
+      loaded. In your exercises today you will extract these fields into clean
+      Python structures so you can track and display them easily.
+
+  - type: exercise
+    heading: "Exercise 1: Extract Token Usage"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `extract_usage(response)`
+      that returns a dict with keys `input_tokens`, `output_tokens`, and
+      `duration_ms` extracted from an Ollama response. The function should
+      default to 0 for any missing field so it works on both real responses
+      and synthetic test dicts.
+    hint: >
+      Use `response.get("prompt_eval_count", 0)` for input tokens,
+      `response.get("eval_count", 0)` for output tokens, and
+      `response.get("eval_duration", 0) // 1_000_000` for duration in
+      milliseconds (nanoseconds divided by 1,000,000).
+    narration: >
+      This function is the foundation of everything else today. Extracting usage
+      into a clean dict makes all downstream code — the tracker, the dashboard,
+      the cost estimate — independent of Ollama's exact response shape. If
+      Ollama ever changes a field name, you fix it in one place. The checks use
+      synthetic response dicts so you can verify correctness without a running
+      model, following the same testability principle from Day 4 onward.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Token ≈ 4 chars ≈ ¾ word (English rough rule of thumb)"
+      - "Context window = max input + output tokens; exceeding it causes truncation or errors"
+      - "Ollama reports prompt_eval_count (input), eval_count (output), eval_duration (ns) in every response"
+      - "extract_usage(response) → {input_tokens, output_tokens, duration_ms} is the clean extraction layer"
+      - "Next: compute tokens per second and handle the zero-duration edge case safely"
+    narration: >
+      Tokens are the atomic unit of LLM work. Whether you are running locally
+      or paying a cloud provider, every decision about prompt length, history
+      depth, and output budget is a token decision. Ollama gives you the counts
+      for free in every response — today's exercises turn those raw numbers into
+      a structured usage tracker and eventually a cost-estimate dashboard.
+      Building this habit now, on a zero-cost local model, means you will be
+      ready when you move to a paid API.

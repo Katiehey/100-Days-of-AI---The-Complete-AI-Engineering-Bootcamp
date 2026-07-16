@@ -1,0 +1,149 @@
+day: "018"
+lesson: "05"
+title: "The Token Dashboard"
+
+slides:
+
+  - type: title
+    heading: "The Token Dashboard"
+    subheading: "Wrapping a chatbot with live usage tracking"
+    narration: >
+      In the final lesson of Day 18, you pull all four functions together into
+      a TokenAwareChatbot — a class that wraps ollama.chat, tracks usage with
+      UsageTracker, and exposes a summary string showing what the session used.
+      The project then wraps it in a REPL that prints stats after every turn
+      and a cost estimate when the session ends.
+
+  - type: concept
+    label: "TokenAwareChatbot design"
+    heading: "Wrapping ollama.chat in a Class"
+    body: >
+      The TokenAwareChatbot is a thin wrapper: it holds a UsageTracker, a
+      history list, and the model name. Its `chat()` method calls ollama.chat,
+      records usage, updates history, and returns the reply. `summary()` formats
+      the tracker's accumulated stats into a readable string.
+    bullets:
+      - "`__init__`: creates tracker, initialises history with system message, stores model"
+      - "`chat(user_input)`: append user → call ollama.chat → record response → append reply → return text"
+      - "`_last_response`: store the raw Ollama response so callers can read per-turn timing"
+      - "`summary()`: format tracker totals as a readable one-line string"
+      - "History grows with each turn — input token count grows accordingly"
+    narration: >
+      The wrapper pattern is one of the most common in software engineering:
+      you take an existing interface you do not control, wrap it in a class you
+      do control, and add the behaviour you need — in this case, usage tracking.
+      The original ollama.chat function does not change; you add a layer around
+      it. The _last_response attribute stores the raw Ollama response so the
+      REPL can read per-turn timing without threading it through function return
+      values. It is a bit of shared mutable state, but the alternative — returning
+      a tuple of (reply, response) from chat() — would change the interface and
+      make the chatbot harder to use in simple contexts.
+
+  - type: concept
+    label: "Why track locally"
+    heading: "Tracking Locally Builds Cloud-Ready Habits"
+    body: >
+      Running a free local model might make token tracking feel unnecessary.
+      But the value is in the habit — every LLM engineer needs to understand
+      what their application is doing at the token level before deploying to a
+      paid API.
+    bullets:
+      - "Context growth: history accumulates tokens every turn — watch it grow before it hurts your bill"
+      - "Prompt efficiency: a 200-token system prompt adds 200 tokens to every single call"
+      - "Output budget: `options={'num_predict': N}` in ollama.chat caps reply length"
+      - "Cost surprise prevention: 10K sessions × 5 turns × 1,000 avg tokens = 50M tokens = $125 on gpt-4o"
+      - "The dashboard habit: always know your token numbers before you ship"
+    narration: >
+      Here is a real-world scenario: you build a chatbot locally, it works
+      great, you deploy it to a cloud API, and your first month bill is $300
+      instead of the $30 you expected. What went wrong? You probably had a
+      verbose system prompt — say 500 tokens — a long history kept per user —
+      1,000 tokens average — and your bot was sending all of it on every turn.
+      At 10,000 conversations per month, each with 5 turns, that is 50,000
+      calls × 1,500 input tokens = 75M input tokens = $187.50 in input costs
+      alone, before counting output. The token dashboard you are building today
+      would have made that visible before you shipped. That is why you build it
+      now, on a free model.
+
+  - type: how_it_works
+    label: "TokenAwareChatbot implementation"
+    heading: "TokenAwareChatbot — Full Implementation"
+    body: >
+      Three methods, four instance attributes. The scaffold in Exercise 5 gives
+      you the structure; your job is to fill in the methods correctly.
+    code: |
+      import ollama
+
+      class TokenAwareChatbot:
+          def __init__(self, model="llama3.2",
+                       system_prompt="You are a helpful assistant."):
+              self.model = model
+              self.tracker = UsageTracker()
+              self._history = [{"role": "system", "content": system_prompt}]
+              self._last_response = None
+
+          def chat(self, user_input: str) -> str:
+              """Send a message, record usage, return the reply text."""
+              self._history.append({"role": "user", "content": user_input})
+              response = ollama.chat(model=self.model, messages=self._history)
+              self._last_response = response
+              self.tracker.record(response)
+              reply = response["message"]["content"]
+              self._history.append({"role": "assistant", "content": reply})
+              return reply
+
+          def summary(self) -> str:
+              """Return a formatted string with accumulated session stats."""
+              return (
+                  f"Calls: {self.tracker.call_count} | "
+                  f"Input: {self.tracker.total_input} tok | "
+                  f"Output: {self.tracker.total_output} tok | "
+                  f"Total: {self.tracker.total_tokens} tok"
+              )
+    narration: >
+      The chat method does six things in order: append the user message, call
+      ollama.chat, store the raw response, record usage in the tracker, extract
+      the reply text, append the reply to history, and return the text. This
+      sequence matters — the record call must happen after the response is
+      available, and the history append must happen before the next call so the
+      model sees the full conversation. The summary method is intentionally
+      simple: it formats the tracker's accumulated numbers into a readable string.
+      You can extend it with cost estimates, average tokens per call, or speed
+      data — the project will do exactly that.
+
+  - type: exercise
+    heading: "Exercise 5: TokenAwareChatbot"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement `TokenAwareChatbot` with
+      `__init__`, `chat(user_input)`, and `summary()`. The scaffold provides
+      all four prior functions. The check makes one real Ollama call to verify
+      that chat() returns a string and the tracker records the usage.
+    hint: >
+      In `__init__`: create `self.tracker = UsageTracker()`, set
+      `self._history = [{'role': 'system', 'content': system_prompt}]` and
+      `self._last_response = None`. In `chat()`: append user message, call
+      `ollama.chat`, record response, append reply, return reply text.
+      In `summary()`: format `self.tracker` fields as a string.
+    narration: >
+      Exercise 5 makes one real Ollama call to verify the full chain works
+      end-to-end: chat() sends a message, the raw response flows through
+      record(), and summary() formats the accumulated totals. After this
+      exercise you have a complete, self-contained token-aware chatbot that
+      you can drop into any REPL or application.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "TokenAwareChatbot wraps ollama.chat: maintains history, records usage per call, exposes summary()"
+      - "_last_response stores the raw Ollama response — callers can read per-turn timing without changing the interface"
+      - "Token tracking is a production habit — surprises happen at scale, not in local testing"
+      - "Context grows every turn: input token count for call N = system + all prior turns + new user message"
+      - "Project: build a REPL that prints token stats after every turn and a cost summary on exit"
+    narration: >
+      Today you built a complete token monitoring layer: a usage extractor, a
+      speed calculator, a session tracker, a cost estimator, and a wrapper that
+      ties them all together. These five components are reusable — drop them
+      into any future project that calls ollama.chat and you instantly have
+      visibility into what the model is doing. In the project you will wire
+      them into a REPL and see the numbers update live as you chat. That
+      real-time feedback is what makes the habit stick.

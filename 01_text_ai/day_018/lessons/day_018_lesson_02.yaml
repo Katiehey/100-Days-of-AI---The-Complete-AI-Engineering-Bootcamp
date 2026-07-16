@@ -1,0 +1,135 @@
+day: "018"
+lesson: "02"
+title: "Token Metadata from Ollama"
+
+slides:
+
+  - type: title
+    heading: "Token Metadata from Ollama"
+    subheading: "Reading speed, counts, and timing"
+    narration: >
+      Lesson 1 introduced tokens as a concept and showed you the fields Ollama
+      returns. In this lesson you go deeper: understand what each timing field
+      means, derive throughput from them, and handle the edge cases that trip
+      up beginners — particularly zero-duration responses in tests. You will
+      also see why eval_duration and total_duration differ and when each matters.
+
+  - type: concept
+    label: "The response fields"
+    heading: "Four Fields, Four Meanings"
+    body: >
+      An Ollama response includes four numeric fields related to tokens and
+      time. Knowing the difference prevents a common class of bugs — using the
+      wrong field for throughput, or confusing generation time with total
+      wall time.
+    bullets:
+      - "`prompt_eval_count` — tokens in the full input (system + history + user message)"
+      - "`eval_count` — tokens the model generated in the reply"
+      - "`eval_duration` — nanoseconds spent generating output tokens (the 'hot' loop)"
+      - "`total_duration` — nanoseconds from request start to response end, including load and prompt eval"
+      - "First call: total_duration >> eval_duration because the model loads from disk"
+      - "Subsequent calls: model is warm in memory; load_duration ≈ 0"
+    narration: >
+      eval_duration is the time spent actually generating tokens — this is what
+      limits throughput and what you should use for tokens-per-second
+      calculations. total_duration is the wall time from when you sent the
+      request to when you got the response; it includes the time to load the
+      model if it was not already running, plus prompt evaluation, plus
+      generation. On the first call of a session total_duration can be several
+      seconds even if eval_duration is only a fraction of a second, because
+      Ollama had to load the model weights. Subsequent calls see a warm model
+      and total_duration drops dramatically. For a throughput metric you almost
+      always want eval_duration, not total_duration.
+
+  - type: concept
+    label: "Tokens per second"
+    heading: "Tokens per Second — The Local Speed Metric"
+    body: >
+      When you are running a local model, the most useful performance number is
+      tokens per second — how quickly the model generates output. This depends
+      on your hardware, model size, and context length. It is always computed
+      from output tokens (eval_count), not input tokens.
+    bullets:
+      - "Formula: `tps = eval_count / (eval_duration / 1e9)`"
+      - "Divide eval_duration by 1e9 to convert nanoseconds to seconds"
+      - "Typical llama3.2 on Apple Silicon GPU: 20–60 tok/s"
+      - "Typical on CPU only: 5–20 tok/s depending on thread count and model quantisation"
+      - "Edge case: eval_duration == 0 (e.g., in test fixtures) — return 0.0 to avoid ZeroDivisionError"
+    narration: >
+      Tokens per second is the number you will quote when someone asks how fast
+      your local model is. It is not the same as words per minute — since one
+      word is roughly 0.75 tokens, multiply tps by 0.75 to get approximate
+      words per second. But in practice you will work in tokens everywhere. The
+      edge case of eval_duration being zero comes up in unit tests, where you
+      create synthetic response dicts without real timing. Guard against division
+      by zero by checking if eval_duration is zero before dividing.
+
+  - type: how_it_works
+    label: "tokens_per_second pattern"
+    heading: "Implementing tokens_per_second Safely"
+    body: >
+      A clean implementation handles the zero-duration edge case explicitly and
+      uses `.get()` with a default of 0 so it works on both real Ollama
+      responses and synthetic test dicts.
+    code: |
+      def tokens_per_second(response: dict) -> float:
+          """Return output tokens per second. Returns 0.0 if duration is zero."""
+          duration_s = response.get("eval_duration", 0) / 1e9
+          if duration_s == 0:
+              return 0.0
+          return response.get("eval_count", 0) / duration_s
+
+      # Real Ollama response
+      import ollama
+      resp = ollama.chat(model="llama3.2",
+                         messages=[{"role": "user", "content": "Hi!"}])
+      print(f"{tokens_per_second(resp):.1f} tok/s")
+
+      # Synthetic test fixture — duration 0 → returns 0.0, no ZeroDivisionError
+      fake = {"eval_count": 50, "eval_duration": 0}
+      print(tokens_per_second(fake))   # 0.0
+    narration: >
+      The guard 'if duration_s == 0: return 0.0' is the critical safety valve.
+      Without it, synthetic test fixtures with eval_duration set to zero trigger
+      a ZeroDivisionError at runtime. With it, your function works identically
+      on real Ollama responses and on handcrafted test dicts. This is the same
+      testability principle from Day 1: pure functions that work on plain Python
+      data are easy to test without infrastructure. Dividing by 1e9 rather than
+      1_000_000_000 is a style choice; both work identically, but 1e9 is the
+      convention in timing code.
+
+  - type: exercise
+    heading: "Exercise 2: Tokens per Second"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `tokens_per_second(response)`
+      that returns a float representing the output generation speed in tokens
+      per second. Make sure it returns 0.0 when eval_duration is zero or missing
+      — not a ZeroDivisionError.
+    hint: >
+      Compute `duration_s = response.get("eval_duration", 0) / 1e9`. If
+      `duration_s == 0`, return `0.0`. Otherwise return
+      `response.get("eval_count", 0) / duration_s`.
+    narration: >
+      This function is short but illustrates a key pattern: guard all division
+      against zero before dividing. In production code you will encounter this
+      pattern constantly — percentages, rates, and averages all involve division
+      that can hit zero in edge cases. The habit of asking 'what if the
+      denominator is zero?' is one of the most useful defensive programming
+      habits you can build.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "prompt_eval_count = input tokens; eval_count = output tokens; eval_duration = generation time in ns"
+      - "total_duration includes model load; eval_duration is the 'hot loop' — use it for throughput"
+      - "tokens_per_second = eval_count / (eval_duration / 1e9) — always guard against zero duration"
+      - "First call is slow (model loads); subsequent calls are fast (model stays warm in memory)"
+      - "Next: accumulate usage across multiple calls with a UsageTracker class"
+    narration: >
+      The Ollama response metadata is a small but powerful window into your
+      model's behaviour. Prompt token counts tell you how fast your context is
+      growing; generation speed tells you how well your hardware is utilised.
+      Both will become more important as you build longer-running chatbots and
+      multi-agent pipelines in later days. The key habit is simple: every time
+      you call ollama.chat, the response contains this data. Extracting it costs
+      nothing and gives you a complete picture of what the model did.

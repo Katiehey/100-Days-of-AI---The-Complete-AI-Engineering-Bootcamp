@@ -1,0 +1,146 @@
+day: "018"
+lesson: "04"
+title: "Cloud Cost Estimation"
+
+slides:
+
+  - type: title
+    heading: "Cloud Cost Estimation"
+    subheading: "What would this workload cost on a paid API?"
+    narration: >
+      Your local Ollama model is free, but the habits you build here transfer
+      directly to paid APIs. This lesson shows you how cloud API pricing works,
+      how to build a cost estimation function, and why understanding cost even
+      on a free local setup is valuable practice for production work.
+
+  - type: concept
+    label: "How cloud pricing works"
+    heading: "Cloud APIs Charge per Token — Input and Output Separately"
+    body: >
+      Major cloud LLM APIs charge per token, with separate rates for input
+      tokens (your prompt) and output tokens (the model's reply). Output tokens
+      typically cost 3–5 times more than input tokens because generating text
+      is computationally more expensive than reading it.
+    bullets:
+      - "gpt-4o: $2.50 per 1M input tokens · $10.00 per 1M output tokens"
+      - "claude-3-5-sonnet: $3.00 per 1M input · $15.00 per 1M output"
+      - "gemini-1.5-pro: $1.25 per 1M input · $5.00 per 1M output"
+      - "Prices change frequently — always verify on the provider's current pricing page"
+      - "1M tokens ≈ 750K words — a single chat turn is usually 100–2,000 tokens"
+    narration: >
+      The split between input and output pricing reflects the actual compute
+      difference: reading a token — feeding it through the attention layers —
+      is cheaper than generating a new one, which requires running the full
+      sampling process at each decoding step. As a rule of thumb, generating
+      1,000 words of output costs roughly four times the price of reading 1,000
+      words of input. This means that verbose system prompts, long history
+      chains, and chatty model responses are the three main drivers of cost.
+      The prices I have given you here were accurate in mid-2025; cloud
+      providers adjust pricing regularly, so always check the current rates
+      before deploying.
+
+  - type: concept
+    label: "cost_estimate design"
+    heading: "Designing cost_estimate — Table Lookup + Formula"
+    body: >
+      A clean cost estimation function uses a price table (a dict of dicts)
+      and a simple per-million formula. Raising ValueError for unknown models
+      is better than silently returning zero — silent zeros are invisible bugs.
+    bullets:
+      - "Price table: `PRICES = {'gpt-4o': {'input': 2.50, 'output': 10.00}, ...}`"
+      - "Formula: `input_cost = input_tokens * price_per_million / 1_000_000`"
+      - "Return dict: `{'model', 'input_cost', 'output_cost', 'total_cost'}`"
+      - "Unknown model → `raise ValueError(...)` — never silently return 0"
+      - "Round to 6 decimal places — sub-cent precision matters at scale"
+    narration: >
+      The price table is just a nested dict — no class needed. cost_estimate
+      takes the token counts and model name, looks up the prices, and returns
+      a structured dict. Raising ValueError for unknown models is a deliberate
+      choice: if you silently returned zero the caller would see a cost of
+      zero dollars and think everything is fine. An exception forces the caller
+      to handle the error explicitly. This is the fail-loudly principle: errors
+      should be visible, not hidden behind default values. Rounding to 6 decimal
+      places gives sub-cent precision, which matters when you are estimating the
+      cost of processing millions of tokens.
+
+  - type: how_it_works
+    label: "cost_estimate implementation"
+    heading: "cost_estimate — Full Implementation"
+    body: >
+      The function looks up the model in PRICES, computes costs for input and
+      output separately, rounds them, and returns a dict. Always include the
+      model name in the return value so the caller does not have to remember
+      what they passed.
+    code: |
+      PRICES = {
+          "gpt-4o":            {"input": 2.50,  "output": 10.00},
+          "claude-3-5-sonnet": {"input": 3.00,  "output": 15.00},
+          "gemini-1.5-pro":    {"input": 1.25,  "output": 5.00},
+      }
+
+      def cost_estimate(
+          input_tokens: int,
+          output_tokens: int,
+          model: str = "gpt-4o",
+      ) -> dict:
+          """Estimate cloud API cost. Prices in USD per 1M tokens."""
+          if model not in PRICES:
+              raise ValueError(
+                  f"Unknown model {model!r}. Choose from: {list(PRICES)}"
+              )
+          p = PRICES[model]
+          input_cost  = input_tokens  * p["input"]  / 1_000_000
+          output_cost = output_tokens * p["output"] / 1_000_000
+          return {
+              "model":       model,
+              "input_cost":  round(input_cost,  6),
+              "output_cost": round(output_cost, 6),
+              "total_cost":  round(input_cost + output_cost, 6),
+          }
+
+      est = cost_estimate(500, 200, "gpt-4o")
+      print(f"${est['total_cost']:.6f}")   # $0.003250
+    narration: >
+      The formula divides by 1_000_000 — Python allows underscores in numeric
+      literals as visual separators, making the million explicit and readable.
+      Notice that total_cost is computed as input_cost + output_cost before
+      rounding, not as round(input_cost) + round(output_cost). Summing first
+      avoids the accumulation of rounding errors across thousands of calls.
+      The return dict has four keys: model, input_cost, output_cost, and
+      total_cost. Always include the model name so the dict is self-contained —
+      when you log cost estimates, you want the model recorded alongside the
+      numbers.
+
+  - type: exercise
+    heading: "Exercise 4: Cost Estimate"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `cost_estimate(input_tokens,
+      output_tokens, model='gpt-4o')` using the PRICES table. It should return
+      a dict with keys `model`, `input_cost`, `output_cost`, and `total_cost`.
+      It should raise `ValueError` for model names not in the table.
+    hint: >
+      Define PRICES with the three models from the lesson. Check
+      `if model not in PRICES: raise ValueError(...)`. Compute
+      `input_cost = input_tokens * p["input"] / 1_000_000`. Use
+      `round(..., 6)` on each cost field.
+    narration: >
+      The checks verify the correct price for gpt-4o input and output tokens,
+      the ValueError for an unknown model, and the return structure for
+      claude-3-5-sonnet. No Ollama calls are needed because cost_estimate is
+      a pure function that works on plain integers and a dict lookup.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Cloud APIs charge per token, input and output separately; output is typically 3–5× more expensive"
+      - "PRICES dict maps model name to per-million rates for input and output"
+      - "cost_estimate(input_tokens, output_tokens, model) → {model, input_cost, output_cost, total_cost}"
+      - "Raise ValueError for unknown models — never silently return 0 (fail loudly)"
+      - "Next: wrap ollama.chat in a TokenAwareChatbot that tracks usage automatically per turn"
+    narration: >
+      Cloud cost estimation is not just about saving money — it is about
+      visibility. When you can say 'this conversation used 3,000 tokens and
+      would cost $0.05 on gpt-4o', you have a concrete way to evaluate whether
+      your prompt design is efficient. The same 1,000-token reduction that
+      saves milliseconds locally saves real money at scale. The habits you build
+      now on free Ollama will transfer directly when you ship to a cloud API.
