@@ -1,0 +1,138 @@
+day: "019"
+lesson: "01"
+title: "Why Evaluate LLM Outputs?"
+
+slides:
+
+  - type: title
+    heading: "Why Evaluate LLM Outputs?"
+    subheading: "From vibes to verifiable quality"
+    narration: >
+      Welcome to Day 19. You have built chatbots, tool-using assistants, and
+      streaming interfaces. Each time you tested them by running them yourself
+      and deciding whether they felt right. That is called vibes-based
+      evaluation, and it is the single most common mistake LLM engineers make
+      early in their careers. Today you will replace it with a systematic eval
+      harness — a test suite for your AI outputs that can run automatically,
+      catch regressions, and give you a number you can track over time.
+
+  - type: concept
+    label: "The vibes trap"
+    heading: "The Vibes-Based Trap"
+    body: >
+      When you manually inspect a few outputs and decide they look good, you
+      have made a biased, non-reproducible quality judgement. The model might
+      perform well on your examples and fail on user inputs you never tested.
+      Worse, you have no baseline — when you change the system prompt or upgrade
+      the model, you cannot tell whether things got better or worse.
+    bullets:
+      - "Manual review is not evaluation — it is spot-checking with unknown coverage"
+      - "Confirmation bias: you tend to test inputs where the model does well"
+      - "No baseline: you cannot measure improvement or regression across versions"
+      - "No scale: manual review of 5 outputs does not generalise to 5,000 user sessions"
+      - "The fix: a test set with expected outputs and automated scoring"
+    narration: >
+      Here is what vibes-based evaluation looks like in practice: you make a
+      change to your system prompt, run the chatbot three times, see responses
+      that look good, and ship. Two weeks later users are complaining that the
+      bot started giving wrong answers. The change you made two weeks ago
+      improved responses on the three cases you tested and degraded performance
+      on twenty cases you never checked. An eval harness would have caught that
+      regression before it shipped. This pattern — call it the vibe-ship-regret
+      cycle — is the number one cause of quality degradation in LLM applications.
+      The cure is simple: before you change anything, run an eval; after you
+      change it, run the eval again and compare the numbers.
+
+  - type: concept
+    label: "What makes a good eval"
+    heading: "A Good Eval Has Three Parts"
+    body: >
+      An evaluation harness has three components: a test set of inputs with
+      known-good expected outputs, one or more scoring functions that compare
+      actual output to expected output, and a report that aggregates the scores
+      into a single signal you can track.
+    bullets:
+      - "Test set: a curated list of (input, expected_output) pairs — your ground truth"
+      - "Scoring function: maps (actual, expected) → a quality signal (True/False, 1-5 score)"
+      - "Report: aggregates scores into pass rate, average score, and per-case breakdown"
+      - "Golden dataset: a subset of real production examples that covers failure modes you care about"
+      - "Regression threshold: if pass rate drops below X%, block the change"
+    narration: >
+      The test set is the most important investment because it encodes your
+      understanding of what good output looks like. A good test set is not
+      randomly sampled — it is curated to cover the cases that matter most:
+      typical inputs, edge cases, previously-failing inputs, and adversarial
+      examples. Once you have it, the scoring function and report are
+      straightforward to build. The scoring function can be as simple as checking
+      whether a keyword appears in the output, or as sophisticated as asking
+      another LLM to judge the quality of the response. You will build both
+      today.
+
+  - type: how_it_works
+    label: "Eval harness overview"
+    heading: "The Eval Loop — Input → Model → Score → Report"
+    body: >
+      The eval harness is a loop: for each test case, send the input to the
+      model, receive the response, run one or more scoring functions, and
+      record the result. At the end, aggregate all results into a summary.
+    code: |
+      # Pseudocode — the full implementation builds across exercises 1–5
+      test_cases = [
+          TestCase(question="What is the capital of France?",
+                   expected_keywords=["paris"]),
+          TestCase(question="What is 2 + 2?",
+                   expected_keywords=["4"]),
+      ]
+
+      results = []
+      for tc in test_cases:
+          response = ask_model(tc.question)
+          passed = contains_any(response, tc.expected_keywords)
+          results.append(EvalResult(test_case=tc, response=response, passed=passed))
+
+      summary = summarize_results(results)
+      print(f"Pass rate: {summary['pass_rate'] * 100:.1f}%")
+    narration: >
+      This is the skeleton of the harness you will build today. Notice that the
+      loop is simple: for each test case, ask the model, check the response,
+      record the result. All the complexity is in the scoring functions and the
+      data structures, not in the loop itself. By the end of today you will have
+      implemented all of these pieces: TestCase, EvalResult, contains_any,
+      exact_match, llm_judge, run_eval, summarize_results, and print_report.
+      Then in the project you will wire them into a harness for a real Q&A
+      application.
+
+  - type: exercise
+    heading: "Exercise 1: Deterministic Metrics"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `exact_match(response,
+      expected)` that returns True for a case-insensitive exact match, and
+      `contains_any(response, keywords)` that returns True if any keyword
+      appears anywhere in the response (case-insensitive). Both are pure string
+      functions — no model calls needed.
+    hint: >
+      For `exact_match`: `response.strip().lower() == expected.strip().lower()`.
+      For `contains_any`: `any(kw.lower() in response.lower() for kw in keywords)`.
+    narration: >
+      Deterministic metrics are your first line of defence: cheap, fast, and
+      fully reproducible. They cannot catch everything — a response might
+      contain the keyword 'Paris' while saying 'Paris is not the capital of
+      France' — but they catch obvious failures reliably and at scale. You
+      will add LLM-as-judge scoring later for subtler quality signals.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "Vibes-based evaluation is not evaluation — it is biased spot-checking with no reproducibility"
+      - "A good eval has three parts: test set (input + expected), scoring function, and aggregate report"
+      - "The eval loop: for each test case → ask model → score → record; then summarize all results"
+      - "Test sets should be curated, not random — focus on typical inputs, edge cases, and known failures"
+      - "Next: build deterministic scoring functions (exact_match, contains_any)"
+    narration: >
+      Evaluation is what separates engineering from hacking. When you have an
+      eval harness, you can change your system prompt, upgrade your model, or
+      refactor your pipeline and immediately know whether quality improved or
+      regressed. Without it, every change is a guess. The harness you build
+      today is small — five test cases, two metrics — but the pattern scales to
+      hundreds of cases and production deployments. Building it once, early,
+      is one of the highest-leverage investments you can make in an LLM project.

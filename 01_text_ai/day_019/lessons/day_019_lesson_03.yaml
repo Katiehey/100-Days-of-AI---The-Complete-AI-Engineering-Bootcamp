@@ -1,0 +1,159 @@
+day: "019"
+lesson: "03"
+title: "LLM-as-Judge"
+
+slides:
+
+  - type: title
+    heading: "LLM-as-Judge"
+    subheading: "Using a model to score model outputs"
+    narration: >
+      Deterministic metrics can tell you whether a keyword is present, but they
+      cannot tell you whether a response is coherent, helpful, or factually
+      correct in a nuanced way. LLM-as-judge bridges this gap by using a
+      language model as the scorer. You write a structured prompt that gives the
+      model a rubric, and ask it to return a numeric score and a rationale. The
+      resulting score is cheap, fast, and surprisingly well-calibrated for many
+      evaluation tasks.
+
+  - type: concept
+    label: "The judge pattern"
+    heading: "LLM-as-Judge — A Model Scores a Model"
+    body: >
+      LLM-as-judge uses one LLM call to evaluate the output of another. The
+      judge prompt provides a question, the expected answer, the actual response,
+      and a scoring rubric. The judge returns a score (typically 1–5) and a
+      one-sentence rationale explaining the score.
+    bullets:
+      - "Inputs: question, expected_answer, actual_response, scoring rubric"
+      - "Output: {'score': int, 'rationale': str}"
+      - "Rubric: 1=wrong, 2=mostly wrong, 3=partial, 4=mostly correct, 5=perfect"
+      - "Same model can judge itself — llama3.2 judging llama3.2 works reasonably well"
+      - "Bias risk: models tend to prefer their own style; use the same model to control for style"
+    narration: >
+      LLM-as-judge was popularised by the MT-Bench paper in 2023, which showed
+      that GPT-4 judgments agreed with human judgments at rates comparable to
+      human-human agreement. Since then it has become standard practice for
+      evaluating open-ended generation. The key insight is that language models
+      are better at recognising quality than at generating it reliably — they
+      have absorbed enough human quality signals during training to make
+      reasonable judgments even when their own outputs fall short. On a local
+      model like llama3.2, judgment quality is lower than GPT-4 but sufficient
+      for development-time evaluation. The rubric is the most important part:
+      a well-specified rubric produces consistent, interpretable scores; a vague
+      rubric produces noise.
+
+  - type: concept
+    label: "Judge prompt design"
+    heading: "Writing a Good Judge Prompt"
+    body: >
+      A judge prompt has four parts: context (what the judge is doing), the
+      evaluation inputs (question, expected, actual), the rubric (exact criteria
+      for each score), and an output format instruction. The output format
+      instruction is critical — without it, the model may return verbose prose
+      that is hard to parse.
+    bullets:
+      - "Tell the judge its role: 'You are an evaluation judge.'"
+      - "Provide the question, expected answer, and actual response clearly labelled"
+      - "Define the rubric explicitly: 5=perfect, 4=mostly correct, 3=partial, 2=mostly wrong, 1=wrong"
+      - "Demand structured output: 'Respond with ONLY: Score: <1-5>\\nRationale: <sentence>'"
+      - "Parse the output with regex: `re.search(r'Score:\\s*([1-5])', text)`"
+    narration: >
+      The output format instruction is the most important line in the judge
+      prompt. Without it, the model might respond with 'I would give this a
+      score of four out of five because...' which requires natural-language
+      parsing. With the exact format specified, the model returns 'Score: 4\n
+      Rationale: The response correctly identifies Paris as the capital.' — a
+      regex match away from a structured dict. Always parse with a fallback:
+      if the regex fails to find a score, default to 3 (the midpoint) rather
+      than crashing. The rationale is useful for debugging: when a test case
+      fails, the rationale tells you why the judge scored it low.
+
+  - type: how_it_works
+    label: "llm_judge implementation"
+    heading: "llm_judge — Full Implementation"
+    body: >
+      The function formats the judge prompt, calls ollama.chat, extracts the
+      score with regex, and falls back gracefully if parsing fails.
+    code: |
+      import re, ollama
+
+      JUDGE_PROMPT = """\
+      You are an evaluation judge. Score the response below on a scale of 1 to 5.
+
+      Question: {question}
+      Expected answer: {expected}
+      Actual response: {response}
+
+      Rubric:
+      1 = Completely wrong or irrelevant
+      2 = Mostly wrong with minor correct elements
+      3 = Partially correct but with significant gaps
+      4 = Mostly correct with minor issues
+      5 = Fully correct and complete
+
+      Respond with ONLY this format:
+      Score: <1-5>
+      Rationale: <one sentence>
+      """
+
+      def llm_judge(question: str, response: str, expected: str,
+                    model: str = "llama3.2") -> dict:
+          """Score a response 1–5 using an LLM judge. Returns {score, rationale}."""
+          prompt = JUDGE_PROMPT.format(question=question,
+                                       expected=expected, response=response)
+          raw = ollama.chat(model=model,
+                            messages=[{"role": "user", "content": prompt}])
+          text = raw["message"]["content"]
+          m = re.search(r"Score:\s*([1-5])", text)
+          score = int(m.group(1)) if m else 3
+          r = re.search(r"Rationale:\s*(.+)", text)
+          rationale = r.group(1).strip() if r else text.strip()[:200]
+          return {"score": score, "rationale": rationale}
+    narration: >
+      Two details deserve attention. First, the fallback for score: if the
+      regex fails — which can happen if the model ignores the format instruction
+      and writes verbose text — we default to 3 (the neutral midpoint) rather
+      than crashing. A default of 3 is conservative: it neither passes nor fails
+      the test case, so a human reviewing the report will notice the ambiguity.
+      Second, the rationale fallback: if the rationale regex fails, we use the
+      first 200 characters of the raw text. This ensures the return dict always
+      has both keys, even in degenerate cases. Always return a valid dict; never
+      raise an exception from a scoring function, because one failed score
+      should not stop the rest of the eval run.
+
+  - type: exercise
+    heading: "Exercise 2: LLM-as-Judge"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `llm_judge(question,
+      response, expected, model='llama3.2')` using the JUDGE_PROMPT template.
+      It should make one ollama.chat call, parse the score with regex, and
+      return `{'score': int, 'rationale': str}`. Fallback score is 3 if parsing
+      fails.
+    hint: >
+      Use `re.search(r'Score:\s*([1-5])', text)` to extract the score.
+      Use `re.search(r'Rationale:\s*(.+)', text)` for the rationale.
+      Default score to 3 and rationale to the raw text if either regex fails.
+    narration: >
+      The checks verify the dict structure, score range, and rationale type.
+      One check sends a clearly correct answer and verifies the score is at
+      least 3. This test may occasionally get a score of 3 even for a perfect
+      answer — local models are not perfectly consistent judges. That is
+      acceptable; what matters is the overall pass rate across many test cases.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "LLM-as-judge: provide question, expected, actual + rubric → model returns score 1–5 + rationale"
+      - "Output format instruction is critical — 'Score: <1-5>\\nRationale: <sentence>' forces parseable output"
+      - "Parse with regex; fallback to score=3 if parsing fails — never crash the eval run"
+      - "Rationale is for debugging: tells you why a case scored low, which guides prompt improvements"
+      - "Next: TestCase and EvalResult dataclasses — the data structures that hold test inputs and results"
+    narration: >
+      LLM-as-judge is the most powerful tool in your eval toolbox but also the
+      most expensive — each judge call is a full model inference. Use it
+      selectively: run contains_any first and only invoke the judge for cases
+      that pass the keyword check but where you need a quality signal beyond
+      keyword presence. In tomorrow's capstone you will combine all three
+      metrics — exact_match, contains_any, and llm_judge — into a layered
+      scoring pipeline.

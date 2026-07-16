@@ -1,0 +1,147 @@
+day: "019"
+lesson: "04"
+title: "Test Sets and Data Structures"
+
+slides:
+
+  - type: title
+    heading: "Test Sets and Data Structures"
+    subheading: "TestCase, EvalResult, and the golden dataset"
+    narration: >
+      You now have two scoring functions: contains_any and llm_judge. To run
+      them at scale you need data structures that hold test inputs and results.
+      This lesson introduces the TestCase and EvalResult dataclasses, explains
+      what makes a good test set, and shows you how to structure eval data so
+      the harness can process it cleanly.
+
+  - type: concept
+    label: "TestCase dataclass"
+    heading: "TestCase — One Row of Your Test Set"
+    body: >
+      A TestCase holds everything you need to evaluate one model output: the
+      input question, a list of keywords that should appear in any correct
+      answer, and an optional expected answer for LLM judge scoring. Using a
+      dataclass rather than a plain dict gives you named attributes, type hints,
+      and safe defaults.
+    bullets:
+      - "`@dataclass class TestCase: question: str; expected_keywords: list[str]; expected_answer: str`"
+      - "`expected_keywords` uses `field(default_factory=list)` — never `default=[]` (shared mutable default bug)"
+      - "`expected_answer` defaults to empty string — only required for llm_judge scoring"
+      - "The question is the literal text sent to the model as the user message"
+      - "expected_keywords are lowercased at match time — store them in any case"
+    narration: >
+      The shared mutable default bug is one of the most common Python gotchas
+      with dataclasses. If you write `expected_keywords: list[str] = []`, all
+      instances that do not specify keywords share the same list object — mutating
+      one mutates all of them. `field(default_factory=list)` creates a fresh
+      list for each instance. You first encountered this pattern on Day 9 with
+      Pydantic; the dataclass version uses `field` instead of `Field`. The
+      expected_answer field is optional because most test cases only need keyword
+      matching — the judge prompt is reserved for cases where you need a deeper
+      quality signal.
+
+  - type: concept
+    label: "EvalResult dataclass"
+    heading: "EvalResult — One Row of Your Eval Report"
+    body: >
+      An EvalResult holds the outcome of running one TestCase through the model:
+      the original test case, the model's actual response, whether it passed
+      the keyword check, and optional judge scores.
+    bullets:
+      - "`@dataclass class EvalResult: test_case: TestCase; response: str; passed: bool`"
+      - "`matched_keywords: list[str]` — which keywords were found (for debugging)"
+      - "`judge_score: int = 0` and `judge_rationale: str = ''` — populated only when judge runs"
+      - "`passed` is True if any keyword was matched, or if there are no keywords"
+      - "Store the full response so you can review failures without re-running the model"
+    narration: >
+      The EvalResult is a record, not a decision-maker. It stores everything
+      that happened for one test case: what the model said, which keywords
+      matched, and what the judge thought. By storing the full response, you
+      can review failed test cases offline without re-running the model. By
+      storing matched_keywords separately from passed, you preserve information:
+      a case might have expected three keywords and matched two — technically
+      failed, but worth knowing how close it was. The judge_score and
+      judge_rationale default to 0 and empty string so you can always check
+      whether the judge ran without needing a separate boolean.
+
+  - type: how_it_works
+    label: "Dataclass implementation"
+    heading: "TestCase and EvalResult — Full Definitions"
+    body: >
+      Both classes use `@dataclass` from the standard library with
+      `field(default_factory=list)` for mutable defaults. No third-party
+      library required.
+    code: |
+      from dataclasses import dataclass, field
+
+      @dataclass
+      class TestCase:
+          question: str
+          expected_keywords: list[str] = field(default_factory=list)
+          expected_answer: str = ""
+
+      @dataclass
+      class EvalResult:
+          test_case: TestCase
+          response: str
+          passed: bool
+          matched_keywords: list[str] = field(default_factory=list)
+          judge_score: int = 0
+          judge_rationale: str = ""
+
+      # Building a test set
+      EVAL_CASES = [
+          TestCase("What is the capital of France?",
+                   expected_keywords=["paris"],
+                   expected_answer="Paris"),
+          TestCase("What is 15 multiplied by 7?",
+                   expected_keywords=["105"],
+                   expected_answer="105"),
+          TestCase("Name a programming language.",
+                   expected_keywords=["python", "java", "javascript",
+                                      "rust", "go", "c"]),
+      ]
+    narration: >
+      The third test case illustrates an important pattern: when multiple
+      correct answers exist, list all of them as keywords. Naming a programming
+      language has dozens of valid answers, so we list the most common ones.
+      Any of them appearing in the response counts as a pass. This is less
+      precise than a human review but dramatically more scalable. For the second
+      test case, the expected_answer field '105' enables llm_judge scoring in
+      addition to keyword matching — the judge can verify that the model not
+      only mentioned 105 but did so correctly in context.
+
+  - type: exercise
+    heading: "Exercise 3: TestCase and EvalResult"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement the `TestCase` and
+      `EvalResult` dataclasses exactly as shown. Use
+      `field(default_factory=list)` for list fields and defaults for optional
+      fields. The checks verify that two TestCase instances have independent
+      keyword lists (the mutable-default-bug check).
+    hint: >
+      `from dataclasses import dataclass, field`. Use `@dataclass` decorator.
+      `expected_keywords: list[str] = field(default_factory=list)`.
+      Same pattern for `EvalResult.matched_keywords`.
+    narration: >
+      The most important check here is that two TestCase instances created
+      without specifying keywords each have their own empty list, not a shared
+      one. This verifies that default_factory=list is used instead of a bare
+      default=[]. No model calls needed — all checks work on plain Python
+      objects.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "TestCase: question + expected_keywords + expected_answer — one row of your test set"
+      - "EvalResult: test_case + response + passed + matched_keywords + judge_score + judge_rationale"
+      - "Use `field(default_factory=list)` for list fields in dataclasses — never `default=[]`"
+      - "Store the full response in EvalResult so you can review failures without re-running the model"
+      - "Next: run_eval — the loop that processes a list of TestCases through the model"
+    narration: >
+      With TestCase and EvalResult defined, you have the containers for your
+      eval data. The next lesson wires them together with run_eval — the loop
+      that sends each TestCase to the model, scores the response, and returns
+      a list of EvalResults. After that, summarize_results aggregates the list
+      into a single dict you can log, compare across runs, and use as a
+      regression gate.

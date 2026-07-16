@@ -1,0 +1,157 @@
+day: "019"
+lesson: "05"
+title: "The Eval Harness"
+
+slides:
+
+  - type: title
+    heading: "The Eval Harness"
+    subheading: "run_eval, summarize_results, and print_report"
+    narration: >
+      You now have all the building blocks: scoring functions, data structures,
+      and a judge. This lesson assembles them into a complete eval harness: the
+      run_eval loop that processes a test set, summarize_results that aggregates
+      the outcomes, and print_report that formats the results for human review.
+      After today you have a tool you can run before and after every change to
+      your LLM application.
+
+  - type: concept
+    label: "run_eval loop"
+    heading: "run_eval — Processing a Test Set"
+    body: >
+      `run_eval` is a simple loop: for each TestCase, send the question to the
+      model, score the response, and record an EvalResult. An optional
+      `use_judge` flag enables LLM-as-judge scoring on top of keyword matching.
+    bullets:
+      - "For each TestCase: build messages, call ollama.chat, score with contains_any"
+      - "`matched_keywords`: filter expected_keywords by which appear in the response"
+      - "`passed`: True if any keyword matched, or True if no keywords specified"
+      - "`use_judge=True`: additionally call llm_judge and populate judge_score/rationale"
+      - "Returns `list[EvalResult]` — one per TestCase, in order"
+    narration: >
+      The run_eval function is deliberately simple: it is just a loop. All the
+      complexity lives in the scoring functions and data structures you built
+      in previous exercises. This separation is intentional — when you want to
+      add a new metric, you add a function and update run_eval to call it, but
+      you do not have to change the loop logic or the data structures. The
+      use_judge flag defaults to False so that routine eval runs are fast and
+      free — you opt in to judge scoring when you need the quality signal.
+
+  - type: concept
+    label: "summarize_results"
+    heading: "summarize_results — One Number to Rule Them All"
+    body: >
+      `summarize_results` aggregates a list of EvalResults into a summary dict:
+      total cases, passed, failed, pass_rate, and average judge score. The
+      pass_rate is the single most important number — it is the regression
+      threshold you check before shipping a change.
+    bullets:
+      - "`total = len(results)`; `passed = sum(r.passed for r in results)`"
+      - "`pass_rate = round(passed / total, 4)` — 0.0 to 1.0 (multiply by 100 for percent)"
+      - "`avg_judge_score`: average of `r.judge_score for r in results if r.judge_score > 0`"
+      - "Handle empty list: return all zeros rather than dividing by zero"
+      - "Threshold example: block deploy if pass_rate < 0.8 (80% of cases must pass)"
+    narration: >
+      The pass_rate is your quality signal across versions. If you change the
+      system prompt and the pass_rate drops from 0.9 to 0.7, you know the
+      change degraded quality. If it rises from 0.7 to 0.85, you know it
+      improved. Round to 4 decimal places so that small changes — one case
+      out of fifty — are visible. The avg_judge_score is a softer signal: it
+      tells you the average quality of responses, even for cases that passed
+      the keyword check. A pass_rate of 1.0 with avg_judge_score of 2.5 means
+      every response contained the keyword but most responses were low quality
+      in the judge's assessment — worth investigating.
+
+  - type: how_it_works
+    label: "Full harness"
+    heading: "run_eval, summarize_results, print_report"
+    body: >
+      The three functions compose into a complete eval pipeline: run, summarize,
+      report. The report prints both a summary header and a per-case breakdown
+      so you can identify exactly which cases fail.
+    code: |
+      def run_eval(test_cases, system_prompt="You are a helpful assistant.",
+                   model="llama3.2", use_judge=False):
+          results = []
+          for tc in test_cases:
+              resp = ollama.chat(model=model, messages=[
+                  {"role": "system", "content": system_prompt},
+                  {"role": "user",   "content": tc.question},
+              ])
+              response = resp["message"]["content"]
+              matched = [kw for kw in tc.expected_keywords
+                         if kw.lower() in response.lower()]
+              passed = bool(matched) if tc.expected_keywords else True
+              result = EvalResult(tc, response, passed, matched)
+              if use_judge and tc.expected_answer:
+                  j = llm_judge(tc.question, response, tc.expected_answer, model)
+                  result.judge_score = j["score"]
+                  result.judge_rationale = j["rationale"]
+              results.append(result)
+          return results
+
+      def summarize_results(results):
+          if not results:
+              return {"total": 0, "passed": 0, "failed": 0,
+                      "pass_rate": 0.0, "avg_judge_score": 0.0}
+          total  = len(results)
+          passed = sum(1 for r in results if r.passed)
+          scores = [r.judge_score for r in results if r.judge_score > 0]
+          return {"total": total, "passed": passed, "failed": total - passed,
+                  "pass_rate": round(passed / total, 4),
+                  "avg_judge_score": round(sum(scores)/len(scores), 2) if scores else 0.0}
+
+      def print_report(results):
+          s = summarize_results(results)
+          print(f"Eval — {s['total']} cases | "
+                f"Pass: {s['passed']}/{s['total']} ({s['pass_rate']*100:.1f}%)")
+          for i, r in enumerate(results, 1):
+              icon = "✅" if r.passed else "❌"
+              print(f"  {icon} {i}. {r.test_case.question[:55]}")
+              if r.judge_score:
+                  print(f"       Score {r.judge_score}/5 — {r.judge_rationale[:60]}")
+    narration: >
+      The print_report function truncates the question to 55 characters and
+      the rationale to 60 — enough to see at a glance what happened without
+      flooding the terminal. In a real production eval you would write results
+      to a JSON file and compare them across runs programmatically. The print
+      version is for interactive development: run the harness, see which cases
+      fail, fix the system prompt, run again. The tight feedback loop is the
+      point.
+
+  - type: exercise
+    heading: "Exercises 4 and 5: run_eval and summarize_results"
+    prompt: >
+      Open `exercises/exercise_04.ipynb`. Implement `run_eval` using all prior
+      components. Then open `exercises/exercise_05.ipynb` and implement
+      `summarize_results` and `print_report`. Exercise 4 makes one Ollama
+      call; Exercise 5 is pure — all checks use synthetic EvalResult objects.
+    hint: >
+      `run_eval`: iterate test_cases, call `ollama.chat`, build `matched` list
+      with a list comprehension, set `passed = bool(matched) if tc.expected_keywords else True`.
+      `summarize_results`: handle empty list first; use `sum(1 for r in results if r.passed)`.
+    narration: >
+      Exercise 4 makes one real Ollama call to verify that the loop produces
+      a valid EvalResult. Exercise 5 uses synthetic EvalResult objects to
+      verify the math in summarize_results without any model calls. Together
+      they complete the eval harness — you will wire everything together in
+      the project.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "run_eval: loop over TestCases, call ollama.chat, score with contains_any, return list[EvalResult]"
+      - "use_judge=False by default — opt in for quality scoring, keep routine runs fast"
+      - "summarize_results: {total, passed, failed, pass_rate, avg_judge_score} — the regression signal"
+      - "pass_rate is the primary metric — compare before/after every change to your application"
+      - "Project: build a 5-case eval harness for a factual Q&A application and run it end-to-end"
+    narration: >
+      You now have a complete, working eval harness that takes a list of test
+      cases, runs them through a local LLM, scores each response, and reports
+      the aggregate quality. The harness is small — under 50 lines of Python —
+      but the pattern it implements is the same one used by teams running
+      evaluations at millions of calls per day. The key difference is scale
+      and the sophistication of the test set. In the project you will build a
+      real test set for a factual Q&A application and run the full eval loop.
+      In the Day 20 capstone you will integrate evaluation into the Second Brain
+      RAG pipeline.

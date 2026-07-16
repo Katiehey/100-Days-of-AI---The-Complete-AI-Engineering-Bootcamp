@@ -1,0 +1,134 @@
+day: "019"
+lesson: "02"
+title: "Deterministic Evaluation Metrics"
+
+slides:
+
+  - type: title
+    heading: "Deterministic Evaluation Metrics"
+    subheading: "Fast, free, reproducible scoring"
+    narration: >
+      Lesson 1 explained why you need an eval harness. This lesson focuses on
+      the simplest kind of scoring functions: deterministic metrics that compare
+      strings without calling any model. These run in microseconds, cost nothing,
+      and give identical results every time — making them ideal as the first
+      filter in any eval pipeline.
+
+  - type: concept
+    label: "exact_match"
+    heading: "exact_match — When the Answer Is a Specific String"
+    body: >
+      Exact match checks whether the model's response, after normalisation, is
+      identical to an expected string. It is appropriate when you have a precise
+      known-correct answer — a number, a proper noun, a code keyword. It is too
+      strict for natural language where phrasing varies.
+    bullets:
+      - "Normalise before comparing: `response.strip().lower() == expected.strip().lower()`"
+      - "Good for: 'What is 2+2?' → '4'; 'What language is this?' → 'python'"
+      - "Too strict for: 'Who wrote Hamlet?' where 'Shakespeare' and 'William Shakespeare' are both correct"
+      - "Tip: for numeric answers, check float equality rather than string equality"
+      - "Tip: strip punctuation if the model adds periods or quotes"
+    narration: >
+      Exact match is the strictest and simplest metric. It works beautifully
+      for classification outputs — yes/no, category labels, numeric answers —
+      where there is one canonical correct answer. It breaks down for
+      open-ended generation where multiple valid phrasings exist. If you find
+      yourself modifying the expected string to match the model's preferred
+      formatting, that is a signal that contains_any or an LLM judge would
+      serve you better.
+
+  - type: concept
+    label: "contains_any"
+    heading: "contains_any — When Good Answers Share Key Terms"
+    body: >
+      `contains_any` checks whether any keyword from a list appears somewhere
+      in the response. It is more flexible than exact match and handles natural
+      language variation well: many correct phrasings of the same fact will
+      contain the same key term.
+    bullets:
+      - "`any(kw.lower() in response.lower() for kw in keywords)`"
+      - "Good for: 'What is the capital of France?' → keywords=['paris']"
+      - "Multiple keywords as synonyms: keywords=['paris', 'île-de-france'] — any is sufficient"
+      - "Limitation: presence of keyword does not mean the statement is correct"
+      - "Counter-example: 'Paris is not the capital of France' contains 'paris' but is wrong"
+    narration: >
+      contains_any is the workhorse metric for factual Q&A evaluation. Most
+      correct answers to factual questions will include the key fact as a
+      substring. 'The capital of France is Paris', 'Paris is the capital city
+      of France', 'France's capital, Paris, ...' — all contain 'paris'. The
+      limitation is that contains_any does not check the polarity of the
+      statement: a negation can contain the keyword while being wrong. For
+      well-behaved models on factual questions, this is rarely a problem in
+      practice. For adversarial testing or questions with negations in the
+      expected answer, you need a semantic metric like LLM-as-judge.
+
+  - type: how_it_works
+    label: "metric hierarchy"
+    heading: "When to Use Which Metric"
+    body: >
+      Use deterministic metrics first — they are fast and free. Add LLM-as-judge
+      scoring only for cases where string matching is insufficient.
+    code: |
+      def exact_match(response: str, expected: str) -> bool:
+          """Case-insensitive exact match after stripping whitespace."""
+          return response.strip().lower() == expected.strip().lower()
+
+      def contains_any(response: str, keywords: list[str]) -> bool:
+          """True if any keyword appears in the response (case-insensitive)."""
+          resp_lower = response.lower()
+          return any(kw.lower() in resp_lower for kw in keywords)
+
+      # Use exact_match for: classification, yes/no, single-word answers
+      assert exact_match("Python", "python")          # True — normalised
+      assert not exact_match("I use Python", "python") # False — substring only
+
+      # Use contains_any for: factual Q&A, open-ended answers with key terms
+      assert contains_any("The capital is Paris.", ["paris", "london"])  # True
+      assert not contains_any("It's in Germany.", ["paris", "london"])   # False
+
+      # Combine: require keyword AND not flagged negation
+      def positive_contains(response: str, keyword: str) -> bool:
+          low = response.lower()
+          return keyword.lower() in low and "not" not in low.split(keyword.lower())[0][-10:]
+    narration: >
+      The rule of thumb is: start with contains_any for factual Q&A, use
+      exact_match for controlled classification outputs, and add LLM-as-judge
+      (Lesson 3) when you need to evaluate coherence, helpfulness, or
+      correctness of reasoning that no string metric can capture. In practice,
+      a combination works best: fail the test immediately with contains_any if
+      the key fact is absent, and use LLM judge for subtler quality signals.
+      The positive_contains helper at the bottom of the code is a simple heuristic
+      for catching near-miss negations — it checks that 'not' does not appear
+      in the ten characters before the keyword.
+
+  - type: exercise
+    heading: "Exercise 1: exact_match and contains_any"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `exact_match(response,
+      expected)` and `contains_any(response, keywords)` as described. All
+      checks use plain strings — no model calls.
+    hint: >
+      `exact_match`: `response.strip().lower() == expected.strip().lower()`.
+      `contains_any`: `any(kw.lower() in response.lower() for kw in keywords)`.
+    narration: >
+      These two functions together handle the vast majority of factual
+      evaluation cases. The checks verify case-insensitivity, whitespace
+      handling, and both the positive and negative cases for each function.
+      No model call is needed because both functions are pure.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "exact_match: strip + lowercase both strings, then compare — strict, best for classification outputs"
+      - "contains_any: check if any keyword appears anywhere in the lowercased response"
+      - "contains_any does not verify polarity — 'X is not Y' still contains 'Y'"
+      - "Metric hierarchy: exact_match < contains_any < LLM-as-judge (increasing cost and capability)"
+      - "Next: LLM-as-judge — ask a model to score a response on a 1–5 rubric"
+    narration: >
+      Deterministic metrics are the cheapest and most reliable tool in your
+      eval toolbox. They should be your default starting point. When they are
+      not expressive enough — for evaluating helpfulness, tone, or logical
+      coherence — you reach for LLM-as-judge, which you will implement in the
+      next lesson. The key principle is cost-effectiveness: run the cheap
+      metrics first and only invoke the model judge when the cheap metrics
+      cannot answer the quality question.
