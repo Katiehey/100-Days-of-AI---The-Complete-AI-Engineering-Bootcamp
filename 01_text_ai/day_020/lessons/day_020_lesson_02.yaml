@@ -1,0 +1,150 @@
+day: "020"
+lesson: "02"
+title: "Chunking and Indexing the Knowledge Base"
+
+slides:
+
+  - type: title
+    heading: "Chunking and Indexing the Knowledge Base"
+    subheading: "Turning raw documents into a searchable vector store"
+    narration: >
+      Before a RAG system can answer questions, it needs to index the knowledge
+      base — convert raw text documents into embedded vectors stored in a
+      searchable database. This lesson covers chunk_text, the embedding wrapper,
+      and build_index, which ties them together into a function that takes a
+      dict of documents and returns a ready-to-query ChromaDB collection.
+
+  - type: concept
+    label: "Chunking strategy"
+    heading: "Why Overlap Matters in Chunking"
+    body: >
+      A chunk is the unit of retrieval: when the user asks a question, the
+      system finds the most similar chunks and passes them to the LLM. Chunk
+      size and overlap are the two tuning parameters.
+    bullets:
+      - "chunk_size (words): larger = more context per chunk, but blends multiple topics"
+      - "overlap (words): how many words the end of chunk N shares with the start of chunk N+1"
+      - "Without overlap: a key sentence split across a boundary may never be retrieved"
+      - "With overlap: the sentence appears in two consecutive chunks — one will be retrieved"
+      - "Typical values: chunk_size=200–400 words, overlap=20–50 words"
+    narration: >
+      Here is a concrete example of why overlap matters. Imagine a sentence like
+      'The Transformer architecture, introduced in 2017, revolutionised natural
+      language processing.' If chunk N ends at 'Transformer architecture' and
+      chunk N+1 starts at 'introduced in 2017', then a query about Transformer
+      history might not retrieve either chunk, because neither contains the full
+      sentence. With 30-word overlap, the complete sentence appears in at least
+      one chunk and will be retrieved. The cost of overlap is a modest increase
+      in the number of chunks — and therefore the number of embeddings — which
+      is worth the improvement in retrieval quality.
+
+  - type: concept
+    label: "build_index design"
+    heading: "build_index — Chunk, Embed, Store"
+    body: >
+      `build_index` takes a dict mapping source names to document texts. For
+      each document it chunks the text, embeds each chunk, and adds it to a
+      ChromaDB collection with source metadata.
+    bullets:
+      - "Input: `docs: dict[str, str]` — `{'filename.txt': 'full text...'}`"
+      - "For each doc: `chunks = chunk_text(text, chunk_size, overlap)`"
+      - "Embed each chunk: `ollama.embeddings(model='nomic-embed-text', prompt=chunk)['embedding']`"
+      - "Add to collection: `collection.add(ids=[...], embeddings=[...], documents=[...], metadatas=[...])`"
+      - "Metadata: `{'source': source_name, 'chunk_index': i}` — enables citation tracking"
+    narration: >
+      The source name in metadata is what makes citations possible. When you
+      retrieve a chunk, its metadata tells you which document it came from.
+      You can then display 'Source: python_notes.txt' to the user. The
+      chunk_index metadata is useful for debugging: if retrieval returns
+      unexpected chunks, you can identify exactly which part of a document
+      they came from. ChromaDB requires unique IDs for each vector; a simple
+      pattern is 'source_name__chunk_index' which is both unique and readable.
+
+  - type: how_it_works
+    label: "build_index implementation"
+    heading: "build_index — Full Implementation"
+    body: >
+      The function creates a fresh in-memory collection, iterates over all
+      documents, chunks and embeds each one, and adds them in one batch per
+      document.
+    code: |
+      import ollama, chromadb
+
+      def embed_text(text: str, model: str = "nomic-embed-text") -> list[float]:
+          """Embed a single string. Returns a list[float] vector."""
+          return ollama.embeddings(model=model, prompt=text)["embedding"]
+
+      def build_index(
+          docs: dict[str, str],
+          collection_name: str = "second_brain",
+          chunk_size: int = 300,
+          overlap: int = 50,
+      ):
+          """Chunk all docs, embed them, and store in a ChromaDB collection."""
+          client = chromadb.Client()
+          try:
+              client.delete_collection(collection_name)
+          except Exception:
+              pass
+          collection = client.create_collection(collection_name)
+
+          for source, text in docs.items():
+              chunks = chunk_text(text, chunk_size, overlap)
+              ids, embeddings, documents, metadatas = [], [], [], []
+              for i, chunk in enumerate(chunks):
+                  ids.append(f"{source}__{i}")
+                  embeddings.append(embed_text(chunk))
+                  documents.append(chunk)
+                  metadatas.append({"source": source, "chunk_index": i})
+              if ids:
+                  collection.add(ids=ids, embeddings=embeddings,
+                                 documents=documents, metadatas=metadatas)
+          return collection
+    narration: >
+      Two details worth noting. First, the try/except around delete_collection:
+      if the collection name already exists, delete it and start fresh. This
+      makes build_index idempotent — calling it twice with the same name gives
+      the same result as calling it once. Second, batching: we accumulate all
+      chunks for one document into lists and call collection.add once. This is
+      more efficient than adding one chunk at a time because ChromaDB can process
+      a batch in a single operation. For very large documents you might want to
+      add in batches of 100-500 chunks, but for personal note sizes a single
+      batch per document is fine.
+
+  - type: exercise
+    heading: "Exercise 2: build_index"
+    prompt: >
+      Open `exercises/exercise_02.ipynb`. Implement `build_index(docs,
+      collection_name, chunk_size, overlap)`. The scaffold provides `chunk_text`
+      (from Ex 1) and `embed_text`. Your implementation should chunk each
+      document, embed each chunk with `nomic-embed-text`, and add everything
+      to a ChromaDB collection with `{'source': source_name, 'chunk_index': i}`
+      metadata.
+    hint: >
+      Use `chromadb.Client()` and `client.create_collection(collection_name)`.
+      Delete the collection first if it exists. Accumulate ids, embeddings,
+      documents, and metadatas in lists, then call `collection.add` once per
+      document. ID format: `f"{source}__{i}"`.
+    narration: >
+      The checks verify that the collection is created, that documents are
+      stored, that metadata includes the source field, and that a basic query
+      returns results. This exercise makes several embedding model calls — one
+      per chunk — which is the most expensive part of the indexing pipeline.
+      For the small test documents in the checks, this takes a few seconds.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "chunk_text: word-level sliding window with overlap — overlap prevents boundary information loss"
+      - "embed_text: thin wrapper around `ollama.embeddings(model='nomic-embed-text', prompt=text)['embedding']`"
+      - "build_index: chunk → embed → `collection.add(ids, embeddings, documents, metadatas)`"
+      - "Metadata `{'source': name, 'chunk_index': i}` enables citation tracking during retrieval"
+      - "Next: retrieve — embed the query and find the most similar chunks in the collection"
+    narration: >
+      With build_index complete, your documents are transformed into a vector
+      store that can be searched by meaning rather than by keywords. The next
+      step is retrieval: embed the user's question and find the chunks whose
+      embeddings are most similar. ChromaDB handles the similarity search
+      internally using L2 distance over the stored vectors. Your job in the
+      next lesson is to wrap that query into a clean retrieve function that
+      returns structured dicts rather than raw ChromaDB output.

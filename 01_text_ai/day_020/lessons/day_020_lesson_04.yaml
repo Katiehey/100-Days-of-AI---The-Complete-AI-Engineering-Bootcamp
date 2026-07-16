@@ -1,0 +1,139 @@
+day: "020"
+lesson: "04"
+title: "The Full RAG Pipeline"
+
+slides:
+
+  - type: title
+    heading: "The Full RAG Pipeline"
+    subheading: "rag_answer — from question to cited answer in one call"
+    narration: >
+      With retrieve and build_cited_prompt implemented, the full pipeline is
+      one function away. `rag_answer` combines them with an ollama.chat call
+      to produce a grounded, cited answer for any question. This lesson shows
+      how to wire the three steps together, how to extract and deduplicate
+      source names from the retrieved chunks, and how to handle the case where
+      no relevant context is found.
+
+  - type: concept
+    label: "rag_answer design"
+    heading: "rag_answer — Retrieve, Augment, Generate"
+    body: >
+      `rag_answer` is the entry point for the generation step. It takes a
+      question and a collection, runs the full RAG pipeline, and returns a
+      dict with the answer text and a deduplicated list of source names.
+    bullets:
+      - "Step 1: `chunks = retrieve(question, collection, n_results)` — find relevant context"
+      - "Step 2: `prompt = build_cited_prompt(question, chunks)` — format with citation labels"
+      - "Step 3: `ollama.chat(model, messages=[system, user])` — generate the answer"
+      - "Return: `{'answer': str, 'sources': list[str]}` — text + deduplicated source names"
+      - "Sources: `list(dict.fromkeys(c['source'] for c in chunks))` — ordered, deduplicated"
+    narration: >
+      The sources list is deduplicated using dict.fromkeys, which preserves
+      insertion order (unlike set) while removing duplicates. This matters when
+      multiple retrieved chunks come from the same document: you want to list
+      that document once in the citations, not three times. dict.fromkeys works
+      because dict keys are unique and ordered in Python 3.7 and later. It is
+      more readable than the equivalent `list(set(...))` and preserves the
+      order in which sources were retrieved — the most relevant document comes
+      first.
+
+  - type: concept
+    label: "The empty-context path"
+    heading: "Handling Missing Context Gracefully"
+    body: >
+      If the knowledge base contains no relevant information for a question,
+      the retrieved chunks will be low-quality or distant. The grounding
+      instruction in the system prompt tells the LLM to say 'I don't know'
+      in that case — but you should also handle the structural case where
+      n_results returns zero chunks.
+    bullets:
+      - "ChromaDB returns at most `n_results` chunks, potentially fewer for small collections"
+      - "If `chunks` is empty: skip the LLM call and return `{'answer': \"I don't know.\", 'sources': []}`"
+      - "If chunks are present but distant: the LLM handles it via the grounding instruction"
+      - "Distance threshold (optional): filter out chunks with distance > threshold before prompting"
+      - "Day 14 pattern: `filter_by_relevance(chunks, max_distance)` — list comprehension on distance"
+    narration: >
+      The empty-context guard is a simple but important defensive pattern. If
+      your collection has zero documents — because build_index was never called
+      — a ChromaDB query will return zero results, and building a prompt with
+      an empty context list would send the LLM a confusing message. Checking
+      for empty chunks before calling the LLM is cheap and makes the error
+      visible rather than producing a hallucinated answer. The optional distance
+      threshold from Day 14 provides a second layer of defence: even if chunks
+      are returned, you can discard those that are semantically too far from
+      the query. For this capstone, the basic empty check is sufficient.
+
+  - type: how_it_works
+    label: "rag_answer implementation"
+    heading: "rag_answer — Full Implementation"
+    body: >
+      Six lines of logic: retrieve, check for empty, build prompt, call model,
+      extract sources, return dict.
+    code: |
+      RAG_SYSTEM_PROMPT = (
+          "You are a helpful assistant. Answer questions using ONLY the "
+          "provided context. Cite the source numbers you used (e.g. [1], [2]). "
+          "If the answer is not in the context, say 'I don't know.'"
+      )
+
+      def rag_answer(
+          question: str,
+          collection,
+          model: str = "llama3.2",
+          n_results: int = 3,
+      ) -> dict:
+          """Full RAG pipeline. Returns {'answer': str, 'sources': list[str]}."""
+          chunks = retrieve(question, collection, n_results)
+          if not chunks:
+              return {"answer": "I don't know.", "sources": []}
+          prompt = build_cited_prompt(question, chunks)
+          response = ollama.chat(model=model, messages=[
+              {"role": "system", "content": RAG_SYSTEM_PROMPT},
+              {"role": "user",   "content": prompt},
+          ])
+          answer  = response["message"]["content"]
+          sources = list(dict.fromkeys(c["source"] for c in chunks))
+          return {"answer": answer, "sources": sources}
+    narration: >
+      Notice that rag_answer does not maintain conversation history — it is
+      stateless, like a pure function that happens to call a model. The
+      SecondBrainChatbot in the project adds history on top of rag_answer.
+      This separation is deliberate: rag_answer answers one question from the
+      knowledge base; the chatbot wraps that with conversation memory. Keeping
+      them separate means you can use rag_answer in batch mode — such as in
+      the eval harness — without the overhead of managing a history list.
+
+  - type: exercise
+    heading: "Exercise 5: rag_answer"
+    prompt: >
+      Open `exercises/exercise_05.ipynb`. Implement `rag_answer(question,
+      collection, model, n_results)`. The scaffold provides all prior functions.
+      Return `{'answer': str, 'sources': list[str]}`. Handle empty chunks by
+      returning `'I don't know.'` without calling the LLM.
+    hint: >
+      Call `retrieve`, check `if not chunks`, then `build_cited_prompt` and
+      `ollama.chat`. Extract `response['message']['content']` for the answer.
+      Use `list(dict.fromkeys(c['source'] for c in chunks))` for deduplicated
+      sources.
+    narration: >
+      The check makes one embedding call (for the query) and one LLM call.
+      Building the index for the check uses two more embedding calls. Five
+      total model calls for the solution verification — well within the gate's
+      timeout budget. After this exercise you have a fully functional RAG
+      pipeline.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "rag_answer = retrieve + build_cited_prompt + ollama.chat — three steps, one function"
+      - "Guard against empty chunks: return 'I don't know' without calling the LLM"
+      - "`list(dict.fromkeys(...))` deduplicates sources while preserving retrieval order"
+      - "rag_answer is stateless — it answers one question; the chatbot adds history on top"
+      - "Project: SecondBrainChatbot wraps rag_answer with session history and token tracking"
+    narration: >
+      You now have all five building blocks: chunk_text, build_index, retrieve,
+      build_cited_prompt, and rag_answer. The project asks you to wrap them in
+      a SecondBrainChatbot class that adds multi-turn conversation history and
+      token usage tracking from Day 18, then demonstrates the full system with
+      a scripted three-question session and a mini eval run from Day 19.

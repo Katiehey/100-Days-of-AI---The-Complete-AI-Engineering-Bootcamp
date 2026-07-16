@@ -1,0 +1,139 @@
+day: "020"
+lesson: "01"
+title: "Capstone Overview — The Second Brain"
+
+slides:
+
+  - type: title
+    heading: "Capstone: The Second Brain"
+    subheading: "Combining 14 days of text AI into one pipeline"
+    narration: >
+      Welcome to Day 20, the capstone of Section 1. Over the past two weeks
+      you have built every component of a sophisticated AI pipeline: embeddings
+      for semantic meaning, ChromaDB for vector storage, RAG for grounding
+      answers in your own documents, multi-turn chat for conversation memory,
+      streaming for responsive output, tool use for external actions, token
+      tracking for cost visibility, and an eval harness to measure quality
+      objectively. Today you wire all of those pieces into a single application:
+      the Second Brain — a RAG chatbot that can answer questions about your
+      personal knowledge base and cite its sources.
+
+  - type: concept
+    label: "What is the Second Brain?"
+    heading: "A RAG Chatbot Over Your Own Documents"
+    body: >
+      The Second Brain is a chatbot that knows only what you tell it — your
+      notes, articles, reference documents, and writing. When you ask it a
+      question, it retrieves the most relevant chunks from your personal
+      knowledge base, grounds its answer in those chunks, and tells you exactly
+      which documents it used. It cannot hallucinate facts you never wrote down
+      because it is instructed to answer only from provided context.
+    bullets:
+      - "Index: chunk your documents, embed each chunk, store in ChromaDB"
+      - "Retrieve: embed the question, find the k most similar chunks"
+      - "Augment: format a prompt that includes the retrieved chunks with source labels"
+      - "Generate: call llama3.2 — it answers from the context only and cites sources"
+      - "Evaluate: run the Day 19 eval harness to measure answer quality"
+    narration: >
+      The Second Brain concept comes from Tiago Forte's book of the same name,
+      which describes a system for capturing and organising personal knowledge.
+      Our implementation is an AI-powered version: instead of searching your
+      notes manually, you ask a question and the system retrieves and synthesises
+      the answer automatically. The key constraint — answer only from context —
+      is what makes it trustworthy. A general LLM might answer confidently from
+      training data and hallucinate details. The Second Brain will say 'I don't
+      know' if the information is not in your documents, which is the behaviour
+      you want from a personal knowledge assistant.
+
+  - type: concept
+    label: "How the pieces fit"
+    heading: "The Pipeline: Six Functions, One System"
+    body: >
+      The capstone composes six functions built across five exercises. Each
+      function has exactly one responsibility; together they form a complete
+      pipeline.
+    bullets:
+      - "`chunk_text(text, chunk_size, overlap)` — split documents into overlapping word windows (Ex 1)"
+      - "`build_index(docs, collection_name)` — embed all chunks and store with source metadata (Ex 2)"
+      - "`retrieve(query, collection, n_results)` — semantic search returning {text, source, distance} (Ex 3)"
+      - "`build_cited_prompt(question, chunks)` — format RAG prompt with [1][2] citation numbers (Ex 4)"
+      - "`rag_answer(question, collection, model)` — full pipeline returning {answer, sources} (Ex 5)"
+      - "Project: `SecondBrainChatbot` — wraps everything with token tracking and eval"
+    narration: >
+      The six functions map cleanly onto the retrieve-augment-generate pattern
+      you learned on Day 13, with two additions: chunk_text handles the
+      document ingestion step, and build_cited_prompt adds numbered citations
+      to the augmentation step. Each function is independently testable —
+      chunk_text is pure, build_cited_prompt is pure, and the others depend
+      only on well-defined inputs. This testability is why the pipeline was
+      designed piece by piece rather than as one large function: you can verify
+      each step before wiring them together.
+
+  - type: how_it_works
+    label: "End-to-end flow"
+    heading: "From Documents to Cited Answer — The Full Flow"
+    body: >
+      Two phases: indexing (done once when documents change) and querying
+      (done on every user question). The query phase runs in under a second
+      for small knowledge bases.
+    code: |
+      # Phase 1: Indexing (done once)
+      docs = {
+          "python_notes.txt": "Python is a high-level language...",
+          "ai_history.txt":   "The field of AI began in 1956...",
+      }
+      collection = build_index(docs)   # chunk → embed → store
+
+      # Phase 2: Querying (every question)
+      result = rag_answer("What language should I learn first?", collection)
+      print(result["answer"])
+      print("Sources:", result["sources"])
+
+      # Output:
+      # Based on your notes, Python is an excellent first language
+      # because it has clean syntax... [1]
+      # Sources: ['python_notes.txt']
+    narration: >
+      The separation between indexing and querying is important. Indexing is
+      expensive — you embed every chunk, which takes time and model compute.
+      But you only do it once, or when your documents change. Querying is cheap
+      — you embed one query string and retrieve pre-computed chunk embeddings.
+      In a production system you would persist the ChromaDB collection to disk
+      with PersistentClient so you do not re-index on every restart. For this
+      capstone we use the in-memory client, which is simpler and sufficient for
+      the exercise harness.
+
+  - type: exercise
+    heading: "Exercise 1: chunk_text"
+    prompt: >
+      Open `exercises/exercise_01.ipynb`. Implement `chunk_text(text, chunk_size,
+      overlap)` that splits text into overlapping word windows. `chunk_size` is
+      the number of words per chunk; `overlap` is the number of words shared
+      between adjacent chunks. Return a list of non-empty strings.
+    hint: >
+      Split on whitespace: `words = text.split()`. Loop with step
+      `chunk_size - overlap`: `for i in range(0, len(words), chunk_size - overlap)`.
+      Slice `words[i:i+chunk_size]` and join with spaces. Skip empty strings.
+    narration: >
+      Chunking is the foundation of any RAG system. The chunk size controls the
+      granularity of retrieval: too large and each chunk covers multiple topics,
+      making retrieval imprecise; too small and the LLM does not have enough
+      context to answer. Overlap prevents information at chunk boundaries from
+      being lost: if a key sentence spans the end of one chunk and the start of
+      the next, overlap ensures it appears in at least one retrievable chunk.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "The Second Brain: RAG chatbot over personal documents — retrieves, grounds, cites"
+      - "Two phases: indexing (chunk + embed + store) done once; querying (embed + retrieve + generate) per question"
+      - "Six functions compose the pipeline: chunk_text → build_index → retrieve → build_cited_prompt → rag_answer"
+      - "Answer-only-from-context constraint prevents hallucination — the model says 'I don't know' when information is absent"
+      - "Next: implement chunk_text and build_index to turn raw documents into a searchable vector store"
+    narration: >
+      The Second Brain is the most complete application you have built so far.
+      It combines retrieval, generation, citation, conversation, token tracking,
+      and evaluation into a single cohesive system. Each of those components was
+      built and tested individually in the previous fourteen days. Today you
+      assemble them. By the end of the project, you will have a working personal
+      knowledge assistant that you can actually use with your own notes.

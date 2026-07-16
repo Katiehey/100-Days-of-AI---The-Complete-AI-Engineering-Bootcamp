@@ -1,0 +1,144 @@
+day: "020"
+lesson: "05"
+title: "Eval, Token Tracking, and the Capstone"
+
+slides:
+
+  - type: title
+    heading: "Eval, Token Tracking, and the Capstone"
+    subheading: "Measuring and monitoring your Second Brain"
+    narration: >
+      The final lesson ties together Day 18's token tracking and Day 19's eval
+      harness with the RAG pipeline you just built. You will see how to run the
+      eval harness against a RAG system, how to adapt the keyword-based scoring
+      to check for citation presence, and how to wire token usage tracking into
+      the SecondBrainChatbot for the project. By the end you will have a
+      pipeline that is not only functional but measurable and observable.
+
+  - type: concept
+    label: "Eval for RAG"
+    heading: "Running the Eval Harness on a RAG System"
+    body: >
+      The Day 19 eval harness works with any function that takes a question
+      and returns a string. Adapting it for RAG requires only that you call
+      `rag_answer` inside `run_eval` instead of plain `ollama.chat`.
+    bullets:
+      - "TestCase: same structure — question + expected_keywords + optional expected_answer"
+      - "Run eval: call `rag_answer(tc.question, collection)['answer']` instead of `ollama.chat`"
+      - "Keyword check: does the answer contain the key fact? (contains_any from Day 19)"
+      - "Citation check: does the answer contain '[1]' or '[2]'? (an additional keyword)"
+      - "Judge score: call `llm_judge(question, answer, expected_answer)` for quality signal"
+    narration: >
+      Adapting the eval harness for RAG is straightforward because `run_eval`
+      was designed to take a system_prompt and model, not a hardwired call.
+      For the Second Brain eval you do not use system_prompt or model directly —
+      instead you pass a custom callable. In the project you will write a thin
+      wrapper `rag_eval_runner` that calls rag_answer and returns the answer
+      string, which can then be scored with the standard harness. This
+      composability is why building each component independently pays off.
+
+  - type: concept
+    label: "Token tracking for RAG"
+    heading: "Token Usage in a RAG Pipeline"
+    body: >
+      RAG answers are more expensive than plain chat answers because the prompt
+      includes retrieved context. Token tracking from Day 18 makes this visible:
+      you can see how many tokens each retrieved context contributes.
+    bullets:
+      - "RAG prompt is longer than a plain chat prompt — context chunks add 100–500 input tokens"
+      - "Track usage with `UsageTracker.record(response)` after each `ollama.chat` call"
+      - "Per-answer cost: `cost_estimate(tracker.total_input, tracker.total_output, 'gpt-4o')`"
+      - "Context grows slowly in RAG: the history contains QA pairs, not the full context each time"
+      - "Optimisation: cache the RAG context for repeated questions about the same topic"
+    narration: >
+      A RAG answer might add 200–400 tokens of context per query on top of the
+      question itself. For a 5-turn session, that is an extra 1,000–2,000 input
+      tokens compared to plain chat. On a cloud API at $2.50 per million tokens,
+      that is roughly $0.003 per session — negligible individually but meaningful
+      at scale. The UsageTracker from Day 18 makes this visible without any
+      extra effort: just call tracker.record(response) after each chat call and
+      the numbers accumulate automatically.
+
+  - type: how_it_works
+    label: "SecondBrainChatbot"
+    heading: "SecondBrainChatbot — The Complete System"
+    body: >
+      The capstone class wraps rag_answer with conversation history and token
+      tracking. The history stores question–answer pairs for context continuity;
+      the tracker accumulates usage across the session.
+    code: |
+      class SecondBrainChatbot:
+          def __init__(self, docs: dict[str, str], model: str = "llama3.2",
+                       chunk_size: int = 300, overlap: int = 50):
+              self.model = model
+              self.collection = build_index(docs, chunk_size=chunk_size,
+                                            overlap=overlap)
+              self.tracker = UsageTracker()
+              self._history: list[dict] = []
+              self._last_response = None
+
+          def ask(self, question: str) -> dict:
+              """Answer a question from the knowledge base. Returns {answer, sources}."""
+              result = rag_answer(question, self.collection, self.model)
+              if self._last_response:
+                  self.tracker.record(self._last_response)
+              self._history.append({"q": question, "a": result["answer"],
+                                    "sources": result["sources"]})
+              return result
+
+          def summary(self) -> str:
+              return (
+                  f"Questions: {len(self._history)} | "
+                  f"Total tokens: {self.tracker.total_tokens}"
+              )
+    narration: >
+      One subtlety: token tracking in rag_answer requires access to the raw
+      Ollama response, but rag_answer returns only the answer and sources. The
+      cleanest solution is to expose the last response as a side-channel
+      attribute on the chatbot, exactly as TokenAwareChatbot did in Day 18. In
+      the project you will implement a version that stores `self._last_response`
+      inside `rag_answer` so the chatbot can record usage. Alternatively you
+      can modify rag_answer to return the raw response in the dict alongside
+      the answer and sources. Either approach works — pick the one that feels
+      cleaner to you.
+
+  - type: exercise
+    heading: "Project: SecondBrainChatbot"
+    prompt: >
+      Open `project/project.ipynb`. Define at least three documents as string
+      constants (your 'personal knowledge base'). Build a `SecondBrainChatbot`
+      that indexes them, answers questions with citations, and tracks token
+      usage. Then add 3+ `TestCase` objects and run the eval harness with
+      `contains_any` scoring. The solution notebook shows the complete
+      implementation.
+    hint: >
+      Build the index in `__init__`. In `ask`: call `rag_answer`, store the
+      result. In the eval run: wrap `chatbot.ask(tc.question)['answer']` and
+      score with `contains_any(answer, tc.expected_keywords)`.
+    narration: >
+      The project is intentionally open-ended: the knowledge base is whatever
+      you want it to be. The checks verify that the pipeline runs correctly
+      and that the eval harness produces valid results. The substance — the
+      documents, the questions, the quality of the answers — is yours to design.
+      This is what a capstone should feel like: the framework is provided, the
+      content is yours.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "RAG eval: adapt run_eval by calling rag_answer instead of plain ollama.chat — same harness, different runner"
+      - "Citation check: add '[1]' or '[2]' to expected_keywords to verify the model cited its sources"
+      - "RAG answers cost more tokens than plain chat — context chunks add 100–500 input tokens per query"
+      - "SecondBrainChatbot: indexes docs in __init__, wraps rag_answer in ask(), tracks usage with UsageTracker"
+      - "Section 1 complete: 15 days of text-AI primitives now unified into a personal knowledge assistant"
+    narration: >
+      Congratulations on completing Section 1. You have built a personal
+      knowledge assistant from scratch using nothing but local, free components:
+      Ollama for language and embedding models, ChromaDB for vector storage,
+      and Python for everything else. The Second Brain you built today is not a
+      toy — with a richer document set and a persistent ChromaDB collection, it
+      is production-ready for personal use. Section 2, which starts on Day 21,
+      moves from text AI to automation: files at scale, APIs, web scraping, and
+      email. The same engineering discipline you built in Section 1 — test
+      harnesses, pure functions, clean interfaces — carries forward into every
+      section that follows.

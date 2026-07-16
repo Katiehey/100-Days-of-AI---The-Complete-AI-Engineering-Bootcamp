@@ -1,0 +1,145 @@
+day: "020"
+lesson: "03"
+title: "Retrieval and Cited RAG Prompts"
+
+slides:
+
+  - type: title
+    heading: "Retrieval and Cited RAG Prompts"
+    subheading: "Finding relevant chunks and formatting them for the LLM"
+    narration: >
+      With an indexed knowledge base, you can now retrieve. This lesson covers
+      the retrieve function — which embeds a query and asks ChromaDB for the
+      most similar chunks — and build_cited_prompt, which formats those chunks
+      into a RAG prompt that instructs the LLM to cite its sources by number.
+      Together these two functions form the 'augment' step of the retrieve-augment-generate
+      pipeline.
+
+  - type: concept
+    label: "retrieve design"
+    heading: "retrieve — Semantic Search Over Your Collection"
+    body: >
+      `retrieve` embeds the query string using the same embedding model used
+      at index time, queries the ChromaDB collection for the n nearest vectors
+      by L2 distance, and returns a structured list of results with text,
+      source, and distance.
+    bullets:
+      - "Embed the query: `embed_text(query)` — must use the same model as index time"
+      - "Query ChromaDB: `collection.query(query_embeddings=[emb], n_results=n_results)`"
+      - "Unpack results: `results['documents'][0]`, `results['metadatas'][0]`, `results['distances'][0]`"
+      - "Return: `list[dict]` with keys `{'text', 'source', 'distance'}` — one dict per chunk"
+      - "L2 distance: lower = more similar; 0.0 = identical vectors"
+    narration: >
+      The same-model constraint is critical: if you embedded your chunks with
+      nomic-embed-text, you must embed your queries with nomic-embed-text too.
+      Different embedding models produce vectors in different dimensional spaces
+      — you cannot compare a vector from model A with a vector from model B.
+      Violating this constraint produces nonsense results: all distances will
+      be approximately equal and retrieval will return essentially random chunks.
+      The retrieve function encapsulates the embedding call so callers do not
+      have to think about which model to use.
+
+  - type: concept
+    label: "build_cited_prompt"
+    heading: "build_cited_prompt — Context + Citation Numbers"
+    body: >
+      The cited prompt extends the basic RAG prompt from Day 13 by labelling
+      each context chunk with a citation number `[1]`, `[2]`, etc. The LLM
+      is instructed to reference these numbers in its answer.
+    bullets:
+      - "Format each chunk as `[1] Source: filename.txt\\n<chunk text>`"
+      - "Instruction: 'Answer using ONLY the context. Cite source numbers in your answer.'"
+      - "Grounding constraint: 'If the answer is not in the context, say I don't know.'"
+      - "Pure function — no model calls, fully testable with synthetic data"
+      - "Sources in rag_answer: deduplicated list of source names from retrieved chunks"
+    narration: >
+      The citation instruction changes model behaviour in a subtle but important
+      way. Without it, the model sometimes cites its training data rather than
+      the provided context. With it, the model references the numbered context
+      sections, which you can then map back to source document names. The
+      grounding constraint — 'if the answer is not in the context, say I don't
+      know' — is the key safety property. It means the Second Brain will refuse
+      to answer rather than hallucinate when information is absent. This is the
+      right behaviour for a personal knowledge assistant: you trust it because
+      you know it only speaks from what you gave it.
+
+  - type: how_it_works
+    label: "retrieve and build_cited_prompt"
+    heading: "retrieve and build_cited_prompt — Implementations"
+    body: >
+      Both functions are short. `retrieve` makes one embedding call and one
+      ChromaDB query. `build_cited_prompt` is pure — it only formats strings.
+    code: |
+      def retrieve(query: str, collection, n_results: int = 3) -> list[dict]:
+          """Semantic search. Returns list[{text, source, distance}]."""
+          emb = embed_text(query)
+          results = collection.query(query_embeddings=[emb],
+                                     n_results=n_results)
+          return [
+              {"text":     doc,
+               "source":   meta["source"],
+               "distance": dist}
+              for doc, meta, dist in zip(
+                  results["documents"][0],
+                  results["metadatas"][0],
+                  results["distances"][0],
+              )
+          ]
+
+      SYSTEM_PROMPT = (
+          "You are a helpful assistant. Answer questions using ONLY the "
+          "provided context. Cite the source numbers you used, e.g. [1] or [2]. "
+          "If the answer is not in the context, say 'I don't know.'"
+      )
+
+      def build_cited_prompt(question: str, chunks: list[dict]) -> str:
+          """Format context chunks with citation numbers for the RAG prompt."""
+          context = "\n\n".join(
+              f"[{i+1}] Source: {c['source']}\n{c['text']}"
+              for i, c in enumerate(chunks)
+          )
+          return f"Context:\n{context}\n\nQuestion: {question}"
+    narration: >
+      The zip over documents, metadatas, and distances is the standard pattern
+      for unpacking ChromaDB query results. ChromaDB returns nested lists — the
+      outer list is per query (you sent one query, so it has one element) and
+      the inner list is per result. `results['documents'][0]` is the list of
+      top-k document texts for your single query. Zipping the three inner lists
+      into dicts makes downstream code readable: `chunk['source']` is clearer
+      than `results['metadatas'][0][i]['source']`. The system prompt for the
+      RAG call is defined separately from build_cited_prompt because it belongs
+      to the model configuration, not the prompt formatting.
+
+  - type: exercise
+    heading: "Exercises 3 and 4: retrieve and build_cited_prompt"
+    prompt: >
+      Open `exercises/exercise_03.ipynb`. Implement `retrieve(query, collection,
+      n_results)` returning `list[{text, source, distance}]`. Then open
+      `exercises/exercise_04.ipynb` and implement `build_cited_prompt(question,
+      chunks)` — a pure function that formats context with [1][2] citation
+      labels and appends the question.
+    hint: >
+      For `retrieve`: embed query, call `collection.query(query_embeddings=[emb],
+      n_results=n_results)`, zip `documents[0]`, `metadatas[0]`, `distances[0]`.
+      For `build_cited_prompt`: join with `f"[{i+1}] Source: {c['source']}\\n{c['text']}"`.
+    narration: >
+      Exercise 3 makes one embedding call per check run. Exercise 4 is pure —
+      all checks use synthetic chunk dicts. Together they complete the augment
+      step: you can now take a user question, find the relevant chunks, and
+      format them into a prompt ready for the LLM.
+
+  - type: summary
+    heading: "Key Takeaways"
+    bullets:
+      - "retrieve: embed query → `collection.query` → zip documents/metadatas/distances into list[dict]"
+      - "Must use the same embedding model at query time as at index time"
+      - "build_cited_prompt: formats chunks as `[1] Source: name\\ntext` — pure function, fully testable"
+      - "Grounding constraint in system prompt: 'answer only from context, say I don't know otherwise'"
+      - "Next: rag_answer — combine retrieve + build_cited_prompt + ollama.chat into the full pipeline"
+    narration: >
+      The two functions you just built are the heart of the RAG augmentation
+      step. retrieve finds the evidence; build_cited_prompt formats it for the
+      LLM. The next exercise combines them with a chat call to produce the
+      final answer. After that, the project wraps the whole pipeline in a
+      chatbot class that adds conversation history, token tracking from Day 18,
+      and an eval harness from Day 19.
