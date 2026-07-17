@@ -1,0 +1,157 @@
+day: "021"
+lesson: "05"
+title: "AI-Powered File Categorization"
+
+slides:
+
+  - type: title
+    heading: "AI as a File Organizer"
+    subheading: "Use a local LLM to classify and tag any text file"
+    narration: >
+      Lesson 5 brings the AI into the batch pipeline. You have the
+      scaffolding: scan_directory finds the files, batch_process_files
+      maps a function over them. Now you build that function —
+      ai_tag_file — which asks a local LLM to read a file's contents
+      and return a category, a list of tags, and a one-sentence summary.
+      This is the core capability of the day's project: the AI File
+      Organizer.
+
+  - type: concept
+    label: "LLMs as classifiers"
+    heading: "LLMs Can Classify Anything"
+    body: >
+      A classifier traditionally needs labelled training examples. An
+      LLM needs only a prompt. Give it text and a list of categories,
+      and it will pick one. Give it text and ask for keywords, and it
+      will extract them. This zero-shot capability is what makes AI
+      automation practical.
+    bullets:
+      - "No training data — the model's pre-training covers most domains"
+      - "Flexible categories — change the labels by changing the prompt"
+      - "Rich output — category + tags + summary in one call"
+      - "Works on any text: code, prose, poetry, spreadsheets, emails"
+    narration: >
+      Before LLMs, building a file classifier meant collecting hundreds
+      of labelled examples, training a model, and retraining when your
+      categories changed. With a local LLM you describe the categories
+      in English and the model handles the rest. This is zero-shot
+      classification from Day 8 applied to file contents. The difference
+      here is that you also ask for tags and a summary in the same call
+      — so you get three types of metadata from a single prompt. And
+      because you are using a local model via Ollama, there is no API
+      cost per call, which matters when you are processing hundreds of
+      files.
+
+  - type: how_it_works
+    label: "Tag-then-organize"
+    heading: "The Tag-Then-Organize Pattern"
+    body: >
+      Step 1: Read the file. Step 2: Ask the LLM for structured metadata
+      (category, tags, summary). Step 3: Use the category as a folder
+      name to organize the file. The LLM call uses format='json' to
+      guarantee parseable output.
+    bullets:
+      - "format='json' in ollama.chat — grammar-constrained JSON output (Day 4)"
+      - "System prompt lists the allowed categories and required JSON keys"
+      - "json.loads on the response — parse category/tags/summary"
+      - "Fallback defaults: data.get('category', 'other') guards missing keys"
+      - "shutil.copy(src, dst / filename) — copy file to category subfolder"
+    narration: >
+      You already know the JSON-mode pattern from Day 4. Set format='json'
+      in the ollama.chat call and describe the expected output keys in the
+      system prompt. The model is constrained to emit valid JSON, which
+      you parse with json.loads. The system prompt lists the allowed
+      category values — technical, personal, financial, creative, other —
+      so the model picks from that controlled vocabulary. Listing the keys
+      explicitly in the prompt reduces the chance the model invents new
+      key names. Add .get with defaults to every key access so a missing
+      or null value from the model does not crash your code. Then use the
+      category string as the name of a subfolder, create it with mkdir
+      exist_ok=True, and copy the original file into it.
+
+  - type: code
+    label: "ai_tag_file"
+    heading: "ai_tag_file — The LLM Categorization Function"
+    code: |
+      import ollama, json
+
+      def ai_tag_file(content: str, model: str = "llama3.2") -> dict:
+          system = (
+              "You are a file categorization assistant. "
+              "Return JSON with keys: "
+              "category (one word: technical/personal/financial/creative/other), "
+              "tags (list of up to 5 keywords), "
+              "summary (one sentence). Return only valid JSON."
+          )
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {"role": "system", "content": system},
+                  {"role": "user",
+                   "content": f"Categorize:\n\n{content[:2000]}"},
+              ],
+              format="json",
+          )
+          raw = response["message"]["content"]
+          try:
+              data = json.loads(raw)
+          except Exception:
+              data = {}
+          return {
+              "category": str(data.get("category", "other")).lower().strip() or "other",
+              "tags":     list(data.get("tags", [])),
+              "summary":  str(data.get("summary", "")),
+          }
+    narration: >
+      The function is deliberately simple. The system prompt fits in
+      four lines and lists exactly what you want. content[:2000] caps
+      the input at 2000 characters — enough for most files and keeps
+      the prompt from overflowing the context window. format='json'
+      forces valid JSON output. The try/except around json.loads is
+      a safety net: with format='json', Ollama's grammar sampling
+      should always produce parseable JSON, but the fallback to an
+      empty dict means a parsing edge case returns 'other' rather
+      than crashing. The .lower().strip() on category normalises the
+      output in case the model capitalises or pads the value. The
+      or 'other' guard ensures category is never an empty string.
+
+  - type: exercise
+    heading: "Exercise 5: ai_tag_file"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_tag_file(content,
+      model) that calls llama3.2 with format='json' and returns a dict
+      with category, tags, and summary. Include fallback defaults for all
+      three keys.
+    hint: >
+      Use ollama.chat with format='json'. Parse the response with
+      json.loads inside a try/except. Return {'category': ...,
+      'tags': list(...), 'summary': ...} with .get defaults for every key.
+    narration: >
+      Exercise 5 wires the LLM into the pipeline. The check harness
+      sends a short text about Python statistics and verifies that your
+      function returns a dict with the three required keys, that category
+      is a non-empty string, and that tags is a list. There is one LLM
+      call during the checks. You will see it run in your terminal — it
+      takes a few seconds with llama3.2. Once this exercise passes, you
+      have all five building blocks for the project.
+
+  - type: summary
+    heading: "AI File Categorization: Key Takeaways"
+    bullets:
+      - "format='json' in ollama.chat — guarantees parseable JSON output"
+      - "System prompt lists allowed categories and required JSON keys"
+      - "content[:2000] — cap input to stay within context window"
+      - "json.loads with try/except — safe parse with empty-dict fallback"
+      - "'.get' defaults on every key — guard against missing or null values"
+      - "category string → subfolder name via shutil.copy into organized/ dir"
+    narration: >
+      You now have all five components: scan_directory finds files,
+      read_csv and write_csv handle tabular output, load_json_files
+      aggregates JSON records, batch_process_files maps any function
+      over a directory with error resilience, and ai_tag_file is the
+      AI layer that turns raw text into structured metadata. The project
+      wires all five together into the AI File Organizer: a pipeline
+      that reads every file in a directory, asks the local LLM to
+      categorize it, writes a manifest JSON and a report CSV, and
+      sorts the files into category subfolders — all in under 50 lines
+      of code.

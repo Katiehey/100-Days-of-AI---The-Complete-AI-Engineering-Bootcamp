@@ -1,0 +1,147 @@
+day: "021"
+lesson: "02"
+title: "Reading and Writing CSV Files"
+
+slides:
+
+  - type: title
+    heading: "CSV Files"
+    subheading: "The universal format for tabular data exchange"
+    narration: >
+      Lesson 2 covers CSV — comma-separated values. It is the most widely
+      used format for exchanging tabular data between programs, languages,
+      and people. You will encounter CSV everywhere: exports from databases,
+      spreadsheets, analytics tools, financial systems, and AI pipeline
+      outputs. Python's standard library has a csv module that handles
+      quoting, encoding, and dialect differences so you do not have to.
+
+  - type: concept
+    label: "Why CSV"
+    heading: "CSV: Universal Tabular Format"
+    body: >
+      A CSV file is a plain-text table. Each line is a row; values within
+      a row are separated by commas (or sometimes tabs or semicolons).
+      The first row is usually the header — the column names. CSV is
+      human-readable, language-agnostic, and understood by every tool
+      that handles tabular data.
+    bullets:
+      - "Readable in any text editor, importable into every spreadsheet"
+      - "No schema required — the header row names the columns"
+      - "Pitfall: commas inside values must be quoted — do not parse by split(',')"
+      - "Always open with newline='' and encoding='utf-8' to avoid double-newline bugs"
+    narration: >
+      CSV's simplicity is its superpower and its trap. The format is so
+      simple that many developers try to write a quick split(',') parser
+      and immediately hit edge cases: what about a value like 'New York,
+      NY'? Or a value with a literal quote character? The csv module
+      handles all of that correctly, including quoted fields, escaped
+      quotes, and multi-line values. Two rules you must always follow:
+      open the file with newline='' as the newline argument — this tells
+      Python not to translate line endings before the csv module sees
+      them — and specify encoding='utf-8' to handle non-ASCII characters.
+      Skipping either one causes subtle bugs that are hard to diagnose.
+
+  - type: how_it_works
+    label: "csv module"
+    heading: "csv.DictReader and csv.DictWriter"
+    body: >
+      DictReader reads each row as a dict keyed by the header row.
+      DictWriter writes a list of dicts using a specified fieldnames
+      list that controls column order.
+    bullets:
+      - "csv.DictReader(f) — iterates rows as dicts; first row becomes keys"
+      - "list(reader) — collect all rows into a list immediately"
+      - "csv.DictWriter(f, fieldnames=['col1','col2']) — write dicts as rows"
+      - "writer.writeheader() — writes the header row first"
+      - "writer.writerows(rows) — writes all rows at once"
+      - "extrasaction='ignore' — skip dict keys not in fieldnames"
+    narration: >
+      The dict-based API is almost always what you want. DictReader
+      returns one dict per row, keyed by whatever is in the header.
+      This means you access columns by name — row['price'] — not by
+      index — row[3] — which is far more readable and robust to column
+      reordering. One important note: CSV values are always strings when
+      you read them back. If you stored the number 42, you read back the
+      string '42'. You must cast to int or float explicitly if you need
+      numeric arithmetic. DictWriter is the mirror image: you give it a
+      list of fieldnames that defines both which columns to write and
+      what order to write them in. The extrasaction='ignore' option is
+      a practical default — it silently drops any dict keys that are not
+      in your fieldnames, which prevents crashes when your rows have extra
+      fields you do not need in the output.
+
+  - type: code
+    label: "Round-trip example"
+    heading: "Write Then Read — Full Round-Trip"
+    code: |
+      import csv
+      from pathlib import Path
+
+      rows = [
+          {"name": "Alice", "score": "95"},
+          {"name": "Bob",   "score": "87"},
+      ]
+
+      # Write
+      with open("scores.csv", "w", newline="", encoding="utf-8") as f:
+          writer = csv.DictWriter(f, fieldnames=["name", "score"])
+          writer.writeheader()
+          writer.writerows(rows)
+
+      # Read back
+      with open("scores.csv", newline="", encoding="utf-8") as f:
+          data = list(csv.DictReader(f))
+      print(data[0])  # {'name': 'Alice', 'score': '95'}
+    narration: >
+      Here is the complete write-read cycle. On the write side: open with
+      'w', newline='', encoding='utf-8'. Create a DictWriter with the
+      fieldnames list you want. Call writeheader once, then writerows
+      with your list of dicts. On the read side: open with newline='' and
+      encoding='utf-8', wrap in DictReader, and call list() to collect
+      all rows immediately. The result is a list of dicts where every
+      value is a string. Notice that the fieldnames list controls column
+      order: if your dicts have extra keys not in the list, they are
+      ignored. This is particularly useful when you have rich dicts from
+      an AI pipeline but only want to write specific columns to the
+      report CSV.
+
+  - type: exercise
+    heading: "Exercise 2: read_csv / write_csv"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement read_csv(path) that
+      returns a list of row dicts, and write_csv(path, rows, fieldnames)
+      that writes rows in the given column order. Verify the round-trip:
+      write rows then read them back and confirm the values match.
+    hint: >
+      Use csv.DictReader for reading and csv.DictWriter with
+      extrasaction='ignore' for writing. Always open with
+      newline='' and encoding='utf-8'.
+    narration: >
+      Exercise 2 asks you to implement two functions. read_csv is simple:
+      open the file, wrap in DictReader, return list of dicts.
+      write_csv takes a path, a list of dicts, and a fieldnames list
+      specifying column order. Open for writing with 'w', newline='',
+      encoding='utf-8'. Create a DictWriter with your fieldnames and
+      extrasaction='ignore'. Call writeheader then writerows. The checks
+      verify that write_csv creates the file, the header row is correct,
+      read_csv reads the right number of rows, and the values survive
+      the round-trip unchanged.
+
+  - type: summary
+    heading: "CSV: Key Takeaways"
+    bullets:
+      - "Always open CSV files with newline='' and encoding='utf-8'"
+      - "csv.DictReader — rows as dicts keyed by header; values are always strings"
+      - "csv.DictWriter(f, fieldnames=[...]) — write dicts; fieldnames controls column order"
+      - "writer.writeheader() before writer.writerows(rows)"
+      - "extrasaction='ignore' — drops dict keys not in fieldnames"
+      - "Do not split(',') — the csv module handles quoting and escaping correctly"
+    narration: >
+      CSV is a tool you will use in nearly every automation pipeline.
+      Reading in a data export, writing a processing report, exchanging
+      results with a spreadsheet — CSV handles all of that. The two rules
+      to remember: always use the csv module, never split on commas
+      yourself; and always open with newline='' to avoid platform line
+      ending bugs. In Lesson 3 you apply the same batch-reading pattern
+      to JSON files, which is how AI pipelines typically store richer
+      structured output.

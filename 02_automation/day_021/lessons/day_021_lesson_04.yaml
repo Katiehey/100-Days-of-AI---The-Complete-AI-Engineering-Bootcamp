@@ -1,0 +1,155 @@
+day: "021"
+lesson: "04"
+title: "The Batch Processing Pattern"
+
+slides:
+
+  - type: title
+    heading: "Processing Files at Scale"
+    subheading: "Map a function over every file without crashing on errors"
+    narration: >
+      Lesson 4 teaches the single most important pattern for file
+      automation: the error-resilient batch loop. The idea is simple —
+      apply a function to every file in a directory and collect the
+      results. But real-world file corpora are messy. Some files are
+      binary. Some are corrupt. Some are locked by another process.
+      A naive loop crashes on the first bad file and loses all subsequent
+      work. The right design records the error and continues.
+
+  - type: concept
+    label: "Batch pattern"
+    heading: "Map a Function Over Many Files"
+    body: >
+      The batch processing pattern has three parts: scan (find the
+      files), map (apply a function to each), and collect (gather
+      results with status). The key design decision is what to do
+      when the function fails on one file.
+    bullets:
+      - "Naive: loop → crash on first error → lose remaining work"
+      - "Resilient: loop → catch error per item → record it → continue"
+      - "Output: list[dict] with {'path', 'status': 'ok'/'error', 'result'/'error'}"
+      - "Status dict pattern — same structure whether success or failure"
+    narration: >
+      The pattern is inspired by MapReduce, but much simpler: you are
+      just mapping a function over a list of files. The critical choice
+      is the error handling strategy. Option one: let exceptions propagate.
+      This is fine if your data is clean and your function is correct —
+      failures are loud and visible. Option two: catch exceptions per item
+      and record them as error entries. This is the right default for
+      batch automation because real file corpora are never fully clean.
+      You want to know which files failed and why, but you also want the
+      pipeline to complete. The status dict with 'ok' or 'error' values
+      gives you both: a complete result list you can filter and analyze
+      afterward.
+
+  - type: how_it_works
+    label: "Error-resilient loop"
+    heading: "Try/Except Per Item, Never Per Loop"
+    body: >
+      Wrap the body of the loop in try/except — not the loop itself.
+      A caught exception records an error entry and the loop continues
+      to the next file. The error message is preserved for debugging.
+    bullets:
+      - "for p in sorted(Path(directory).glob('*')):"
+      - "    if not p.is_file(): continue  # skip subdirs"
+      - "    try:"
+      - "        content = p.read_text(encoding='utf-8')"
+      - "        result = process_fn(content)"
+      - "        results.append({'path': ..., 'status': 'ok', 'result': result})"
+      - "    except Exception as e:"
+      - "        results.append({'path': ..., 'status': 'error', 'error': str(e)})"
+    narration: >
+      The placement of try/except is everything. If you wrap the entire
+      for loop, the first exception exits the loop and you miss all
+      remaining files. If you wrap only the body — the code inside the
+      for loop — the exception is caught, an error record is appended,
+      and the loop variable advances to the next file. Exception as e
+      captures the exception object. str(e) gives you a readable error
+      message for the record. This handles UnicodeDecodeError when you
+      try to read a binary file as text, PermissionError on locked files,
+      any custom exception your process_fn raises, and everything else.
+      The caller then receives a complete result list they can filter:
+      ok_results = [r for r in results if r['status'] == 'ok'].
+
+  - type: code
+    label: "batch_process_files"
+    heading: "Implementing batch_process_files"
+    code: |
+      from pathlib import Path
+
+      def batch_process_files(directory: str, process_fn) -> list[dict]:
+          results = []
+          for p in sorted(Path(directory).glob("*")):
+              if not p.is_file():
+                  continue
+              try:
+                  content = p.read_text(encoding="utf-8")
+                  result = process_fn(content)
+                  results.append({
+                      "path": str(p),
+                      "status": "ok",
+                      "result": result,
+                  })
+              except Exception as e:
+                  results.append({
+                      "path": str(p),
+                      "status": "error",
+                      "error": str(e),
+                  })
+          return results
+
+      # Usage: count words in every file
+      counts = batch_process_files("my_docs", lambda c: len(c.split()))
+    narration: >
+      Here is the complete implementation. sorted() gives deterministic
+      order — without it the glob order is OS-dependent and your results
+      will differ between machines or even between runs. The is_file
+      check skips subdirectories without needing a separate glob pattern.
+      read_text with encoding='utf-8' will raise UnicodeDecodeError on
+      binary files — that is caught and recorded as an error entry.
+      process_fn is a Callable that takes the file contents as a string
+      and returns anything serializable. The lambda in the usage example
+      counts words. In the project, process_fn will be ai_tag_file —
+      which makes an LLM call and returns a dict with category, tags,
+      and summary.
+
+  - type: exercise
+    heading: "Exercise 4: batch_process_files"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement batch_process_files
+      (directory, process_fn) that applies process_fn to each file's text
+      content and returns a list of {path, status, result/error} dicts.
+      The loop must not raise even when a file cannot be decoded as UTF-8.
+    hint: >
+      sorted(Path(directory).glob('*')), filter with is_file(), wrap the
+      body in try/except Exception as e, use read_text(encoding='utf-8').
+      The binary.dat test file will raise UnicodeDecodeError — capture it
+      with str(e) and continue.
+    narration: >
+      Exercise 4 checks the error-resilience property directly. The
+      harness creates two text files and one binary file — three bytes
+      that are not valid UTF-8. Your function must process all three, put
+      the two text files in ok entries and the binary file in an error
+      entry. If your loop crashes on the binary file, checks 2 through 5
+      fail because results is None. The check also verifies that ok items
+      have a 'result' key and error items have an 'error' key. This
+      pattern extends cleanly to any transform function, including
+      LLM-based ones.
+
+  - type: summary
+    heading: "Batch Processing: Key Takeaways"
+    bullets:
+      - "Try/except inside the loop body — never wrap the whole loop"
+      - "str(e) — convert exception to a storable string message"
+      - "Status dict: {'path', 'status': 'ok'/'error', 'result'/'error'}"
+      - "sorted() on glob output — deterministic order across OSes"
+      - "is_file() guard — skip subdirectories without separate patterns"
+      - "Filter results afterward: [r for r in results if r['status'] == 'ok']"
+    narration: >
+      The batch processing pattern scales to millions of files with no
+      code changes — just more iterations. The status dict design means
+      you can always audit what happened: filter for errors to see what
+      failed, filter for ok to pass results to the next stage. In Lesson
+      5 you plug the AI into this pattern: process_fn becomes ai_tag_file,
+      which calls a local LLM for each file and returns a category, tags,
+      and a one-sentence summary.

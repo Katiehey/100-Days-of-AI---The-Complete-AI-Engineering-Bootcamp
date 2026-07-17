@@ -1,0 +1,136 @@
+day: "021"
+lesson: "03"
+title: "Batch JSON File Processing"
+
+slides:
+
+  - type: title
+    heading: "Batch JSON Processing"
+    subheading: "Loading many JSON files into a unified list"
+    narration: >
+      Lesson 3 is about JSON files at scale. You already know how to
+      parse a single JSON string — that was Day 2. Now you will scan a
+      directory, load every JSON file in it, and merge the results into
+      one list. This is the pattern AI pipelines use constantly: one
+      output JSON file per document, one per API response, one per
+      batch result. At the end of a run, you collect them all.
+
+  - type: concept
+    label: "JSON as files"
+    heading: "JSON Files as Structured Records"
+    body: >
+      JSON is the default output format for almost every AI tool and API.
+      A pipeline that processes 500 documents typically writes 500
+      individual JSON files — one per result. Loading them all at once
+      is the aggregation step.
+    bullets:
+      - "config.json — app settings, model parameters"
+      - "result_001.json — one AI output per file"
+      - "metadata.json — document metadata from an extraction pipeline"
+      - "Each file is a dict; a directory full of them is a list of dicts"
+    narration: >
+      Think about a batch AI extraction job: you have 200 research papers
+      and you run an LLM over each one to extract title, authors, and key
+      findings. The natural output is one JSON file per paper. At the end
+      you want to combine all 200 into a single list, load it into a
+      dataframe or write it to CSV, and analyze the results. The
+      pattern for doing that is always the same: glob for *.json files,
+      read each one, load with json.loads, and append to a list. The only
+      subtlety is error handling — malformed JSON files should be skipped
+      rather than crashing the entire aggregation. Adding a '_source' key
+      to each loaded dict lets you trace which file each record came from,
+      which is invaluable when debugging extraction errors.
+
+  - type: how_it_works
+    label: "Scan, load, merge"
+    heading: "The Glob-Load-Merge Pattern"
+    body: >
+      Three steps: (1) glob the directory for *.json files, (2) read and
+      parse each file with json.loads, (3) tag each dict with its source
+      filename and append to a results list. Skip malformed files.
+    bullets:
+      - "Path(directory).glob('*.json') — find all JSON files"
+      - "p.read_text(encoding='utf-8') — read content as string"
+      - "json.loads(text) — parse into a Python dict or list"
+      - "data['_source'] = p.name — tag with filename before appending"
+      - "try/except around json.loads — skip broken files gracefully"
+    narration: >
+      Here is the mental model: glob gives you an iterator of Path
+      objects. For each one, read the file as a string with read_text,
+      then parse it with json.loads. json.loads returns whatever the
+      JSON contains — a dict, a list, a string, a number. For this
+      pattern you usually only care about dicts, so check isinstance
+      data dict before appending. Then mutate data to add a _source key
+      containing the filename — this is your provenance tag. Wrap the
+      whole thing in try/except so a single corrupt file does not abort
+      the entire aggregation. The result is a flat list of dicts, one
+      per valid JSON file, each carrying the name of the file it came
+      from.
+
+  - type: code
+    label: "load_json_files"
+    heading: "Implementing load_json_files"
+    code: |
+      import json
+      from pathlib import Path
+
+      def load_json_files(directory: str) -> list[dict]:
+          results = []
+          for p in Path(directory).glob("*.json"):
+              try:
+                  data = json.loads(p.read_text(encoding="utf-8"))
+                  if isinstance(data, dict):
+                      data["_source"] = p.name
+                      results.append(data)
+              except Exception:
+                  pass   # skip malformed files silently
+          return results
+    narration: >
+      This is the complete implementation. Notice how compact it is once
+      you use pathlib and the right json functions. The isinstance check
+      filters out JSON arrays or primitive values at the top level —
+      those are valid JSON but not the dict-per-record format you want.
+      The bare except-pass on the try block is deliberate: you do not
+      care why a file failed to load, you just want to continue. In a
+      production system you would log the failure, but for a batch loader
+      the silent skip is the right default. The _source annotation is the
+      single most useful addition — every downstream query can filter or
+      group by source file without needing to re-read anything.
+
+  - type: exercise
+    heading: "Exercise 3: load_json_files"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement load_json_files(directory)
+      that loads all .json dicts from a directory, adds a '_source' key
+      to each, and silently skips malformed files and non-dict JSON values.
+    hint: >
+      Use Path(directory).glob('*.json'), p.read_text(encoding='utf-8'),
+      json.loads, isinstance(data, dict), and wrap json.loads in
+      try/except Exception.
+    narration: >
+      Exercise 3 is a direct implementation of the glob-load-merge
+      pattern. The check harness creates three valid JSON files, one
+      malformed JSON file, and one .txt file. Your function should load
+      exactly three dicts, each with a _source key containing the JSON
+      filename. The malformed file should be silently skipped, and the
+      .txt file should not appear at all since your glob only matches
+      *.json. Five checks: defined, returns a list, three valid dicts
+      loaded, _source key present on each, and broken and non-JSON files
+      excluded.
+
+  - type: summary
+    heading: "Batch JSON: Key Takeaways"
+    bullets:
+      - "Path(directory).glob('*.json') — finds all JSON files lazily"
+      - "json.loads(p.read_text(encoding='utf-8')) — read and parse in two calls"
+      - "data['_source'] = p.name — tag each record with its source filename"
+      - "try/except around json.loads — skip malformed files without crashing"
+      - "isinstance(data, dict) — filter out non-dict top-level JSON values"
+    narration: >
+      The glob-load-merge pattern works for any structured file format.
+      You have seen it for JSON; the same logic applies to YAML, TOML,
+      or any custom format you define. The key insight is that a
+      directory full of structured files is just a distributed list —
+      you are simply collecting it. In Lesson 4 you generalize this into
+      batch_process_files, which maps any function over any files in a
+      directory and handles errors item-by-item, never stopping the loop.

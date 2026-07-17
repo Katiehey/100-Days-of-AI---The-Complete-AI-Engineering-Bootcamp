@@ -1,0 +1,139 @@
+day: "021"
+lesson: "01"
+title: "Files at Scale: pathlib"
+
+slides:
+
+  - type: title
+    heading: "Files at Scale"
+    subheading: "Day 21 — Working with many files using pathlib"
+    narration: >
+      Welcome to Section 2: Automation. For the next two weeks you will
+      build the muscle to make computers do repetitive work for you —
+      processing files, calling APIs, scraping web pages, scheduling jobs,
+      and wiring it all together into pipelines. Day 21 starts at the
+      foundation: files. You cannot automate anything without reading,
+      writing, and navigating files reliably. Today you learn pathlib,
+      the modern Python way to work with the filesystem.
+
+  - type: concept
+    label: "The old way"
+    heading: "String Paths Are Fragile"
+    body: >
+      Before pathlib, paths were just strings — joined with + or
+      os.path.join, split with os.path.basename, and tested with
+      os.path.exists. Every operation required a different import
+      and a different function call.
+    bullets:
+      - "folder + '/' + filename — breaks on Windows (uses backslash)"
+      - "os.path.join(base, 'data', 'file.csv') — verbose and stateless"
+      - "os.path.getsize, os.path.splitext — scattered across os.path"
+      - "No way to go from path string to file contents in one step"
+    narration: >
+      The fundamental problem with string-based paths is that a string
+      carries no knowledge of what it represents. Is 'data/output.csv' a
+      file, a directory, or a path that does not exist yet? You have to
+      call separate functions to find out. And once you start concatenating
+      strings to build paths, you immediately hit platform differences —
+      forward slash on Unix, backslash on Windows. os.path.join fixes the
+      separator problem but the API is still fragmented: basename here,
+      splitext there, getsize somewhere else. Python 3.4 introduced pathlib
+      to unify all of this into one object.
+
+  - type: how_it_works
+    label: "pathlib basics"
+    heading: "Path Objects — One Object, All Operations"
+    body: >
+      A Path object represents a filesystem location. You join paths with
+      /, check existence with .exists(), read files with .read_text(),
+      and query metadata with .stat(). Everything in one place.
+    bullets:
+      - "from pathlib import Path"
+      - "p = Path('data') / 'reports' / 'output.csv'  # safe join"
+      - "p.exists(), p.is_file(), p.is_dir()  # type checks"
+      - "p.name, p.stem, p.suffix  # 'output.csv', 'output', '.csv'"
+      - "p.read_text(encoding='utf-8')  # contents in one call"
+      - "p.stat().st_size  # file size in bytes"
+    narration: >
+      Import Path from pathlib — that single class covers almost
+      everything you need. Create a Path with a string: Path('my_folder').
+      Join subdirectories with the division operator: Path('my_folder') /
+      'subdir' / 'file.txt'. The result is still a Path, not a string,
+      so you can chain method calls directly. Call .exists() to check
+      whether the path exists on disk. Call .is_file() or .is_dir() to
+      distinguish a file from a directory. .name gives you the full
+      filename including extension. .stem strips the extension. .suffix
+      gives you just the extension, including the dot — so '.csv' not
+      'csv'. And .read_text() reads the entire file into a string in one
+      call. Compare that to the old way: open, context manager, read,
+      close. pathlib does all of that in one expressive line.
+
+  - type: code
+    label: "Globbing and stats"
+    heading: "Finding Files and Reading Metadata"
+    code: |
+      from pathlib import Path
+
+      p = Path("my_data")
+
+      # List all text files — pattern match, no string slicing
+      for f in p.glob("*.txt"):
+          stat = f.stat()
+          print(f.name, stat.st_size, "bytes")
+
+      # Recursive search across all subdirectories
+      for f in p.rglob("*.csv"):
+          print(f.relative_to(p))  # path relative to base
+    narration: >
+      The method you will use most for batch processing is glob. Call
+      p.glob('*.txt') to iterate over all .txt files directly inside p.
+      The pattern language is the same as shell globbing: star matches
+      any sequence of characters within one directory level, question mark
+      matches a single character, and brackets match character sets. For
+      recursive search across nested directories, use rglob — it is
+      equivalent to glob('**/*.txt'). Each item yielded by glob or rglob
+      is itself a Path, so you can immediately call .stat() on it without
+      any string manipulation. stat() returns a os.stat_result with
+      st_size in bytes, st_mtime as a Unix timestamp, and several other
+      fields. In Exercise 1 you combine glob, is_file, and stat into a
+      single scan_directory function that returns file metadata as a list
+      of dicts — the foundation of every batch operation you build today.
+
+  - type: exercise
+    heading: "Exercise 1: scan_directory"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement
+      scan_directory(directory, pattern) that returns a list of dicts —
+      one per file — with keys name, path, size_bytes, and extension.
+      Subdirectories should be excluded.
+    hint: >
+      Use Path(directory).glob(pattern), filter with item.is_file(),
+      and read metadata with item.stat().st_size and item.suffix.
+    narration: >
+      Your first exercise for Day 21: scan_directory. It takes a
+      directory path as a string and an optional glob pattern, and
+      returns a list of dicts with one entry per file. Each dict has
+      four keys: name is the filename including extension, path is the
+      full absolute path as a string, size_bytes is the file size as an
+      integer, and extension is the suffix including the dot. The check
+      harness creates a temporary directory with two text files, one CSV
+      file, and a subdirectory, then verifies your function finds the
+      right files, returns the right keys, respects the pattern filter,
+      and excludes the subdirectory. This is the entry point to every
+      batch file workflow you will build.
+
+  - type: summary
+    heading: "pathlib: Key Takeaways"
+    bullets:
+      - "from pathlib import Path — one import covers all filesystem ops"
+      - "Path('dir') / 'sub' / 'file.txt' — slash joins safely across platforms"
+      - "p.glob('*.csv') — lazy iterator over matching files"
+      - "p.rglob('*.csv') — recursive search across all subdirectories"
+      - "f.stat().st_size — file size in bytes; .st_mtime — last modified"
+      - "f.name, f.stem, f.suffix — parts of the filename as strings"
+    narration: >
+      pathlib replaced os.path as the idiomatic file handling tool in
+      Python 3.4 and has been the standard ever since. The three moves
+      you will use constantly: join paths with slash, list files with
+      glob, and read metadata with stat. In Lesson 2 you open the files
+      you have found and read their contents as structured CSV data.
