@@ -1,0 +1,131 @@
+day: "028"
+lesson: "03"
+title: "Editing Existing Sheets"
+
+slides:
+
+  - type: title
+    heading: "Editing Existing XLSX Files"
+    subheading: "load_workbook, in-place appends, and preserving existing data"
+    narration: >
+      Lesson 3 is about editing files that already exist. Most automation scripts
+      don't create a new spreadsheet every run — they open a running log and add
+      a new row, or update specific cells in a tracking sheet. openpyxl's
+      load_workbook opens a file for editing; after changes, wb.save() writes it back.
+      The critical pattern is append_sheet_row — find the header row, build a value
+      list in column order, and call ws.append(). The existing rows are untouched.
+
+  - type: concept
+    label: "load vs create"
+    heading: "load_workbook vs Workbook() — Edit vs Create"
+    body: >
+      Workbook() creates a fresh empty workbook in memory — use it when generating
+      a new file. load_workbook(path) opens an existing .xlsx file and parses all
+      sheets and cells into memory — use it when you need to add or change data in
+      a file that already has content. After loading and editing, wb.save(path)
+      writes the modified workbook back to the same file (or a different path if
+      you want to preserve the original).
+    bullets:
+      - "Workbook() → new empty workbook in memory — no file until save()"
+      - "load_workbook(path) → existing file loaded into memory"
+      - "wb.save(path) → write to disk — the original path or a new path"
+      - "ws.append([v1, v2]) → adds at next row after all existing data"
+      - "ws.cell(row=R, column=C).value = v → update one cell in place"
+    narration: >
+      load_workbook holds the entire file in memory — for files with thousands of rows
+      and formatting, memory usage can be high. openpyxl offers a read_only mode
+      (load_workbook(path, read_only=True)) for files you only need to scan, which is
+      faster and uses less memory. For today's automation scale (hundreds of rows),
+      the default mode is fine. The distinction between Workbook() and load_workbook()
+      is the most common source of confusion for new openpyxl users — choose based on
+      whether the file already exists.
+
+  - type: how_it_works
+    label: "append pattern"
+    heading: "Append Row — Column-Order Pattern"
+    body: >
+      To append a dict as a new row in an existing sheet, you first read the headers
+      from row 1 to know the column order. Then build a value list by looking up each
+      header in the dict. Then call ws.append() with that list. This ensures new
+      data lands in the correct columns even if the dict's key order differs from the
+      spreadsheet's column order.
+    bullets:
+      - "Step 1: read headers — [ws.cell(row=1, column=c).value for c in range(1, ws.max_column+1)]"
+      - "Step 2: build value list — [row_dict.get(h) for h in headers]"
+      - "Step 3: ws.append(value_list) — adds at next empty row"
+      - "ws.max_column: number of populated columns (includes columns up to last non-empty)"
+      - "dict.get(key): None for missing keys — appends a blank cell for omitted fields"
+    narration: >
+      Reading headers from row 1 is the safe approach — you do not need to know the
+      column count or names in advance. The range(1, ws.max_column + 1) covers every
+      populated column. Using dict.get(h) instead of dict[h] means a row dict with
+      extra or missing keys doesn't raise an exception — missing fields become None
+      (blank cells) and extra keys are silently ignored. This is the same design
+      as csv.DictWriter's extrasaction='ignore' from Day 21.
+
+  - type: code
+    label: "append row"
+    heading: "Appending to an Existing Sheet"
+    code: |
+      from openpyxl import load_workbook
+
+      def append_sheet_row(path: str, sheet_name: str, row: dict) -> None:
+          wb = load_workbook(path)
+          ws = wb[sheet_name]
+
+          # Read headers from first row to determine column order
+          headers = [
+              ws.cell(row=1, column=c).value
+              for c in range(1, ws.max_column + 1)
+          ]
+
+          # Build value list in column order; None for missing keys
+          ws.append([row.get(h) for h in headers])
+
+          wb.save(path)
+
+      # Example
+      # Existing sheet has: ["Task", "Status", "Hours"]
+      append_sheet_row(
+          "tasks.xlsx",
+          "Tasks",
+          {"Task": "Write tests", "Status": "Done", "Hours": 3},
+      )
+      # Row 4 will be: ["Write tests", "Done", 3]
+    narration: >
+      The function loads, edits, and saves in the same path — an in-place update.
+      If the file does not exist, load_workbook raises FileNotFoundError. If the
+      sheet_name does not exist, wb[sheet_name] raises KeyError. Both are intentional
+      errors — the caller should ensure the file and sheet exist before calling this
+      function. Adding defensive creation (create if not exists) would be a separate
+      function with a different contract.
+
+  - type: exercise
+    heading: "Exercise 3: append_sheet_row"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement append_sheet_row(path, sheet_name,
+      row) that opens the XLSX with load_workbook, reads the header row from row 1
+      to determine column order, builds a value list with [row.get(h) for h in headers],
+      calls ws.append() with that list, and saves the file back to path.
+    hint: >
+      headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column+1)].
+      ws.append([row.get(h) for h in headers]). wb.save(path).
+      The check verifies the row count increased by 1 and the new row's values are correct.
+    narration: >
+      The check harness creates an XLSX file with 2 data rows, calls append_sheet_row
+      with a third row dict, reloads the file, and verifies 3 data rows are present
+      with the correct values. The key test is that existing rows are unchanged —
+      load_workbook + ws.append preserves all data above the new row.
+
+  - type: summary
+    heading: "Day 28 Lesson 3: Key Takeaways"
+    bullets:
+      - "load_workbook(path) → editable workbook; Workbook() → empty new workbook"
+      - "Append row: read headers from row 1 → build value list → ws.append(list)"
+      - "[row.get(h) for h in headers]: column-order-correct, missing keys → None"
+      - "wb.save(path) after every edit — changes only persist after save"
+      - "ws.max_column: last populated column — use to size the header read loop"
+    narration: >
+      Lesson 3 covered appending to existing sheets. Lesson 4 is formatting —
+      how to apply bold headers, set column widths, and make generated spreadsheets
+      look professional rather than a plain dump of raw data.

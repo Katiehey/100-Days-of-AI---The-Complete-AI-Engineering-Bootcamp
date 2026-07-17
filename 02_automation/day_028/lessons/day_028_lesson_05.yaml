@@ -1,0 +1,157 @@
+day: "028"
+lesson: "05"
+title: "SpreadsheetAnalyst — AI Meets the Spreadsheet"
+
+slides:
+
+  - type: title
+    heading: "SpreadsheetAnalyst"
+    subheading: "AI reads tabular data, generates insights, writes a formatted report"
+    narration: >
+      Lesson 5 assembles all four prior components into SpreadsheetAnalyst. The class
+      reads an existing XLSX, passes the rows to an LLM with a question, and writes
+      a two-sheet output: a Data sheet with the original rows (bold header, auto-fit
+      widths) and a Summary sheet with the AI analysis. This is the Day 28 version
+      of the AutoReporter from Day 26 — but for tabular data instead of documents.
+
+  - type: concept
+    label: "AI and tabular data"
+    heading: "Feeding Tabular Data to an LLM"
+    body: >
+      LLMs process text, not spreadsheet cells. To analyse tabular data, convert
+      the list[dict] rows to a JSON string with json.dumps and embed it in the
+      user prompt. Cap the data at rows[:20] to avoid exceeding the context window
+      for large sheets. The AI's response is free-form text — an analysis, a summary,
+      or an answer to a specific question. That text becomes the content of the
+      Summary sheet.
+    bullets:
+      - "rows[:20] cap — safe context window size for any Ollama model"
+      - "data_str = json.dumps(rows[:20], indent=2) — readable structure for the LLM"
+      - "data_str[:3000] — second cap on char count (json.dumps can be verbose)"
+      - "Question as user prompt: 'Data:\\n{data_str}\\n\\nQuestion: {question}'"
+      - "System: 'You are a data analyst. Answer concisely.' — persona and constraint"
+    narration: >
+      The rows[:20] cap is important. json.dumps of a 500-row sheet could produce
+      50,000+ characters — well beyond the context window. The 20-row cap keeps
+      the data representative without overflowing. For sheets where the interesting
+      rows are not at the top (sorted in a non-obvious order), you might pass
+      a random sample instead: random.sample(rows, min(20, len(rows))). The json.dumps
+      format is readable to LLMs because they have seen JSON training data; it
+      preserves column names and types better than a CSV-style string.
+
+  - type: how_it_works
+    label: "SpreadsheetAnalyst"
+    heading: "SpreadsheetAnalyst — Three-Method Design"
+    body: >
+      SpreadsheetAnalyst has three public methods. analyze(rows, question) sends
+      the rows (as JSON) to the LLM and returns the response string. write_summary
+      (input_path, analysis, output_path) reads the source file, creates an output
+      workbook with a formatted Data sheet and a Summary sheet. run(input_path,
+      question, output_path) chains analyze → write_summary and returns a result dict.
+    bullets:
+      - "analyze(rows, question) → str — AI call; rows[:20] cap; json.dumps"
+      - "write_summary(input_path, analysis, output_path) → None — two-sheet XLSX"
+      - "Data sheet: source rows + bold header; Summary sheet: AI analysis text"
+      - "run(input_path, question, output_path) → {rows_analyzed, analysis, output}"
+      - "wb.create_sheet('Summary') — adds a second sheet to the workbook"
+    narration: >
+      The two-sheet design keeps source data and derived content together in one file.
+      The Data sheet is the ground truth — unchanged from the input. The Summary sheet
+      is the AI-generated layer that readers can verify against the data. This mirrors
+      the structure of audit-quality reports: raw data on one tab, commentary on another.
+      wb.create_sheet('Summary') adds a sheet after the Data sheet; sheets appear in
+      workbook order in the tab bar. The caller can open the output .xlsx in Excel or
+      Google Sheets directly.
+
+  - type: code
+    label: "SpreadsheetAnalyst"
+    heading: "SpreadsheetAnalyst Implementation"
+    code: |
+      import json
+      from openpyxl import Workbook, load_workbook
+      from openpyxl.styles import Font
+      import ollama
+
+      class SpreadsheetAnalyst:
+          def __init__(self, model: str = "llama3.2"):
+              self.model = model
+
+          def analyze(self, rows: list[dict], question: str) -> str:
+              data_str = json.dumps(rows[:20], indent=2)
+              response = ollama.chat(
+                  model=self.model,
+                  messages=[
+                      {"role": "system",
+                       "content": "You are a data analyst. Answer concisely."},
+                      {"role": "user",
+                       "content": f"Data:\n{data_str[:3000]}\n\nQuestion: {question}"},
+                  ],
+              )
+              return response["message"]["content"]
+
+          def write_summary(
+              self, input_path: str, analysis: str, output_path: str
+          ) -> None:
+              rows = read_sheet_rows(input_path)
+              wb = Workbook()
+              ws_data = wb.active
+              ws_data.title = "Data"
+              if rows:
+                  headers = list(rows[0].keys())
+                  ws_data.append(headers)
+                  for row in rows:
+                      ws_data.append([row.get(h) for h in headers])
+                  for cell in ws_data[1]:
+                      cell.font = Font(bold=True)
+              ws_sum = wb.create_sheet("Summary")
+              ws_sum.append(["AI Analysis"])
+              ws_sum.append([analysis])
+              wb.save(output_path)
+
+          def run(self, input_path, question, output_path) -> dict:
+              rows = read_sheet_rows(input_path)
+              analysis = self.analyze(rows, question)
+              self.write_summary(input_path, analysis, output_path)
+              return {"rows_analyzed": len(rows), "analysis": analysis,
+                      "output": output_path}
+    narration: >
+      write_summary reads the source file fresh (not from memory) to ensure the
+      output is always in sync with the file on disk. This matters when write_summary
+      is called after other functions have modified the file. The data sheet bold header
+      uses the same pattern as bold_header_row (Lesson 4): iterate ws_data[1] and
+      assign Font(bold=True). The Summary sheet gets two rows: a header ("AI Analysis")
+      and the analysis text as a single cell value. The cell can hold long strings —
+      openpyxl does not truncate.
+
+  - type: exercise
+    heading: "Exercise 5: ai_analyze_sheet"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_analyze_sheet(path, question,
+      model='llama3.2') that reads rows from the XLSX at path using read_sheet_rows,
+      converts rows[:20] to a JSON string with json.dumps, sends it to ollama.chat
+      with a data analyst system prompt and a user message containing the data and
+      question, and returns the response content string.
+    hint: >
+      rows = read_sheet_rows(path). data_str = json.dumps(rows[:20], indent=2).
+      System: 'data analyst; answer concisely'. User: f'Data:\\n{data_str[:3000]}\\n\\nQuestion: {question}'.
+      return response['message']['content']. No format='json' — free-form analysis.
+    narration: >
+      Exercise 5 is the AI step — the same pattern as ai_generate_section (Day 26)
+      and ai_daily_briefing (Day 27): system prompt establishes persona, user prompt
+      provides data and question, function returns content string. The rows[:20] and
+      data_str[:3000] caps are belt-and-suspenders: the row cap limits records,
+      the char cap limits total text in case rows are wide.
+
+  - type: summary
+    heading: "Day 28: Key Takeaways"
+    bullets:
+      - "SpreadsheetAnalyst: analyze → write_summary → run — three-method public API"
+      - "AI and tabular data: json.dumps(rows[:20], indent=2) in the user prompt"
+      - "Two-sheet report: Data (source rows, bold header) + Summary (AI analysis)"
+      - "wb.create_sheet('Name') adds a sheet; sheets appear in workbook tab order"
+      - "Google Sheets (gspread) and local XLSX (openpyxl) use the same list[dict] shape"
+    narration: >
+      Day 28 complete. You now have a full spreadsheet automation toolkit: read rows,
+      write rows, append rows, format headers, and analyse data with AI. Day 29 moves
+      to chat bots — Slack and Discord webhooks, bot tokens, and pushing AI summaries
+      into team channels.

@@ -1,0 +1,131 @@
+day: "028"
+lesson: "01"
+title: "Spreadsheets as Automation Targets"
+
+slides:
+
+  - type: title
+    heading: "Spreadsheet Automation"
+    subheading: "XLSX with openpyxl — the workbook model and the read pattern"
+    narration: >
+      Day 28 is about spreadsheets — one of the most common automation targets in
+      business. Finance teams track budgets in Excel; project managers keep status
+      sheets in XLSX; data teams log metrics in Google Sheets. Automating these
+      means reading rows of data in, enriching or analysing them (today with AI),
+      and writing the results back. openpyxl is the standard Python library for XLSX
+      files: no Excel required, no credentials, complete control over every cell.
+
+  - type: concept
+    label: "XLSX vs CSV"
+    heading: "XLSX: When CSV Isn't Enough"
+    body: >
+      CSV (Day 21) stores flat tabular data as plain text — one sheet, no formatting,
+      no formulas. XLSX is a ZIP archive of XML files: it holds multiple worksheets,
+      cell styles, formulas, and charts. Use CSV when exporting data between tools
+      or pipelines. Use XLSX when receiving files from business users, when
+      formatting matters, or when a single file needs to hold multiple related tables.
+    bullets:
+      - "XLSX: ZIP+XML; multiple sheets, formatting, formulas — the Office standard"
+      - "CSV: plain text; flat and universal — best for tool-to-tool data exchange"
+      - "pip install openpyxl — reads and writes .xlsx without Microsoft Office"
+      - "from openpyxl import load_workbook, Workbook — two main entry points"
+      - "load_workbook(path) to open existing; Workbook() to create new"
+    narration: >
+      The format choice comes up constantly. If a colleague emails you a spreadsheet,
+      it will almost always be .xlsx. If you are writing output for a data pipeline,
+      CSV is often safer because every tool and language can read it without a library.
+      For today's work — reading and writing business spreadsheets — XLSX is the
+      right target. openpyxl handles the full format including styles, which means
+      you can format the output to look professional rather than just dumping raw data.
+
+  - type: how_it_works
+    label: "workbook model"
+    heading: "Workbook / Worksheet / Cell — Three-Layer Model"
+    body: >
+      A Workbook is the .xlsx file. It contains one or more Worksheets (tabs). Each
+      Worksheet is a grid of Cells addressed by row and column. Rows and columns are
+      1-indexed. wb.active returns the active (usually first) worksheet. wb['Sheet1']
+      accesses a sheet by name. ws['A1'] and ws.cell(row=1, column=1) refer to the
+      same cell. ws.iter_rows(values_only=True) returns tuples of raw Python values —
+      faster than iterating Cell objects when you only need the data.
+    bullets:
+      - "wb.active → active Worksheet; wb['Name'] → named Worksheet; wb.sheetnames → list"
+      - "ws['A1'] == ws.cell(row=1, column=1) — two ways to address the same cell"
+      - "ws.max_row, ws.max_column — dimensions of the populated area"
+      - "ws.iter_rows(values_only=True) → iterator of tuples (no Cell objects)"
+      - "ws.append([v1, v2, ...]) — add a row at the next empty row"
+    narration: >
+      The 1-indexed rows and columns are a frequent source of off-by-one errors for
+      Python developers used to 0-indexed lists. Row 1 is the header row; row 2 is
+      the first data row. ws.cell(row=1, column=1) is A1. iter_rows(values_only=True)
+      is the right default for reading because it skips the Cell wrapper and gives you
+      plain Python types (str, int, float, None) that are immediately usable without
+      calling .value. ws.append() is the right default for writing because it handles
+      row tracking automatically.
+
+  - type: code
+    label: "read and write"
+    heading: "Reading and Writing XLSX"
+    code: |
+      from openpyxl import load_workbook, Workbook
+
+      # ── Create ──────────────────────────────────────────────────────────────
+      wb = Workbook()
+      ws = wb.active
+      ws.title = "Sales"
+
+      ws.append(["Product", "Q1", "Q2", "Q3"])   # header row
+      ws.append(["Widget A", 1200, 1350, 980])
+      ws.append(["Widget B",  870,  920, 1100])
+      wb.save("sales.xlsx")                        # nothing written until save()
+
+      # ── Read ────────────────────────────────────────────────────────────────
+      wb2 = load_workbook("sales.xlsx")
+      ws2 = wb2.active
+
+      all_rows = list(ws2.iter_rows(values_only=True))
+      headers  = all_rows[0]          # ('Product', 'Q1', 'Q2', 'Q3')
+      data     = all_rows[1:]         # [('Widget A', 1200, ...), ...]
+
+      # Convert to list[dict] — same shape as csv.DictReader output
+      records = [dict(zip(headers, row)) for row in data]
+      print(records[0])
+      # {'Product': 'Widget A', 'Q1': 1200, 'Q2': 1350, 'Q3': 980}
+    narration: >
+      dict(zip(headers, row)) is the same idiom as Day 21's CSV reader — both produce
+      list[dict] so the rest of the pipeline doesn't care whether data came from a
+      CSV or an XLSX. wb.save() must be called after every write; openpyxl buffers
+      everything in memory until then. Forgetting save() is the most common openpyxl
+      bug — the file is unchanged and you see no error.
+
+  - type: exercise
+    heading: "Exercise 1: read_sheet_rows"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement read_sheet_rows(path, sheet_name=None)
+      that opens an XLSX file with load_workbook, accesses the active sheet (or named
+      sheet if sheet_name is given), treats the first row as headers, and returns the
+      remaining rows as list[dict]. Return [] for an empty sheet.
+    hint: >
+      wb = load_workbook(path). ws = wb[sheet_name] if sheet_name else wb.active.
+      rows = list(ws.iter_rows(values_only=True)). if not rows: return [].
+      headers = [str(h) for h in rows[0]].
+      return [dict(zip(headers, row)) for row in rows[1:]].
+    narration: >
+      read_sheet_rows is the XLSX equivalent of csv.DictReader — same list[dict]
+      output shape, same header-from-first-row convention. Converting headers to
+      str with [str(h) for h in rows[0]] handles the occasional spreadsheet where
+      someone typed a number as a column header. The if not rows guard prevents
+      IndexError on an empty worksheet.
+
+  - type: summary
+    heading: "Day 28 Lesson 1: Key Takeaways"
+    bullets:
+      - "XLSX vs CSV: XLSX has multiple sheets, formatting, formulas — CSV is flat text"
+      - "Workbook → Worksheet → Cell: three layers; rows and columns are 1-indexed"
+      - "load_workbook(path) to open; Workbook() to create new; wb.save(path) to write"
+      - "iter_rows(values_only=True): tuples of plain Python values — no Cell wrapper"
+      - "dict(zip(headers, row)): header-keyed dicts — same shape as csv.DictReader"
+    narration: >
+      Lesson 1 gave you the openpyxl basics and the read pattern. Lesson 2 introduces
+      Google Sheets API and gspread — the cloud equivalent for collaborative spreadsheets
+      that need live sharing, browser access, and real-time updates.

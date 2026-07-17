@@ -1,0 +1,138 @@
+day: "028"
+lesson: "02"
+title: "Google Sheets API & gspread"
+
+slides:
+
+  - type: title
+    heading: "Google Sheets API"
+    subheading: "gspread, service accounts, and cloud spreadsheet automation"
+    narration: >
+      Lesson 2 is Google Sheets — the cloud counterpart to local XLSX. Google Sheets
+      gives you live collaboration, browser access, and sharing without emailing files.
+      The Google Sheets API lets Python read and write any sheet your account can access.
+      gspread is the most widely used Python wrapper for this API. The trade-off versus
+      openpyxl: Google Sheets requires OAuth2 credentials or a service account JSON key —
+      a one-time setup that is more complex than local file access but enables automation
+      against live shared sheets.
+
+  - type: concept
+    label: "authentication"
+    heading: "Authentication — Service Account vs OAuth2"
+    body: >
+      The Google Sheets API requires a Google Cloud project with the Sheets API enabled
+      and a credential that proves your script has access. There are two options.
+      OAuth2 is user-based: the first run opens a browser for the user to approve access.
+      A service account is app-based: you create a JSON key file (a robot account) and
+      share the target spreadsheet with the service account email — no browser interaction.
+      For automation scripts, service accounts are the right choice.
+    bullets:
+      - "Google Cloud Console → Enable 'Google Sheets API' + 'Google Drive API'"
+      - "Create a Service Account → download credentials JSON file"
+      - "Share the spreadsheet with the service account email (like sharing with a person)"
+      - "gspread.service_account(filename='creds.json') → authorised Client"
+      - "Never commit the JSON key to git — treat it like a password"
+    narration: >
+      The service account setup is a one-time task per project. The flow: create
+      a Google Cloud project, enable the Sheets API, create a service account,
+      download the JSON key, and share your target spreadsheet with the service
+      account email (it looks like an email address: name@project.iam.gserviceaccount.com).
+      After that, all Python calls use the JSON key silently — no browser, no login prompt.
+      Keep the JSON key outside your repository in a secrets file or environment variable.
+
+  - type: how_it_works
+    label: "gspread API"
+    heading: "gspread — Open → Worksheet → Read/Write"
+    body: >
+      After authentication, gspread gives you a Client. Use client.open_by_key(sheet_id)
+      or client.open('Sheet Name') to get a Spreadsheet. Get a Worksheet with
+      spreadsheet.sheet1 or spreadsheet.worksheet('Name'). Then: get_all_records()
+      returns list[dict] (same shape as openpyxl's dict(zip(headers, row)) pattern);
+      append_row([values]) adds a row; update_cell(row, col, value) sets one cell.
+    bullets:
+      - "gc = gspread.service_account(filename='creds.json') → authenticated Client"
+      - "sh = gc.open_by_key('1BxiMVs0XRA...') → Spreadsheet"
+      - "ws = sh.sheet1 or sh.worksheet('Sales') → Worksheet"
+      - "ws.get_all_records() → list[dict] — headers from first row"
+      - "ws.append_row([v1, v2, v3]) → add a row; ws.update_cell(row, col, v) → set cell"
+    narration: >
+      get_all_records() is the gspread equivalent of read_sheet_rows from Exercise 1
+      — same list[dict] output. The API difference is latency: gspread makes HTTP
+      calls to Google's servers, so each operation takes ~200–500 ms. For bulk reads,
+      get_all_records() is one call; for bulk writes, batch_update() sends all changes
+      in one HTTP request instead of one per cell. For automation scripts that run
+      once a day, the latency rarely matters. For scripts updating thousands of cells,
+      batching is essential.
+
+  - type: code
+    label: "gspread example"
+    heading: "gspread — Full Example"
+    code: |
+      # pip install gspread
+      import gspread
+
+      # Authenticate with service account
+      gc = gspread.service_account(filename="credentials.json")
+
+      # Open spreadsheet by key (from the URL)
+      sh = gc.open_by_key("1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms")
+
+      # Access first worksheet
+      ws = sh.sheet1                   # or sh.worksheet("Sales")
+
+      # Read all rows as list[dict] — first row becomes keys
+      records = ws.get_all_records()
+      print(f"Loaded {len(records)} rows")
+      print(records[0])                # {'Product': 'Widget A', 'Q1': 1200, ...}
+
+      # Append a new row
+      ws.append_row(["Widget C", 500, 600, 700])
+
+      # Update a specific cell (1-indexed)
+      ws.update_cell(row=2, col=2, value=9999)
+
+      # Clear and rewrite entire sheet
+      ws.clear()
+      ws.update([["Product", "Q1"], ["Widget A", 1200]])
+
+      # (This code requires valid credentials.json and a real spreadsheet)
+    narration: >
+      The spreadsheet key is the long string in the Google Sheets URL between /d/
+      and /edit. get_all_records() uses the first row as headers — the same
+      convention as openpyxl read_sheet_rows and csv.DictReader. ws.clear() then
+      ws.update([[headers], [row1], ...]) is the pattern for a full rewrite —
+      send everything in one API call rather than row by row. This code will raise
+      a gspread.exceptions.APIError if credentials.json is missing or if the
+      spreadsheet has not been shared with the service account email.
+
+  - type: exercise
+    heading: "Exercise 2: write_sheet_rows"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement write_sheet_rows(path, sheet_name,
+      headers, rows) that creates a new XLSX file with Workbook(), sets the active
+      sheet's title to sheet_name, writes the headers list as the first row with
+      ws.append(), then writes each dict in rows as a row using ws.append() with
+      values in header order. Save with wb.save(path).
+    hint: >
+      wb = Workbook(). ws = wb.active. ws.title = sheet_name.
+      ws.append(headers). for row in rows: ws.append([row.get(h) for h in headers]).
+      wb.save(path). row.get(h) returns None for missing keys — that is fine.
+    narration: >
+      write_sheet_rows is the XLSX equivalent of csv.DictWriter from Day 21 — same
+      headers-first, dict-per-row pattern. [row.get(h) for h in headers] enforces
+      column order and handles missing keys gracefully. The function always creates
+      a new file; to append to an existing file, use append_sheet_row (Exercise 3).
+
+  - type: summary
+    heading: "Day 28 Lesson 2: Key Takeaways"
+    bullets:
+      - "Google Sheets API: service account → JSON key → share sheet with SA email"
+      - "gspread.service_account(filename='creds.json') → Client"
+      - "ws.get_all_records() → list[dict]; ws.append_row([...]) → add a row"
+      - "gspread is HTTP; openpyxl is file I/O — same data shape, different backends"
+      - "JSON key = a password — store outside git; never commit it"
+    narration: >
+      Lesson 2 showed the Google Sheets API workflow. Lesson 3 shifts back to openpyxl
+      to cover editing existing XLSX files — loading a workbook and appending rows
+      without overwriting what's already there. This is the pattern for automation
+      scripts that run daily and add new rows to a running log.

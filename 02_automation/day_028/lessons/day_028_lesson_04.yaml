@@ -1,0 +1,135 @@
+day: "028"
+lesson: "04"
+title: "Formatting — Bold, Widths, and Styles"
+
+slides:
+
+  - type: title
+    heading: "Cell Formatting"
+    subheading: "Font, column widths, and making generated spreadsheets look professional"
+    narration: >
+      Lesson 4 is formatting. A spreadsheet that is correct but unformatted looks
+      like raw data that nobody wants to read. Bold headers immediately communicate
+      structure; column widths that fit the content avoid truncated text; alternating
+      row colours in larger reports help readers track across columns. openpyxl exposes
+      all of Excel's formatting options as Python objects. Today's focus is the two
+      most impactful: bold headers and column widths.
+
+  - type: concept
+    label: "Font and styles"
+    heading: "Font, PatternFill, and Alignment"
+    body: >
+      openpyxl represents formatting as immutable style objects. You assign a new
+      Font object to cell.font; a PatternFill to cell.fill; an Alignment to
+      cell.alignment. The key import is from openpyxl.styles import Font. Font(bold=True)
+      creates a bold font with all other properties at their defaults. To apply bold
+      to the entire header row, iterate ws[1] (the first row as a tuple of Cell objects)
+      and set .font on each.
+    bullets:
+      - "from openpyxl.styles import Font — the main styling import for text"
+      - "Font(bold=True) — bold with all defaults; Font(name='Arial', size=12, bold=True)"
+      - "cell.font = Font(bold=True) — assign; styles are immutable objects"
+      - "ws[1] → tuple of Cells in row 1; iterate to style the header row"
+      - "from openpyxl.styles import PatternFill, Alignment — for fill and text alignment"
+    narration: >
+      The immutability of style objects is a quirk of openpyxl's design. You cannot
+      do cell.font.bold = True — you must create a new Font object and assign it:
+      cell.font = Font(bold=True). This design prevents shared-style bugs where
+      changing one cell's font accidentally changes another's. It also means you
+      can create a font object once and assign it to multiple cells efficiently:
+      bold_font = Font(bold=True); for cell in ws[1]: cell.font = bold_font.
+
+  - type: how_it_works
+    label: "column widths"
+    heading: "Column Widths — Auto-fit Pattern"
+    body: >
+      Column widths are set per column via ws.column_dimensions['A'].width. The
+      width unit is approximately one character's width. Auto-fitting requires
+      scanning all cell values in a column to find the longest, then setting the
+      width to that length plus a small padding. There is no built-in auto-fit in
+      openpyxl — you implement it as a loop over columns.
+    bullets:
+      - "ws.column_dimensions['A'].width = 20 — set in character-width units"
+      - "get_column_letter(col_num) — converts 1 → 'A', 2 → 'B', etc."
+      - "from openpyxl.utils import get_column_letter"
+      - "Auto-fit loop: max(len(str(cell.value or '')) for cell in column) + 2"
+      - "ws.column_dimensions[letter].width = computed_width"
+    narration: >
+      The get_column_letter function is necessary because column_dimensions is
+      keyed by letter ('A', 'B', ...) while iteration gives you column numbers (1, 2, ...).
+      The auto-fit loop scans every cell in each column — for large sheets this can
+      be slow, so it's often better to set widths for known columns explicitly rather
+      than scanning the full sheet. For today's generated reports with a handful
+      of columns, the loop is fast enough.
+
+  - type: code
+    label: "bold and widths"
+    heading: "Bold Headers and Auto-fit Widths"
+    code: |
+      from openpyxl import load_workbook
+      from openpyxl.styles import Font
+      from openpyxl.utils import get_column_letter
+
+      def bold_header_row(path: str, sheet_name: str) -> None:
+          wb = load_workbook(path)
+          ws = wb[sheet_name]
+
+          bold_font = Font(bold=True)
+          for cell in ws[1]:            # ws[1] → tuple of cells in row 1
+              cell.font = bold_font
+
+          wb.save(path)
+
+      def autofit_columns(path: str, sheet_name: str) -> None:
+          wb = load_workbook(path)
+          ws = wb[sheet_name]
+
+          for col in ws.columns:
+              max_len = max(len(str(cell.value or "")) for cell in col)
+              letter  = get_column_letter(col[0].column)
+              ws.column_dimensions[letter].width = max_len + 2
+
+          wb.save(path)
+
+      # Apply both to a generated report
+      # bold_header_row("report.xlsx", "Sales")
+      # autofit_columns("report.xlsx", "Sales")
+    narration: >
+      ws[1] is a tuple of Cell objects for row 1 — not cell values. This is why
+      you can set .font on them. In contrast, ws.iter_rows(values_only=True) gives
+      you plain Python values with no Cell wrapper — useful for reading, but not
+      for formatting. The autofit_columns function uses ws.columns which returns
+      an iterator of column tuples (each tuple is all cells in that column). col[0].column
+      gives the numeric column index, which get_column_letter converts to a letter.
+
+  - type: exercise
+    heading: "Exercise 4: bold_header_row"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement bold_header_row(path, sheet_name)
+      that opens the XLSX with load_workbook, gets the named worksheet, creates a
+      Font(bold=True) object, iterates ws[1] (the first row's Cell objects), assigns
+      the bold font to each cell, and saves the file.
+    hint: >
+      from openpyxl.styles import Font. wb = load_workbook(path). ws = wb[sheet_name].
+      bold_font = Font(bold=True). for cell in ws[1]: cell.font = bold_font.
+      wb.save(path). ws[1] is a tuple of Cell objects — not values — so .font works.
+    narration: >
+      The check verifies bold by reloading the file and checking cell.font.bold == True
+      for each cell in the first row. A common mistake is trying to format cells
+      via iter_rows(values_only=True) — values_only returns raw Python values, not
+      Cell objects, so there is no .font attribute. Always use ws[row_number] or
+      ws.iter_rows() (without values_only) to get Cell objects for formatting.
+
+  - type: summary
+    heading: "Day 28 Lesson 4: Key Takeaways"
+    bullets:
+      - "from openpyxl.styles import Font — create Font(bold=True) then assign to cell.font"
+      - "cell.font = Font(bold=True) — assign; cannot mutate in place (styles are immutable)"
+      - "ws[1] → tuple of Cell objects in row 1 — used for formatting, not values_only"
+      - "column_dimensions['A'].width = N — set column width in character units"
+      - "get_column_letter(col_num) — converts 1→'A' for column_dimensions keys"
+    narration: >
+      Lesson 4 covered the two most impactful formatting operations: bold headers
+      and column widths. Lesson 5 assembles everything with AI — building a
+      SpreadsheetAnalyst that reads a sheet, generates an AI analysis, and writes
+      a formatted summary report with a Data sheet and a Summary sheet.
