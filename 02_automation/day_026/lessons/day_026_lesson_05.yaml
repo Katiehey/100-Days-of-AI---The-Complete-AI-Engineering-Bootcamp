@@ -1,0 +1,154 @@
+day: "026"
+lesson: "05"
+title: "AI-Generated Report Sections and AutoReporter"
+
+slides:
+
+  - type: title
+    heading: "AutoReporter — AI-Powered Document Generation"
+    subheading: "ai_generate_section, AutoReporter class, and the full pipeline"
+    narration: >
+      Lesson 5 puts the AI into the pipeline. ai_generate_section calls the LLM
+      with raw data and returns a {heading, body} dict — the exact shape needed
+      by create_pdf_report and create_docx_report. AutoReporter is the class that
+      chains generate_sections, to_pdf, and to_docx into a single generate_report
+      call. This is the same thin-wrapper class pattern as Day 25's EmailDrafter
+      and Day 24's PageExtractor — a clean API over the underlying helpers.
+
+  - type: concept
+    label: "schema-guided generation"
+    heading: "ai_generate_section — Structured Output for Documents"
+    body: >
+      ai_generate_section uses format='json' (Day 4) with a system prompt that
+      specifies exactly two keys: heading (a short title) and body (2-4 sentences).
+      This is schema-guided generation applied to report writing: instead of asking
+      the LLM to 'write a section', you ask it to return a JSON object with
+      a predictable structure you can immediately pass to your document builders.
+    bullets:
+      - "format='json' — grammar-constrained sampling for structured output"
+      - "System prompt: two-key schema spec (heading + body) with type descriptions"
+      - "json.loads(response['message']['content']) — parse the JSON response"
+      - "Fallback: {'heading': topic, 'body': raw} if json.loads fails"
+      - "data_snippet[:500] cap — prevents context overflow on large data inputs"
+    narration: >
+      The topic parameter serves as both a prompt anchor (the LLM uses it to
+      understand what the section is about) and a fallback heading (if JSON parsing
+      fails, topic is returned as the heading). The body fallback returns the raw
+      LLM response text, which is still useful to the caller — they can inspect it,
+      retry, or pass it through anyway. Never-raise is the right contract for a
+      function that sits between the LLM and a document generator.
+
+  - type: how_it_works
+    label: "AutoReporter"
+    heading: "AutoReporter — Chaining the Pipeline"
+    body: >
+      AutoReporter is a thin class: generate_sections iterates the data dict and
+      calls ai_generate_section once per key; to_pdf and to_docx delegate to
+      the create_* helpers; generate_report chains all three and returns a dict
+      with the output file paths and the sections list. The sections list is
+      returned so callers can inspect the AI-drafted content before deciding
+      whether to send it.
+    bullets:
+      - "generate_sections(data: dict) → list[dict]: one AI call per key"
+      - "to_pdf(title, sections, path) → None: thin wrapper over create_pdf_report"
+      - "to_docx(title, sections, path) → None: thin wrapper over create_docx_report"
+      - "generate_report(data, title, output_dir) → dict: full pipeline"
+      - "Returns {'pdf': path, 'docx': path, 'sections': list} — inspect before sending"
+    narration: >
+      The sections returned by generate_report are the human review point in the
+      pipeline. An automated reporter that emails documents should log or persist
+      the sections so a human can audit them later. A more interactive system might
+      present the sections to the user for approval before rendering the final PDF
+      and DOCX. Either way, the separation between generate_sections (AI step) and
+      to_pdf/to_docx (rendering step) makes the pipeline easy to insert review steps into.
+
+  - type: code
+    label: "ai_generate_section and AutoReporter"
+    heading: "ai_generate_section and AutoReporter"
+    code: |
+      import json
+      import ollama
+
+      def ai_generate_section(topic, data_snippet, model="llama3.2") -> dict:
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {"role": "system", "content": (
+                      "You are a professional report writer. "
+                      "Return JSON with two keys: "
+                      '"heading" (short title) and "body" (2-4 sentences). '
+                      "Return only valid JSON."
+                  )},
+                  {"role": "user", "content": (
+                      f"Topic: {topic}\n\nData:\n{data_snippet[:500]}"
+                      "\n\nGenerate a report section:"
+                  )},
+              ],
+              format="json",
+          )
+          raw = response["message"]["content"]
+          try:
+              result = json.loads(raw)
+              return {
+                  "heading": str(result.get("heading", topic)),
+                  "body":    str(result.get("body", "")),
+              }
+          except Exception:
+              return {"heading": topic, "body": raw}
+
+      # AutoReporter
+      class AutoReporter:
+          def generate_sections(self, data: dict) -> list[dict]:
+              return [ai_generate_section(k, str(v)) for k, v in data.items()]
+
+          def generate_report(self, data, title, output_dir=".") -> dict:
+              import os
+              sections = self.generate_sections(data)
+              pdf = os.path.join(output_dir, "report.pdf")
+              docx = os.path.join(output_dir, "report.docx")
+              create_pdf_report(title, sections, pdf)
+              create_docx_report(title, sections, docx)
+              return {"pdf": pdf, "docx": docx, "sections": sections}
+    narration: >
+      The list comprehension in generate_sections is a simplification of the
+      full implementation, which uses json.dumps for dict/list values and a
+      [:500] cap. The key insight is that generate_sections is a map: it applies
+      ai_generate_section to every key-value pair in the data dict and collects
+      the results. Each call is independent, which means they could be parallelised
+      with concurrent.futures (Day 33's topic) if the data dict is large.
+
+  - type: exercise
+    heading: "Project: AutoReporter"
+    prompt: >
+      Open project/project.ipynb. Implement AutoReporter with generate_sections,
+      to_pdf, to_docx, and generate_report methods. Run
+      reporter.generate_report(SAMPLE_DATA, 'Q1 Business Report', '/tmp') and
+      store as result. Verify with _run_project_checks().
+    hint: >
+      generate_sections: loop over data.items(), call ai_generate_section(key,
+      str(value)[:500]) for each, collect into list. to_pdf and to_docx: one
+      function call each. generate_report: chain generate_sections → to_pdf →
+      to_docx → return dict with 'pdf', 'docx', 'sections'.
+    narration: >
+      The project check verifies five things: class has all methods, reporter is
+      an instance, result has required keys, PDF file exists, and DOCX is readable.
+      The checks deliberately do not verify the AI-generated text content —
+      because the LLM output is non-deterministic, checking for specific words
+      would be fragile. The structure checks (file exists, is valid) are the right
+      gate for document generation.
+
+  - type: summary
+    heading: "Day 26: Key Takeaways"
+    bullets:
+      - "ai_generate_section: format='json', two-key schema (heading, body), json.loads + fallback"
+      - "AutoReporter: thin wrapper — generate_sections (AI) → to_pdf + to_docx (render)"
+      - "generate_report returns sections list for human review before sending"
+      - "pypdf + reportlab for PDF; python-docx for DOCX — three packages, full coverage"
+      - "escape() all AI-generated text before passing to reportlab Paragraph"
+    narration: >
+      Day 26 complete. You can now read PDF and DOCX files, generate both from code,
+      and fill them with AI-drafted content. The AutoReporter is a reusable class
+      that turns any dict of raw data into a structured two-format report with one
+      method call. Day 27 moves to scheduling: running these pipelines automatically
+      at set times using APScheduler and cron, so the daily AI briefing from Day 1
+      becomes truly automatic.

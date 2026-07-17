@@ -1,0 +1,136 @@
+day: "026"
+lesson: "03"
+title: "Generating PDFs with reportlab"
+
+slides:
+
+  - type: title
+    heading: "Generating PDFs with reportlab"
+    subheading: "platypus: Paragraph, Spacer, SimpleDocTemplate"
+    narration: >
+      Lesson 3 is PDF generation with reportlab — the most capable pure-Python
+      PDF library available. reportlab has two APIs: canvas (low-level, pixel
+      positioning) and platypus (high-level, flow-based). For reports, platypus
+      is the right choice: you describe elements — paragraph, spacer, heading —
+      and reportlab flows them across pages automatically. You never calculate
+      y-coordinates or page breaks.
+
+  - type: concept
+    label: "platypus model"
+    heading: "platypus — Flow-Based Document Composition"
+    body: >
+      platypus (Page Layout and Typography Using Scripts) treats a document as
+      a story: a list of Flowable objects that pour from top to bottom, page
+      by page. The most common Flowables are Paragraph (styled text),
+      Spacer (vertical gap), and Table. SimpleDocTemplate sets the page size
+      and margins, then doc.build(story) renders everything into a PDF file.
+    bullets:
+      - "story: list[Flowable] — ordered list of content elements"
+      - "Paragraph(text, style) — a block of styled text (handles word-wrap)"
+      - "Spacer(width, height) — vertical gap between elements"
+      - "getSampleStyleSheet() — built-in styles: Title, Heading1, Normal, etc."
+      - "SimpleDocTemplate(path, pagesize=letter) — page geometry; .build(story) writes PDF"
+    narration: >
+      The story metaphor is the key mental model: you append elements in reading
+      order, and reportlab handles pagination. If a paragraph overflows the page,
+      reportlab starts a new page automatically. This is the same model used by
+      LaTeX's floats or CSS Flexbox — declarative layout, not imperative positioning.
+      The canvas API (used for stamps, signatures, or exact-position graphics) is
+      still available for finer control, but platypus handles 95% of report use cases.
+
+  - type: how_it_works
+    label: "XML escaping"
+    heading: "escape() — Safe Text in Paragraph"
+    body: >
+      Paragraph in reportlab treats its text argument as a lightweight XML/HTML
+      snippet, enabling inline formatting tags like <b>, <i>, and <br/>. This
+      means any text containing a literal <, >, or & will cause a parse error.
+      xml.sax.saxutils.escape() converts these three characters to their XML
+      entities (&lt;, &gt;, &amp;), making arbitrary text safe to pass to Paragraph.
+    bullets:
+      - "Paragraph('<b>bold</b>', style) — supports inline HTML-like markup"
+      - "Paragraph('Revenue > 1M', style) — raises XML parse error!"
+      - "escape('Revenue > 1M') → 'Revenue &gt; 1M' — safe for Paragraph"
+      - "from xml.sax.saxutils import escape — stdlib, no install needed"
+      - "Always escape() user-provided or AI-generated text before Paragraph()"
+    narration: >
+      The XML escaping issue is the most common reportlab crash in production.
+      It is silent during development (your test strings rarely contain angle brackets)
+      and hits hard in production when a customer name includes 'Smith & Jones' or
+      an LLM writes 'revenue grew > 10%'. escape() is a two-character function call
+      that prevents all of these failures. Make it a habit: escape() every string
+      that comes from external sources before passing it to Paragraph.
+
+  - type: code
+    label: "create PDF report"
+    heading: "create_pdf_report"
+    code: |
+      from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+      from reportlab.lib.styles import getSampleStyleSheet
+      from reportlab.lib.pagesizes import letter
+      from reportlab.lib.units import inch
+      from xml.sax.saxutils import escape
+
+      def create_pdf_report(
+          title: str, sections: list[dict], output_path: str
+      ) -> None:
+          doc = SimpleDocTemplate(output_path, pagesize=letter)
+          styles = getSampleStyleSheet()
+          story = [
+              Paragraph(escape(title), styles["Title"]),
+              Spacer(1, 0.25 * inch),
+          ]
+          for section in sections:
+              story.append(Paragraph(escape(section["heading"]), styles["Heading1"]))
+              story.append(Paragraph(escape(section["body"]), styles["Normal"]))
+              story.append(Spacer(1, 0.15 * inch))
+          doc.build(story)
+
+      # Usage
+      create_pdf_report(
+          "Q1 Report",
+          [{"heading": "Sales", "body": "Revenue rose 15% YoY."}],
+          "/tmp/report.pdf",
+      )
+    narration: >
+      styles["Title"] renders text as a large centered title; styles["Heading1"]
+      as a section heading; styles["Normal"] as body text. getSampleStyleSheet()
+      returns a StyleSheet1 object with these and more styles (Heading2, Heading3,
+      Code, Italic, etc.). Spacer(1, 0.25 * inch) is a vertical gap of 0.25 inches;
+      the first argument (width) is ignored in flow layout. The doc.build(story) call
+      triggers the full layout and writes the PDF — it returns None, not bytes.
+      To get bytes in memory, pass io.BytesIO() as the filename argument instead of
+      a path string.
+
+  - type: exercise
+    heading: "Exercise 3: create_pdf_report"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement create_pdf_report(title, sections,
+      output_path) using SimpleDocTemplate, Paragraph (with escape()), and Spacer.
+      Build a story list with the title followed by heading/body pairs for each
+      section. Call doc.build(story) to write the PDF.
+    hint: >
+      doc = SimpleDocTemplate(output_path, pagesize=letter). styles = getSampleStyleSheet().
+      story = [Paragraph(escape(title), styles["Title"]), Spacer(1, 0.25 * inch)].
+      For each section: append Paragraph(escape(heading), styles["Heading1"]),
+      Paragraph(escape(body), styles["Normal"]), Spacer. doc.build(story).
+    narration: >
+      Exercise 3's check verifies the output with three probes: file exists, starts
+      with the PDF magic bytes %PDF-, and pypdf can open and count pages. These three
+      checks together confirm a valid, readable PDF — not just that no exception was
+      raised. The same verification pattern (create → check magic bytes → parse)
+      is used in automated test suites for document generation in production.
+
+  - type: summary
+    heading: "Day 26 Lesson 3: Key Takeaways"
+    bullets:
+      - "platypus story model: list[Flowable], pours top-to-bottom across pages"
+      - "Paragraph(text, style): styled text block; handles word-wrap and page breaks"
+      - "getSampleStyleSheet(): Title, Heading1, Normal and more built-in styles"
+      - "escape(): convert <, >, & to XML entities before passing to Paragraph"
+      - "SimpleDocTemplate.build(story): renders and writes the PDF file"
+    narration: >
+      Lesson 3 gave you the reportlab platypus API for PDF generation. Lesson 4
+      covers DOCX generation with python-docx — a simpler API since DOCX uses a
+      structured object model rather than a rendering engine. Together, lessons 3
+      and 4 give you both output formats for the AutoReporter project.

@@ -1,0 +1,116 @@
+day: "026"
+lesson: "01"
+title: "Document Formats and the Python Ecosystem"
+
+slides:
+
+  - type: title
+    heading: "Document Automation"
+    subheading: "PDF, DOCX, and the Python libraries that read and write them"
+    narration: >
+      Day 26 is document automation: reading PDFs and Word documents from code,
+      generating them programmatically, and using the LLM to fill them with
+      AI-drafted content. Documents are the primary output format in business
+      automation — reports, invoices, contracts, briefs. By the end of today
+      you can take raw data, run it through the LLM, and produce a polished
+      multi-section document in both PDF and DOCX without touching Word or Acrobat.
+
+  - type: concept
+    label: "PDF vs DOCX"
+    heading: "Two Dominant Formats — Different Trade-Offs"
+    body: >
+      PDF (Portable Document Format) is fixed-layout: it renders identically on
+      every device and is the standard for sharing finalized documents. Text
+      extraction from PDFs requires a text layer (present in digitally created PDFs,
+      absent in scans). DOCX (Office Open XML, used by Word) is editable:
+      recipients can open, annotate, and reformat in Word. Both are important
+      in automation — PDFs for distribution, DOCX for collaboration.
+    bullets:
+      - "PDF: fixed layout, read-only for recipients, needs text layer for extraction"
+      - "DOCX: editable in Word, supports tracked changes and comments"
+      - "PDF text layer: present in Word-to-PDF, absent in scanned images (need OCR — Day 68)"
+      - "pypdf: read PDFs (pip install pypdf); reportlab: write PDFs (pip install reportlab)"
+      - "python-docx: read and write DOCX (pip install python-docx)"
+    narration: >
+      The text-layer distinction is the most common PDF gotcha for new automation
+      engineers. A PDF created by exporting from Word or printing from a browser has
+      a text layer — pypdf extracts it cleanly. A PDF created by scanning a paper
+      document is just images; pypdf sees blank pages. For scanned documents you
+      need OCR, which Day 68 covers with Tesseract. Today's focus is text-layer PDFs,
+      which are the norm in business workflows.
+
+  - type: how_it_works
+    label: "pypdf"
+    heading: "pypdf — Reading PDFs"
+    body: >
+      pypdf is the modern fork of PyPDF2 (same API, active maintenance). PdfReader
+      takes a file path and exposes a pages list. Each page has an extract_text()
+      method that returns a string or None. The or "" guard converts None to an empty
+      string, ensuring callers always receive a str and never None.
+    bullets:
+      - "from pypdf import PdfReader — the entry point"
+      - "reader = PdfReader(path) — open and parse the PDF"
+      - "reader.pages — list of PageObject, one per page"
+      - "page.extract_text() — returns str or None (text layer missing → None)"
+      - "page.extract_text() or '' — safe: always returns a string"
+    narration: >
+      PdfReader also exposes reader.metadata for title, author, creation date, and
+      other document properties. reader.pages[0].mediabox gives the page dimensions
+      in points (72 points per inch). For today's exercises you only need the text
+      content, so extract_text() with the or-empty fallback is the entire API you
+      need to know.
+
+  - type: code
+    label: "read a PDF"
+    heading: "Reading a PDF with pypdf"
+    code: |
+      from pypdf import PdfReader
+
+      def read_pdf_pages(pdf_path: str) -> list[str]:
+          reader = PdfReader(pdf_path)
+          return [page.extract_text() or "" for page in reader.pages]
+
+      # Usage
+      pages = read_pdf_pages("report.pdf")
+      print(f"{len(pages)} pages")
+      print(pages[0][:200])   # first 200 chars of page 1
+
+      # Full text (all pages joined)
+      full_text = "\n\n".join(pages)
+      print(full_text[:500])
+    narration: >
+      The list comprehension with or "" is the idiomatic one-liner for pypdf
+      extraction. It avoids a for loop with an explicit if-check, and it works
+      the same way for single-page and multi-page PDFs. full_text joins pages
+      with two newlines so that page boundaries are visible in the combined text —
+      useful when passing to an LLM that needs to reason across the whole document.
+
+  - type: exercise
+    heading: "Exercise 1: read_pdf_pages"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement read_pdf_pages(pdf_path) that
+      uses PdfReader to return a list of strings, one per page. Use
+      page.extract_text() or "" to handle pages with no text layer.
+    hint: >
+      reader = PdfReader(pdf_path). Return [page.extract_text() or "" for page in
+      reader.pages]. The check creates a 2-page test PDF and verifies you return
+      a 2-element list of strings containing the expected text.
+    narration: >
+      Exercise 1 is deliberately simple — one line of real code. The value is
+      building the mental model: PdfReader → pages list → extract_text per page.
+      Once this function exists, any downstream AI call can receive the raw text
+      as context. Exercises 2-4 build the write-side of the pipeline.
+
+  - type: summary
+    heading: "Day 26 Lesson 1: Key Takeaways"
+    bullets:
+      - "PDF: fixed layout with text layer (use pypdf); DOCX: editable structure (use python-docx)"
+      - "Scanned PDFs have no text layer — pypdf returns None or empty string per page"
+      - "from pypdf import PdfReader — read PDFs; read_pdf_pages returns list[str]"
+      - "page.extract_text() or '' — always returns str, never None"
+      - "reportlab for writing PDFs; python-docx for writing DOCX"
+    narration: >
+      Lesson 1 set the context: two formats, three packages, one key distinction
+      (text layer vs scanned). Lesson 2 moves to reading DOCX files and
+      understanding the python-docx paragraph model — which is also the building
+      block you will use in Exercise 4 to generate DOCX reports.

@@ -1,0 +1,127 @@
+day: "026"
+lesson: "04"
+title: "Generating DOCX Files with python-docx"
+
+slides:
+
+  - type: title
+    heading: "Generating Word Documents"
+    subheading: "python-docx: Document, add_heading, add_paragraph"
+    narration: >
+      Lesson 4 covers generating DOCX files. python-docx is the same library
+      you used in Lesson 2 for reading — it handles both reading and writing.
+      The write API is a builder pattern: create a Document, append elements,
+      save. No story list, no rendering engine — just imperative appending,
+      which is simpler than reportlab because Word handles the layout.
+
+  - type: concept
+    label: "builder pattern"
+    heading: "python-docx Write API — Builder Pattern"
+    body: >
+      Document() creates a new empty document. add_heading(text, level) appends a
+      heading paragraph; level=0 is the document title, levels 1-9 are section
+      headings. add_paragraph(text) appends a body paragraph. add_table, add_picture,
+      and add_page_break are also available. save(path) serialises the document to
+      a DOCX file (a ZIP archive containing XML).
+    bullets:
+      - "doc = Document() — new empty document"
+      - "doc.add_heading(text, level=0) — title; level=1 section heading"
+      - "doc.add_paragraph(text) — plain body text"
+      - "doc.save(path) — write the .docx file to disk"
+      - "level 0 maps to 'Title' style; level 1 to 'Heading 1', etc."
+    narration: >
+      Unlike reportlab, there is no build() step — each add_* call mutates the
+      Document object in memory, and save() writes it all at once. The level
+      parameter maps to Word's built-in heading styles, which means the generated
+      document automatically has a navigable outline in Word's Navigation Pane.
+      Recipients can export to PDF from Word, use the headings for bookmarks, or
+      apply their own corporate template — benefits you get for free from using
+      proper heading levels instead of manually bolding text.
+
+  - type: how_it_works
+    label: "paragraph formatting"
+    heading: "Formatting Paragraphs and Runs"
+    body: >
+      add_paragraph() returns a Paragraph object. You can add runs to it for
+      inline formatting: p.add_run('bold text').bold = True. Or set paragraph-level
+      style: p.style = doc.styles['List Bullet']. For the AutoReporter, plain
+      add_heading and add_paragraph are sufficient — the default styles are clean
+      and Word will apply any corporate template when the file is opened.
+    bullets:
+      - "p = doc.add_paragraph('body text') → Paragraph"
+      - "run = p.add_run(' extra text') — inline styled span"
+      - "run.bold = True / run.italic = True — inline formatting"
+      - "p.style = 'List Bullet' — apply a named style to a paragraph"
+      - "doc.styles — all available styles in the document template"
+    narration: >
+      For AI-generated content, you generally do not want inline formatting —
+      the LLM does not know which words to bold, and inconsistent bolding
+      looks worse than clean plain text. Keep generated body text as plain
+      paragraphs, and use heading levels for structure. If you need rich
+      formatting (tables, bullet lists, numbered steps), either post-process
+      the DOCX with specific add_* calls or let the recipient format it manually.
+
+  - type: code
+    label: "create DOCX report"
+    heading: "create_docx_report"
+    code: |
+      from docx import Document
+
+      def create_docx_report(
+          title: str, sections: list[dict], output_path: str
+      ) -> None:
+          doc = Document()
+          doc.add_heading(title, level=0)
+          for section in sections:
+              doc.add_heading(section["heading"], level=1)
+              doc.add_paragraph(section["body"])
+          doc.save(output_path)
+
+      # Read it back to verify
+      from docx import Document as _D
+      doc2 = _D("report.docx")
+      for p in doc2.paragraphs:
+          if p.text.strip():
+              print(f"[{p.style.name}] {p.text[:60]}")
+    narration: >
+      create_docx_report is exactly six lines including the for loop — the DOCX
+      builder API is that simple. The read-back verification at the bottom is the
+      same pattern as Exercise 4's check harness: open with Document(), iterate
+      paragraphs, check for expected text. This close match between the write API
+      and the read API makes testing DOCX generation straightforward.
+
+  - type: exercise
+    heading: "Exercise 4: create_docx_report"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement create_docx_report(title, sections,
+      output_path) that creates a Document, adds the title as a level-0 heading,
+      adds each section as a level-1 heading followed by a body paragraph, and
+      saves to output_path.
+    hint: >
+      doc = Document(). doc.add_heading(title, level=0). For each section:
+      doc.add_heading(section["heading"], level=1) then
+      doc.add_paragraph(section["body"]). doc.save(output_path).
+      The check reads the file back with python-docx and verifies the title and
+      first section heading appear in the paragraph list.
+    narration: >
+      Exercise 4's check is read-after-write: write the DOCX, open it with
+      Document(tmp), check that the expected headings and text appear in
+      doc.paragraphs. This round-trip check catches two failure modes:
+      the file was not written (missing save()), and the content was not added
+      (missing add_heading or add_paragraph). Both fail distinctly with clear
+      error messages.
+
+  - type: summary
+    heading: "Day 26 Lesson 4: Key Takeaways"
+    bullets:
+      - "Document() — new empty DOCX; builder pattern (no build() step)"
+      - "add_heading(text, level=0) — title; level=1 section heading"
+      - "add_paragraph(text) — plain body text"
+      - "save(path) — write the .docx; round-trip test with Document(path)"
+      - "No need to escape XML — python-docx handles serialisation safely"
+    narration: >
+      Lesson 4 gave you DOCX generation. Lessons 3 and 4 together cover both
+      output formats. Lesson 5 closes the loop with the AI step: instead of
+      manually providing the sections list, ai_generate_section calls the LLM
+      with raw data and returns a {heading, body} dict. Chain five lessons together
+      and you have AutoReporter.

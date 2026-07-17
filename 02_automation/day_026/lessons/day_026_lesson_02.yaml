@@ -1,0 +1,119 @@
+day: "026"
+lesson: "02"
+title: "Reading DOCX Files with python-docx"
+
+slides:
+
+  - type: title
+    heading: "Reading Word Documents"
+    subheading: "python-docx, paragraphs, headings, and the OOXML object model"
+    narration: >
+      Lesson 2 covers reading DOCX files. python-docx models a Word document as a
+      hierarchy: Document → Paragraph → Run. A Paragraph is a block of text (body
+      copy or a heading); a Run is a styled span within a paragraph (bold, italic,
+      a specific font). For text extraction, you mostly only care about paragraphs —
+      their .text attribute gives the full text regardless of how many runs it has.
+
+  - type: concept
+    label: "DOCX structure"
+    heading: "Document → Paragraph → Run"
+    body: >
+      A DOCX file is a ZIP archive containing XML (OOXML — Office Open XML).
+      python-docx unpacks and parses this XML for you. Every piece of text
+      lives in a paragraph. Headings are paragraphs with a heading style.
+      Tables, images, and footnotes are separate collections on the Document
+      object. For text extraction, iterating doc.paragraphs covers all prose.
+    bullets:
+      - "doc.paragraphs — list of Paragraph objects (includes headings and body)"
+      - "paragraph.text — full plain text of the paragraph (all runs joined)"
+      - "paragraph.style.name — e.g. 'Heading 1', 'Normal', 'List Bullet'"
+      - "paragraph.runs — list of Run objects (each with its own font/bold/italic)"
+      - "run.text — text of one styled span within a paragraph"
+    narration: >
+      The style name is useful for structural analysis: you can filter headings
+      with paragraph.style.name.startswith('Heading') to extract the document
+      outline. For simple text extraction — passing a DOCX to an LLM — joining
+      all paragraph.text values is sufficient and simpler. The runs API is only
+      needed when you care about inline formatting, which is rare in AI pipelines.
+
+  - type: how_it_works
+    label: "read_docx_text"
+    heading: "Extracting Text from a DOCX"
+    body: >
+      Document(path) opens and parses the DOCX. Iterating doc.paragraphs gives
+      every paragraph including headings, body text, list items, and captions.
+      Joining with "\n" preserves line breaks between paragraphs. Empty paragraphs
+      (blank lines in the document) produce empty strings, which are fine to
+      include in the join result.
+    bullets:
+      - "from docx import Document — the single entry point for python-docx"
+      - "doc = Document(path) — open a DOCX file"
+      - "doc.paragraphs — list of Paragraph objects"
+      - "p.text — plain text of a paragraph; headings appear as text"
+      - '"\\n".join(p.text for p in doc.paragraphs) — full text, one paragraph per line'
+    narration: >
+      doc.paragraphs does not include text inside tables. If the document has
+      tables with text, iterate doc.tables → table.rows → row.cells → cell.paragraphs.
+      For today's AI report pipeline, reports are structured as headings and body
+      paragraphs with no tables, so doc.paragraphs gives complete text. Day 36
+      covers tabular data in Python; if you ever need to extract table data from DOCX,
+      the pattern extends naturally.
+
+  - type: code
+    label: "read a DOCX"
+    heading: "Reading a DOCX File"
+    code: |
+      from docx import Document
+
+      def read_docx_text(docx_path: str) -> str:
+          doc = Document(docx_path)
+          return "\n".join(p.text for p in doc.paragraphs)
+
+      # Usage
+      text = read_docx_text("report.docx")
+      print(text[:300])
+
+      # Inspect styles (headings vs body)
+      doc = Document("report.docx")
+      for p in doc.paragraphs[:10]:
+          print(f"[{p.style.name}] {p.text[:60]}")
+    narration: >
+      The generator expression inside "\n".join is memory-efficient — it yields
+      one paragraph at a time rather than building a list in memory first.
+      For a 100-page DOCX with 5000 paragraphs, this makes no practical
+      difference, but it is idiomatic Python. The style inspection example
+      at the bottom is useful for debugging: you can see at a glance whether
+      headings are tagged correctly or whether the document uses ad-hoc bold
+      text instead of heading styles.
+
+  - type: exercise
+    heading: "Exercise 2: read_docx_text"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement read_docx_text(docx_path) that
+      opens a DOCX with Document(docx_path) and returns all paragraph text joined
+      with newlines. The check creates a test DOCX with a title and two paragraphs
+      and verifies both the content and the newline separator.
+    hint: >
+      One line: return "\n".join(p.text for p in Document(docx_path).paragraphs).
+      The check verifies: (1) function defined, (2) returns str, (3) contains
+      heading text, (4) contains body text, (5) newlines present between paragraphs.
+    narration: >
+      Exercise 2 is the read-side complement to Exercise 4 (write-side). Once both
+      functions exist, the solution notebook uses read_docx_text to verify that the
+      generated report contains the expected content. This read-then-verify pattern
+      is important: always check your generated documents are readable by the same
+      library that will read them in production.
+
+  - type: summary
+    heading: "Day 26 Lesson 2: Key Takeaways"
+    bullets:
+      - "from docx import Document — the python-docx entry point"
+      - "doc.paragraphs — list of Paragraph objects (headings and body text)"
+      - "paragraph.text — full plain text; style.name — 'Heading 1', 'Normal', etc."
+      - '"\\n".join(p.text for p in doc.paragraphs) — full document as one string'
+      - "Tables are separate: doc.tables → rows → cells → cell.paragraphs"
+    narration: >
+      Lesson 2 gave you the DOCX reading API. Lesson 3 introduces reportlab for
+      generating PDFs — the opposite direction. You will learn the platypus
+      high-level API (Paragraph, Spacer, SimpleDocTemplate) which describes
+      document structure without requiring pixel-level positioning.
