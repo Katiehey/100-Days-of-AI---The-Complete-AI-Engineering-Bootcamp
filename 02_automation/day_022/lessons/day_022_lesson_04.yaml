@@ -1,0 +1,144 @@
+day: "022"
+lesson: "04"
+title: "Resilience: Error Handling and Rate Limits"
+
+slides:
+
+  - type: title
+    heading: "Resilience: APIs Fail — Handle It"
+    subheading: "Error envelopes, rate limits, and timeouts"
+    narration: >
+      APIs are external systems. They go down, return 429 Too Many Requests,
+      time out, and return malformed JSON. In an automation pipeline that
+      processes hundreds of records, one bad response can crash the entire
+      run. Lesson 4 shows you how to build API calls that never raise —
+      returning an error envelope instead — so the caller can decide whether
+      to retry, skip, or alert.
+
+  - type: concept
+    label: "Failure modes"
+    heading: "What Goes Wrong with API Calls"
+    body: >
+      Four distinct failure modes require four distinct responses:
+      HTTP errors (4xx/5xx), connection errors (host unreachable), timeouts
+      (server too slow), and JSON decode errors (server returned non-JSON).
+      Catching the right exception class lets you respond appropriately to each.
+    bullets:
+      - "HTTPError (4xx/5xx) — e.response.status_code tells you exactly what happened"
+      - "ConnectionError — DNS failed, port closed, network unreachable"
+      - "Timeout — server too slow; try smaller request or retry later"
+      - "JSONDecodeError — server returned HTML error page instead of JSON"
+      - "429 Too Many Requests — slow down; check Retry-After header"
+    narration: >
+      requests.exceptions contains specific exception classes for each failure
+      mode. HTTPError is raised by raise_for_status() and carries the response
+      object so you can read the status code. ConnectionError is raised when
+      the TCP connection fails. Timeout is raised when the timeout parameter
+      you passed is exceeded. In practice for a safe_get wrapper you catch
+      HTTPError first (to log the specific status code) and then Exception
+      as a catch-all for everything else — connection errors, timeouts, and
+      JSON decode errors all collapse into the generic error envelope. The
+      important thing is that the function never propagates an exception to
+      its caller.
+
+  - type: how_it_works
+    label: "Error envelope"
+    heading: "The Error Envelope Pattern"
+    body: >
+      Instead of raising, return a dict with status, data, and error keys.
+      On success: status=200, data=<parsed JSON>, error=None.
+      On HTTP error: status=<code>, data=None, error=str(e).
+      On any other error: status=None, data=None, error=str(e).
+    bullets:
+      - "Caller checks result['error'] is None to know if it succeeded"
+      - "Caller checks result['status'] to decide on retry vs. skip"
+      - "Never raises — safe to call in a loop over hundreds of items"
+      - "HTTPError caught first (has e.response.status_code)"
+      - "Generic Exception catches connection, timeout, decode errors"
+    narration: >
+      The error envelope pattern is the API equivalent of batch_process_files
+      from Day 21 — both return a result dict instead of raising, both separate
+      status from data, both let the caller make decisions. The key insight is
+      that in a loop over N API calls, you want to record which ones failed
+      and continue — not stop on the first error. A function that never raises
+      makes that trivially easy: check result['error'] and log or skip,
+      then continue to the next record. A function that raises requires a
+      try/except at every call site.
+
+  - type: code
+    label: "safe_get"
+    heading: "safe_get — A GET That Never Raises"
+    code: |
+      import requests
+
+      def safe_get(
+          url: str,
+          headers: dict | None = None,
+          timeout: int = 10,
+      ) -> dict:
+          """GET that returns {status, data, error} — never raises."""
+          try:
+              r = requests.get(url, headers=headers, timeout=timeout)
+              r.raise_for_status()
+              return {"status": r.status_code, "data": r.json(), "error": None}
+          except requests.exceptions.HTTPError as e:
+              return {
+                  "status": e.response.status_code,
+                  "data": None,
+                  "error": str(e),
+              }
+          except Exception as e:
+              return {"status": None, "data": None, "error": str(e)}
+
+      # Usage in a loop
+      endpoints = ["/posts/1", "/posts/99999", "/nonexistent"]
+      for ep in endpoints:
+          result = safe_get(f"https://jsonplaceholder.typicode.com{ep}")
+          if result["error"]:
+              print(f"SKIP {ep}: {result['error'][:50]}")
+          else:
+              print(f"OK   {ep}: status={result['status']}")
+    narration: >
+      The two-level except is the key structure. HTTPError is a subclass of
+      RequestException, which is a subclass of Exception — so you must catch
+      it before the generic except or it will be caught by the generic handler
+      and you will lose the status code. The order matters: specific exceptions
+      first, generic last. Notice that status_code comes from e.response,
+      not from r — because raise_for_status raised before we assigned r.
+      The generic except catches ConnectionError, Timeout, and JSONDecodeError;
+      all three result in status=None because there is no HTTP response at all.
+
+  - type: exercise
+    heading: "Exercise 4: safe_get"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement safe_get(url, headers,
+      timeout) that catches HTTPError (returning its status code) and any
+      other Exception (returning status=None). Never raises.
+    hint: >
+      try: r = requests.get(...); r.raise_for_status(); return {status: r.status_code, data: r.json(), error: None}
+      except HTTPError as e: return {status: e.response.status_code, data: None, error: str(e)}
+      except Exception as e: return {status: None, data: None, error: str(e)}
+    narration: >
+      The check harness verifies a successful call returns status=200 with
+      data set and error=None, and that a call to a non-existent localhost
+      port returns status=None with a non-empty error string. The important
+      check is that safe_get itself does NOT raise — the harness confirms this
+      by calling it and checking the return value rather than wrapping it in
+      a try/except. A function that silently swallows errors and returns a
+      clean envelope is the correct abstraction for bulk automation.
+
+  - type: summary
+    heading: "Resilience: Key Takeaways"
+    bullets:
+      - "requests.exceptions.HTTPError — raised by raise_for_status(), has e.response"
+      - "Catch HTTPError before generic Exception to preserve status_code"
+      - "Error envelope {status, data, error} — caller decides retry vs. skip"
+      - "status=None signals no HTTP response (connection error, timeout)"
+      - "429 Too Many Requests — check Retry-After header; sleep before retry"
+      - "Never-raise wrappers are the right abstraction for batch pipelines"
+    narration: >
+      Error handling is where junior and senior code diverges most visibly.
+      Juniors let exceptions propagate; seniors return envelopes and let
+      callers decide. Today's safe_get is the canonical example. In Day 31
+      you will add exponential backoff and dead-letter queues on top of this
+      pattern — for now, the envelope is enough.

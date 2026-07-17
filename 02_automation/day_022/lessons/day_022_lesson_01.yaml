@@ -1,0 +1,133 @@
+day: "022"
+lesson: "01"
+title: "GET Requests with Params and Headers"
+
+slides:
+
+  - type: title
+    heading: "Working with APIs"
+    subheading: "Make your code talk to the internet"
+    narration: >
+      Day 22 is all about APIs — the interfaces that let your code reach
+      out to almost any service on the internet. You already used requests.post
+      on Day 3 to talk to Ollama. Today you go deeper: parameterised GET
+      requests, auth headers, pagination, and error handling. By the end you
+      will have a working client for JSONPlaceholder, a real REST API used by
+      millions of developers. The same patterns apply to GitHub, Stripe,
+      Spotify, or any other service you want your automations to consume.
+
+  - type: concept
+    label: "GET requests"
+    heading: "GET — The Most Common HTTP Method"
+    body: >
+      GET retrieves data. It is the default HTTP method — every browser tab
+      you open uses it. In Python, requests.get(url) fires a GET request and
+      returns a Response object. Three things you always do with that response:
+      pass params as a dict, call raise_for_status(), and call .json().
+    bullets:
+      - "requests.get(url, params={'key': 'value'}) — query-string params"
+      - "response.raise_for_status() — turns 4xx/5xx into exceptions"
+      - "response.json() — parses the JSON body into a Python dict or list"
+      - "timeout=10 — always set a timeout; default is None (hangs forever)"
+    narration: >
+      requests.get is simple but the three-step pattern is what separates
+      production-grade code from a quick script. First, always pass params
+      as a dict — requests URL-encodes it correctly. Never build query strings
+      by hand with f-strings, because special characters will silently break.
+      Second, always call raise_for_status before touching the response body.
+      Without it, a 404 or 500 returns a Response object that looks valid but
+      contains an error page — your json() call may not even raise, leaving
+      you with garbage data. Third, timeout — an API that stops responding will
+      hang your automation forever without it. Ten seconds is a reasonable
+      default for most APIs.
+
+  - type: how_it_works
+    label: "Anatomy of a request"
+    heading: "How requests.get Works"
+    body: >
+      requests.get constructs the full URL (base + encoded params), opens
+      a TCP connection, sends the HTTP request, and waits for the response.
+      The Response object holds the status code, response headers, and raw
+      bytes. .json() decodes the bytes as UTF-8 and parses them.
+    bullets:
+      - "params dict → '?key=value&key2=value2' in the URL (auto-encoded)"
+      - "headers dict → added to the HTTP request (auth, content-type, etc.)"
+      - "response.status_code — 200 OK, 404 Not Found, 429 Too Many Requests"
+      - "raise_for_status() → raises requests.exceptions.HTTPError on 4xx/5xx"
+      - "response.json() → Python dict/list; raises if body is not valid JSON"
+    narration: >
+      Under the hood, requests uses urllib3 for connection pooling and
+      SSL. You never need to think about TCP or HTTP framing — requests
+      handles all of it. What you do need to think about is the three
+      things that can go wrong: the host is unreachable (ConnectionError),
+      the server returns an error status (HTTPError after raise_for_status),
+      or the response body is not JSON (JSONDecodeError from .json()). On
+      Day 22 you will build a safe_get wrapper that catches all three.
+
+  - type: code
+    label: "get_json"
+    heading: "get_json — Your Core GET Wrapper"
+    code: |
+      import requests
+
+      def get_json(url: str,
+                   params: dict | None = None,
+                   headers: dict | None = None):
+          """GET url and return parsed JSON. Raises on HTTP errors."""
+          response = requests.get(
+              url,
+              params=params,
+              headers=headers,
+              timeout=10,
+          )
+          response.raise_for_status()
+          return response.json()
+
+      # Usage
+      posts = get_json(
+          "https://jsonplaceholder.typicode.com/posts",
+          params={"_limit": 3},
+      )
+      for p in posts:
+          print(p["title"])
+    narration: >
+      get_json is a one-level wrapper with one job: fire a GET, raise on
+      failure, return data. It does not catch exceptions — that is the job
+      of the calling code or of the safe_get wrapper you build in Exercise 4.
+      Keeping get_json thin means it composes well: paginate_collect calls it
+      in a loop, safe_get wraps it in a try/except, and PostsAPI uses it
+      through a Session. Notice that params=None and headers=None are the
+      defaults — requests handles None gracefully by omitting those parts of
+      the request. You pass the params dict and requests does the URL encoding.
+
+  - type: exercise
+    heading: "Exercise 1: get_json"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement get_json(url, params, headers)
+      that fires a GET request, calls raise_for_status(), and returns the parsed
+      JSON. Always pass timeout=10.
+    hint: >
+      response = requests.get(url, params=params, headers=headers, timeout=10)
+      then response.raise_for_status() then return response.json().
+    narration: >
+      Exercise 1 is the foundation. The check harness calls get_json against
+      JSONPlaceholder with _limit=3 and verifies you get back exactly three
+      dicts each with 'id' and 'title' keys. It also verifies that your function
+      raises when pointed at a non-existent localhost port — confirming that
+      raise_for_status and connection errors propagate correctly. Once this
+      passes you have the core building block for all four remaining exercises.
+
+  - type: summary
+    heading: "GET Requests: Key Takeaways"
+    bullets:
+      - "requests.get(url, params=dict, headers=dict, timeout=10) — the full signature"
+      - "Always call raise_for_status() before touching .json()"
+      - "params as dict — requests URL-encodes it; never hand-build query strings"
+      - "timeout=10 — prevents hangs; no default in requests, always set it"
+      - "response.json() — parses UTF-8 JSON body into dict or list"
+      - "HTTPError on 4xx/5xx; ConnectionError if host unreachable"
+    narration: >
+      The one-function get_json pattern will appear in everything you
+      build with APIs. Tomorrow you add BeautifulSoup for scraping — today's
+      pattern of fire, raise, parse is the same pattern you will use whenever
+      you retrieve structured data from the web. Lock it in.

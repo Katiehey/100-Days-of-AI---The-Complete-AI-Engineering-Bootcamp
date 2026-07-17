@@ -1,0 +1,154 @@
+day: "022"
+lesson: "05"
+title: "AI + APIs: LLM Analysis of API Responses"
+
+slides:
+
+  - type: title
+    heading: "AI Meets APIs"
+    subheading: "Turn any API response into an intelligent conversation"
+    narration: >
+      The last piece of today's stack: connecting the API client you built
+      to the LLM. api_analyze_results takes a list of records from any API
+      call and lets you ask plain-English questions about them. The same
+      pattern works for GitHub issues, Stripe transactions, weather data,
+      or news articles — fetch, serialize to JSON, ask the model. That is
+      what it means to add intelligence to automation.
+
+  - type: concept
+    label: "API + LLM"
+    heading: "APIs Give Data; LLMs Give Insight"
+    body: >
+      APIs return structured records — JSON dicts with fields. LLMs can
+      read those records and answer questions about them in natural language.
+      The combination: fetch records, serialize to JSON, pass to LLM with
+      a question. The LLM reads the data and narrates, summarises, or
+      extracts from it.
+    bullets:
+      - "Any JSON-returnable API → instant LLM analysis"
+      - "json.dumps(records[:5]) — serialize records for the prompt"
+      - "Slice to first 5 records — keeps the prompt within context window"
+      - "System prompt sets the analyst persona; user prompt contains data + question"
+      - "Works on posts, transactions, issues, weather, news, metrics — any JSON"
+    narration: >
+      You already used a similar pattern in Day 19 — LLM as judge to evaluate
+      outputs. Here you flip it: the LLM is the analyst, not the judge.
+      You give it data it has never seen (fresh from an API call) and ask it
+      a question. The key constraint is context length — you cannot paste
+      10,000 records into a prompt. Slicing to 5 records is a conservative
+      default that works reliably with llama3.2's context window. For a
+      production pipeline you would summarise batches of records and then
+      summarise the summaries — the map-reduce pattern from Day 7, applied
+      to API data.
+
+  - type: how_it_works
+    label: "Serialize and ask"
+    heading: "The Serialize-and-Ask Pattern"
+    body: >
+      Step 1: Fetch records from the API (get_json or paginate_collect).
+      Step 2: json.dumps(records[:5]) — convert to a JSON string the LLM
+      can read. Step 3: Build a prompt with the JSON and the question.
+      Step 4: Call ollama.chat and return the answer string.
+    bullets:
+      - "json.dumps with indent=2 — human-readable, easier for the LLM to parse"
+      - "records[:5] — hard cap on records passed to the model"
+      - "System prompt: 'You are a data analyst. Answer questions concisely.'"
+      - "User prompt: f'Data:\\n{summary}\\n\\nQuestion: {question}'"
+      - "response['message']['content'] — extract the answer string"
+    narration: >
+      json.dumps with indent=2 is intentional — the formatted whitespace
+      helps the model parse field boundaries. You could also pass compact
+      JSON but indented is more reliable for smaller models like llama3.2.
+      The system prompt is minimal on purpose: 'data analyst, answer
+      concisely' gives the model a role and a style constraint without over-
+      specifying. The user prompt puts data first, question last — this order
+      works better empirically because the model reads the data in context
+      before seeing what you want. This is the prompt engineering principle
+      from Day 6: put the most important context closest to the instruction.
+
+  - type: code
+    label: "ai_analyze_results"
+    heading: "ai_analyze_results — Ask the LLM About API Data"
+    code: |
+      import ollama
+      import json
+
+      def ai_analyze_results(
+          records: list[dict],
+          question: str,
+          model: str = "llama3.2",
+      ) -> str:
+          """Ask the LLM a question about a list of API records."""
+          summary = json.dumps(records[:5], indent=2)
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are an API data analyst. "
+                          "Answer questions about the provided JSON data concisely."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": f"Data (first 5 records):\n{summary}\n\nQuestion: {question}",
+                  },
+              ],
+          )
+          return response["message"]["content"]
+
+      # Usage with real API data
+      posts = get_json(
+          "https://jsonplaceholder.typicode.com/posts",
+          params={"_limit": 5},
+      )
+      answer = ai_analyze_results(posts, "What topics appear in these posts?")
+      print(answer)
+    narration: >
+      ai_analyze_results is the simplest possible AI+API integration:
+      fetch, serialize, ask. No format='json', no Pydantic — the answer is
+      free-form text, which is what you want when asking open questions.
+      If you needed structured output from the analysis — say, a list of
+      topic keywords — you would add format='json' to the ollama.chat call
+      and parse the response with json.loads, exactly as in Day 4 and Day 21.
+      For today the free-form answer is the deliverable. The PostsAPI class
+      wraps this into ai_summary, which fetches posts automatically before
+      calling ai_analyze_results.
+
+  - type: exercise
+    heading: "Exercise 5: ai_analyze_results"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_analyze_results(records,
+      question, model) that serialises records[:5] to JSON and asks llama3.2
+      a question about them. Returns the model's answer as a string.
+    hint: >
+      summary = json.dumps(records[:5], indent=2). Build messages with
+      system='data analyst' and user content = data + question.
+      return response['message']['content'].
+    narration: >
+      The check harness passes in 3 sample records (tech posts) and asks
+      how many there are. It verifies the return type is str and the result
+      is at least 10 characters — a loose check that lets the LLM answer
+      naturally. A second check verifies your function handles an empty
+      records list without raising. One LLM call total during the checks.
+      Once this passes you have all five building blocks and are ready for
+      the project.
+
+  - type: summary
+    heading: "AI + APIs: Key Takeaways"
+    bullets:
+      - "json.dumps(records[:5], indent=2) — serialize for the model, cap at 5"
+      - "Data first, question last in the user prompt — model reads context before task"
+      - "System prompt sets persona and style; user prompt carries data + question"
+      - "No format='json' here — free-form answer is what open questions need"
+      - "Works on any JSON API response: posts, issues, transactions, weather"
+      - "Scale beyond 5 records: map-reduce (Day 7) over paginated batches"
+    narration: >
+      You now have the full Day 22 stack: get_json for single calls,
+      build_headers for auth, paginate_collect for bulk data, safe_get for
+      resilient calls, and ai_analyze_results to add intelligence. The project
+      assembles all five into PostsAPI — a class that shows you exactly
+      how professional API clients are structured. This same architecture
+      scales to GitHub, Stripe, Notion, Spotify, or any other REST API
+      you want to build an AI automation around.

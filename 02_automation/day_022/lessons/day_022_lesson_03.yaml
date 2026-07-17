@@ -1,0 +1,135 @@
+day: "022"
+lesson: "03"
+title: "Pagination"
+
+slides:
+
+  - type: title
+    heading: "Pagination: Getting All the Data"
+    subheading: "Loop over pages until the API runs out"
+    narration: >
+      No API returns a million records in one call. Every production API
+      limits its responses — 10 per page, 100 per page, whatever the
+      service decides. If you only fetch the first page you silently miss
+      data. Lesson 3 covers the three pagination patterns you will encounter
+      and shows you how to implement the most common one: offset/limit.
+
+  - type: concept
+    label: "Pagination patterns"
+    heading: "Three Ways APIs Page Their Data"
+    body: >
+      Offset/limit (page number + page size) is the most common. Cursor-based
+      pagination uses an opaque token from the previous response to request
+      the next page — common in high-volume APIs like Twitter/X. Link header
+      pagination embeds the next-page URL in a response header — used by GitHub.
+    bullets:
+      - "Offset/limit: ?_page=2&_limit=10 — simple, positional, common"
+      - "Cursor: ?cursor=<token> — scalable, no skipping records mid-stream"
+      - "Link header: next URL in Link: <url>; rel='next' header"
+      - "Stop condition: empty page, total count reached, or no next cursor"
+    narration: >
+      JSONPlaceholder uses offset/limit: you ask for page 1 of 10, page 2 of 10,
+      and so on. An empty list means you have reached the end. Real-world APIs
+      may give you a total count so you can calculate the page count in advance,
+      or they may give you a cursor you pass on the next call. GitHub's REST API
+      uses Link headers — the response contains a header like
+      Link: <url>; rel="next" — you parse the URL and follow it. Today you
+      implement offset/limit because it is the most common and the easiest to
+      reason about. Cursor and Link-header patterns follow the same loop logic
+      but with different stop conditions.
+
+  - type: how_it_works
+    label: "Pagination loop"
+    heading: "The Pagination Loop Pattern"
+    body: >
+      Loop from page 1 to max_pages. On each iteration: request the page,
+      check if data is empty (stop early if so), extend the results list,
+      increment the page counter. Return all collected items after the loop.
+    bullets:
+      - "for page in range(1, max_pages + 1) — bounded loop, avoids runaway"
+      - "params = {'_page': page, '_limit': page_size} — pass both per call"
+      - "if not data: break — stop early when the API returns an empty page"
+      - "all_results.extend(data) — flatten pages into one list"
+      - "max_pages guard — prevent infinite loops on buggy APIs"
+    narration: >
+      The max_pages guard is important in production. Without it, a buggy
+      API that never returns an empty page will loop forever. With it, your
+      automation processes at most max_pages * page_size records and stops —
+      you can always increase the limit, but you cannot un-crash a runaway
+      loop. The empty-page break is the natural stop condition: if the API
+      returns zero items, there is no more data and continuing is a waste.
+      Together these two conditions make the loop robust: it stops on the
+      first of — no data, or page limit reached.
+
+  - type: code
+    label: "paginate_collect"
+    heading: "paginate_collect — Collect All Pages"
+    code: |
+      import requests
+
+      def paginate_collect(
+          url: str,
+          page_size: int = 10,
+          max_pages: int = 3,
+      ) -> list[dict]:
+          all_results = []
+          for page in range(1, max_pages + 1):
+              params = {"_page": page, "_limit": page_size}
+              r = requests.get(url, params=params, timeout=10)
+              r.raise_for_status()
+              data = r.json()
+              if not data:
+                  break
+              all_results.extend(data)
+          return all_results
+
+      # Collect 3 pages of 10 posts = up to 30 items
+      posts = paginate_collect(
+          "https://jsonplaceholder.typicode.com/posts",
+          page_size=10,
+          max_pages=3,
+      )
+      print(f"Collected {len(posts)} posts")
+    narration: >
+      paginate_collect is a standalone function, not a method, because it
+      is useful beyond any single API client. Notice that it calls
+      requests.get directly rather than get_json — this is intentional.
+      get_json is the base wrapper; paginate_collect is a higher-level
+      pattern that adds the loop and the extend logic. In the PostsAPI class
+      the get_pages method simply delegates to paginate_collect with the base
+      URL — composition rather than duplication.
+
+  - type: exercise
+    heading: "Exercise 3: paginate_collect"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement paginate_collect(url,
+      page_size, max_pages) that loops over pages, stops on an empty page,
+      and returns a flat list of all items.
+    hint: >
+      Loop range(1, max_pages + 1). On each iteration build params
+      {'_page': page, '_limit': page_size}, call requests.get, raise_for_status,
+      .json(). If not data: break. Otherwise all_results.extend(data).
+    narration: >
+      The check harness verifies that one page returns page_size items and
+      that two pages return 2 * page_size items. JSONPlaceholder has 100
+      posts total in 10-post pages, so the maths is clean. The two checks
+      together confirm both the data collection and the pagination arithmetic.
+      Once exercise 3 passes you have three of the five building blocks:
+      get_json for single calls, paginate_collect for bulk collection.
+
+  - type: summary
+    heading: "Pagination: Key Takeaways"
+    bullets:
+      - "Most APIs limit responses — never assume one call returns everything"
+      - "Offset/limit: ?_page=N&_limit=M — the most common pattern"
+      - "Loop with max_pages guard — prevents runaway on buggy APIs"
+      - "Empty page → break — natural stop condition"
+      - "extend() not append() — flatten pages into one list"
+      - "Cursor and Link-header patterns follow the same loop; stop condition differs"
+    narration: >
+      Pagination feels like a detail but it is the source of many
+      subtle data-collection bugs — scripts that silently return only the
+      first page, missing 90% of the data. The pattern you built today
+      handles both the normal stop condition (empty page) and the safety
+      condition (max_pages). Apply it to any offset/limit API and you
+      will never miss records again.

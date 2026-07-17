@@ -1,0 +1,139 @@
+day: "022"
+lesson: "02"
+title: "Authentication Patterns"
+
+slides:
+
+  - type: title
+    heading: "Auth: Who Are You?"
+    subheading: "API keys, Bearer tokens, and requests.Session"
+    narration: >
+      Almost every real-world API requires you to prove your identity before
+      it will return data. Day 22 Lesson 2 covers the three most common
+      patterns — API keys in headers, Bearer tokens, and the requests.Session
+      object that makes auth headers automatic across all calls. You will
+      build a pure function that constructs auth headers, then use it inside
+      PostsAPI's Session.
+
+  - type: concept
+    label: "Auth patterns"
+    heading: "Three Ways APIs Verify You"
+    body: >
+      Almost all REST API auth fits one of three patterns: an API key in
+      a header, a Bearer token (OAuth 2.0), or Basic auth (username:password
+      base64-encoded). Bearer tokens are the modern standard. API keys are
+      simpler and common in developer-facing services.
+    bullets:
+      - "X-API-Key: <key> — simple header, used by many developer APIs"
+      - "Authorization: Bearer <token> — OAuth 2.0 standard; most common"
+      - "Authorization: Basic <b64> — username:password, older pattern"
+      - "requests.Session — set headers once, reuse across many calls"
+    narration: >
+      When you sign up for a service like GitHub or Stripe, you get an API
+      key or an OAuth token. That token goes into the Authorization header
+      on every request — the server checks it, finds your account, and decides
+      what you can access. Bearer is the standard word for this type of token.
+      The header looks like Authorization: Bearer sk-1234abcd. API keys without
+      Bearer (X-API-Key: sk-1234abcd) are functionally identical — just a
+      different header name. On Day 55 you will implement your own API key
+      auth for the app you build. Today you learn how to consume it.
+
+  - type: how_it_works
+    label: "requests.Session"
+    heading: "requests.Session — Set Headers Once"
+    body: >
+      A Session object persists headers, cookies, and connection pools
+      across multiple requests. Set auth headers in session.headers.update()
+      once at construction time, and every subsequent session.get() /
+      session.post() sends them automatically.
+    bullets:
+      - "session = requests.Session() — create once, share across calls"
+      - "session.headers.update(build_headers(api_key)) — set auth globally"
+      - "session.get(url, params=params) — auth header sent automatically"
+      - "Connection pool reuse — faster than a new connection per call"
+      - "Close with session.close() or use as a context manager (with Session)"
+    narration: >
+      Without a Session, every requests.get call opens a new TCP connection.
+      With a Session, connections are pooled and reused — your code runs
+      faster and puts less load on the API server. More importantly, you set
+      auth headers once in the constructor rather than remembering to pass
+      them on every call. This is exactly how the PostsAPI class works in
+      today's project: __init__ creates a Session, update_headers sets the
+      Bearer token, and every method on the class calls session.get without
+      thinking about auth. One place to change the token, zero chance of
+      forgetting it on a specific call.
+
+  - type: code
+    label: "build_headers"
+    heading: "build_headers — Centralised Auth Construction"
+    code: |
+      def build_headers(api_key: str, extra: dict | None = None) -> dict:
+          """Build auth headers for API requests."""
+          headers = {
+              "Authorization": f"Bearer {api_key}",
+              "Content-Type": "application/json",
+          }
+          if extra:
+              headers.update(extra)
+          return headers
+
+      # Using build_headers with a Session
+      import requests
+
+      class PostsAPI:
+          BASE = "https://jsonplaceholder.typicode.com"
+
+          def __init__(self, api_key: str = "demo"):
+              self.session = requests.Session()
+              self.session.headers.update(build_headers(api_key))
+
+          def get_posts(self, limit: int = 5) -> list[dict]:
+              r = self.session.get(
+                  f"{self.BASE}/posts",
+                  params={"_limit": limit},
+                  timeout=10,
+              )
+              r.raise_for_status()
+              return r.json()
+    narration: >
+      build_headers is a pure function — no side effects, same output for
+      the same input, trivially testable. It always returns Authorization
+      and Content-Type, then merges any extras. The pattern of a pure
+      header-builder combined with a Session that calls update_headers once
+      is the foundation of every API client class you will write. Centralise
+      auth here, never scatter it across individual call sites.
+
+  - type: exercise
+    heading: "Exercise 2: build_headers"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement build_headers(api_key, extra)
+      that returns a dict with Authorization: Bearer <api_key> and
+      Content-Type: application/json. If extra is provided, merge it in.
+    hint: >
+      headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': ...}
+      then if extra: headers.update(extra) then return headers.
+    narration: >
+      Exercise 2 is a pure-function exercise — no network calls, no Ollama.
+      The check harness verifies the Authorization value starts with 'Bearer '
+      and contains the key, that Content-Type is application/json, and that
+      extra headers are merged correctly without overwriting the auth header.
+      Five checks, all deterministic. This is the easiest exercise of the day
+      but the most important for code quality — centralising headers prevents
+      a whole class of auth bugs.
+
+  - type: summary
+    heading: "Auth Patterns: Key Takeaways"
+    bullets:
+      - "Authorization: Bearer <token> — the modern REST API auth standard"
+      - "build_headers as a pure function — centralise, test, reuse"
+      - "requests.Session — set auth once, reuse across many requests"
+      - "session.headers.update() in __init__ — one place to change the token"
+      - "Content-Type: application/json — declare JSON intent on every request"
+      - "Never hard-code API keys in notebooks — use environment variables (Day 32)"
+    narration: >
+      You will touch auth in almost every API integration you build.
+      The pattern is always the same: one function to build headers, one Session
+      to carry them. Day 32 will add the secret hygiene layer — reading keys
+      from environment variables instead of hard-coding them. For now, the
+      'demo' placeholder in PostsAPI gets you working locally without any
+      real credentials.
