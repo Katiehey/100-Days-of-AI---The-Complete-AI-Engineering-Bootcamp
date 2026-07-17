@@ -1,0 +1,131 @@
+day: "023"
+lesson: "01"
+title: "Web Scraping and BeautifulSoup"
+
+slides:
+
+  - type: title
+    heading: "Web Scraping Fundamentals"
+    subheading: "Turn any web page into structured data"
+    narration: >
+      Day 23 is about web scraping — the art of extracting structured data
+      from HTML pages that were built for humans to read. You already know
+      requests.get from Day 22. Today you add BeautifulSoup, which turns raw
+      HTML into a queryable tree. The combination — fetch with requests,
+      parse with BeautifulSoup — is the foundation of almost every scraper
+      ever written. The project is a book catalog scraper that produces
+      structured data and then asks the LLM to analyse it.
+
+  - type: concept
+    label: "What is scraping"
+    heading: "Web Scraping: APIs Without an API"
+    body: >
+      Most websites don't offer an API. Scraping lets you extract the data
+      they display to users. A scraper makes the same HTTP GET request your
+      browser would, reads the HTML response, and pulls out the parts you care
+      about. BeautifulSoup makes the HTML queryable — like a read-only DOM.
+    bullets:
+      - "Browser: fetches HTML → renders it visually for humans"
+      - "Scraper: fetches HTML → parses it programmatically for data"
+      - "Same request, different consumer — the server sees no difference"
+      - "When an API exists, prefer it — scraping is a fallback for data-only sites"
+      - "Always check robots.txt and Terms of Service before scraping"
+    narration: >
+      The web is the world's largest database, and most of it has no formal
+      API. Price comparison sites, real estate aggregators, research datasets,
+      monitoring tools — all of these are built on scraping. The ethical
+      line is clear: scrape publicly available data at a respectful rate,
+      obey robots.txt, do not circumvent authentication, and do not republish
+      content that is not yours to share. Books.toscrape.com is built for
+      scraping practice and has no such restrictions.
+
+  - type: how_it_works
+    label: "BeautifulSoup"
+    heading: "How BeautifulSoup Parses HTML"
+    body: >
+      BeautifulSoup takes an HTML string and a parser name and builds a
+      navigable tree of Tag objects. You query the tree with find(),
+      find_all(), and select(). Each Tag has a get_text() method for its
+      text content and a get() method for its attributes.
+    bullets:
+      - "from bs4 import BeautifulSoup — the import (package: beautifulsoup4)"
+      - "BeautifulSoup(html_string, 'html.parser') — parse with stdlib parser"
+      - "soup.find('tag') — first matching element, or None"
+      - "soup.find_all('tag') — all matching elements as a list"
+      - "tag.get_text(strip=True) — inner text, whitespace stripped"
+      - "tag.get('attr', default) — attribute value, with fallback"
+    narration: >
+      html.parser is Python's built-in HTML parser — no extra install needed.
+      lxml is faster and more forgiving of malformed HTML, but it requires a
+      C library install. For this course, html.parser is sufficient. The parser
+      name is the second argument to BeautifulSoup — always pass it explicitly
+      or you get a warning. find() returns a Tag object or None — always check
+      before calling methods on the result. find_all() always returns a list
+      (possibly empty) — never None, so no None check needed.
+
+  - type: code
+    label: "parse_html"
+    heading: "parse_html — Your BeautifulSoup Entry Point"
+    code: |
+      from bs4 import BeautifulSoup
+
+      def parse_html(html_string: str) -> BeautifulSoup:
+          """Parse HTML and return a queryable BeautifulSoup object."""
+          return BeautifulSoup(html_string, "html.parser")
+
+      # Example
+      html = """
+      <html>
+        <head><title>Books</title></head>
+        <body>
+          <h1>Top Picks</h1>
+          <p class="price">£9.99</p>
+          <a href="/books/1">Learn Python</a>
+        </body>
+      </html>
+      """
+      soup = parse_html(html)
+      print(soup.find("h1").get_text(strip=True))    # Top Picks
+      print(soup.find("p").get("class"))             # ['price']
+      print(soup.find("a").get("href"))              # /books/1
+    narration: >
+      parse_html is a one-liner wrapper but it matters: it fixes the parser
+      to html.parser so every notebook in the day uses the same backend,
+      and it gives you a clean function to mock in tests. The three-line
+      example shows the three most common operations: find a tag, get its
+      text, get its attribute. get("class") returns a list because HTML
+      elements can have multiple classes — keep that in mind when you
+      compare class values.
+
+  - type: exercise
+    heading: "Exercise 1: parse_html"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement parse_html(html_string)
+      that returns a BeautifulSoup object using html.parser. Verify with
+      find() and find_all() calls on a sample HTML page.
+    hint: >
+      return BeautifulSoup(html_string, "html.parser"). That is the entire
+      implementation — the exercise checks that you can then use find() and
+      find_all() on the result.
+    narration: >
+      Exercise 1 is intentionally minimal — one line of code that you prove
+      you understand by using the result correctly. The checks call find("h1"),
+      find("title").get_text(), and find_all("p") on your soup object. Once
+      you see all five pass you have confirmed that BeautifulSoup is installed
+      and working in your environment, and you understand the basic query API.
+
+  - type: summary
+    heading: "BeautifulSoup: Key Takeaways"
+    bullets:
+      - "from bs4 import BeautifulSoup — package beautifulsoup4, parser html.parser"
+      - "BeautifulSoup(html, 'html.parser') — always pass the parser explicitly"
+      - "find('tag') → Tag or None — check before using"
+      - "find_all('tag') → list (possibly empty) — never None"
+      - "get_text(strip=True) — inner text with leading/trailing whitespace removed"
+      - "get('attr', default) — attribute value with safe fallback"
+    narration: >
+      BeautifulSoup's simplicity is its strength. Four methods cover 90% of
+      scraping: find, find_all, select, and get_text. The remaining 10% is
+      attribute access and navigation (parent, children, next_sibling) which
+      you'll encounter organically as you build more scrapers. For today,
+      master these four and you can extract data from any page.

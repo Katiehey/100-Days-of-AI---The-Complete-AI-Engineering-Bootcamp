@@ -1,0 +1,138 @@
+day: "023"
+lesson: "02"
+title: "Links, Text, and Attributes"
+
+slides:
+
+  - type: title
+    heading: "Navigating the HTML Tree"
+    subheading: "find_all, href, get_text, and attribute access"
+    narration: >
+      Lesson 2 goes one level deeper into BeautifulSoup — extracting links,
+      reading attributes, and getting clean text from elements. These are the
+      three operations every scraper uses on almost every page. You build
+      find_all_links, which collects all hyperlinks from a soup object into
+      a structured list — the foundation of any web crawler.
+
+  - type: concept
+    label: "find_all patterns"
+    heading: "find_all — Collecting Many Elements"
+    body: >
+      `find_all('a')` returns every anchor tag. `find_all('a', href=True)`
+      returns only anchors that have an href attribute — skipping empty anchors
+      used as section markers. The result is always a list, so you can iterate
+      over it safely with a for loop even if the page has zero matching tags.
+    bullets:
+      - "find_all('a') — all anchor tags (including those without href)"
+      - "find_all('a', href=True) — only anchors with a non-empty href"
+      - "find_all('p', class_='price') — elements with a specific class"
+      - "Note: class_ with underscore (class is a Python reserved word)"
+      - "Result is always a list — iterate directly, no None check needed"
+    narration: >
+      The href=True filter is the most important pattern in link extraction.
+      HTML pages often have anchor tags used as section anchors, navigation
+      targets, or JavaScript hooks — none of which have real hrefs. Passing
+      href=True to find_all filters them out so you only get links you can
+      actually follow. The same pattern works for any attribute: passing
+      an attribute name as a keyword argument with value True means
+      'has this attribute', while passing a string value means 'equals this
+      specific value'. For class attributes you must write class_ because
+      class is a reserved word in Python.
+
+  - type: how_it_works
+    label: "Attribute access"
+    heading: "Reading Tag Attributes"
+    body: >
+      A Tag object behaves like a dict for its attributes. `tag['href']` gives
+      the href value (raises KeyError if absent). `tag.get('href', '')` gives
+      the value with a safe fallback — use this when the attribute might not
+      exist. `tag.get('class')` returns a list (multi-valued) or None.
+    bullets:
+      - "tag['href'] — direct access, raises KeyError if missing"
+      - "tag.get('href', default) — safe access with fallback"
+      - "tag.get_text(strip=True) — all inner text, whitespace stripped"
+      - "tag.get_text(separator=' ') — join text fragments with a separator"
+      - "tag.get('class') → list or None (class is multi-valued in HTML)"
+      - "tag.get('class', [])[1] — safely get second class (e.g. 'Three' from rating)"
+    narration: >
+      The distinction between tag['attr'] and tag.get('attr') is the same
+      as with Python dicts — direct access raises on missing keys, .get
+      returns a default. Always use .get when the attribute is optional.
+      get_text is the workhorse for text content: it collects all text nodes
+      inside a tag and its descendants, joins them, and optionally strips
+      leading/trailing whitespace. For most scraping tasks, strip=True is
+      what you want. The separator parameter is useful when a tag contains
+      multiple text nodes (like a paragraph with nested spans) and you want
+      spaces between them rather than concatenation.
+
+  - type: code
+    label: "find_all_links"
+    heading: "find_all_links — Extract All Hyperlinks"
+    code: |
+      from bs4 import BeautifulSoup
+
+      def find_all_links(soup: BeautifulSoup) -> list[dict]:
+          """Extract all <a href=...> links as {text, href} dicts."""
+          links = []
+          for a in soup.find_all("a", href=True):
+              links.append({
+                  "text": a.get_text(strip=True),
+                  "href": a["href"],
+              })
+          return links
+
+      # Example
+      html = '<ul><li><a href="/books/1">Python</a></li>' \
+             '<li><a>No Link</a></li>' \
+             '<li><a href="/books/2">ML</a></li></ul>'
+      soup = BeautifulSoup(html, "html.parser")
+      links = find_all_links(soup)
+      # [{'text': 'Python', 'href': '/books/1'},
+      #  {'text': 'ML',     'href': '/books/2'}]
+      print(len(links))  # 2 — the anchor without href is skipped
+    narration: >
+      find_all_links illustrates the standard result dict pattern used
+      throughout the course: each item is a dict with named keys, not an
+      unnamed tuple or raw Tag. This makes the results easy to pass to
+      csv.DictWriter (Day 21), json.dumps, or the LLM. The anchor without
+      href is silently skipped by href=True — you never need to check
+      for missing href inside the loop. Note that href values from
+      find_all_links may be relative paths like /books/1. You would need
+      urllib.parse.urljoin to convert them to absolute URLs for following
+      — that is a Day 23 bonus challenge, not required today.
+
+  - type: exercise
+    heading: "Exercise 2: find_all_links"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement find_all_links(soup) that
+      returns a list of {text, href} dicts for every <a href=...> tag.
+      The sample HTML has 4 anchor tags — only 3 have hrefs.
+    hint: >
+      for a in soup.find_all('a', href=True): links.append({'text':
+      a.get_text(strip=True), 'href': a['href']}). The href=True argument
+      automatically filters out anchor-tags without an href.
+    narration: >
+      The check harness parses the same HTML_SAMPLE from Exercise 1 and
+      verifies three things: that you return a list of exactly 3 items (not 4),
+      that each item has both 'text' and 'href' keys, and that the /books/python
+      link has text 'Learn Python'. These three conditions confirm that your
+      find_all('a', href=True) filter is working correctly, that you extracted
+      both parts of each link, and that you are using get_text to clean the
+      anchor text.
+
+  - type: summary
+    heading: "Links and Attributes: Key Takeaways"
+    bullets:
+      - "find_all('a', href=True) — skip anchor-without-href automatically"
+      - "tag['href'] → direct attribute access; tag.get('href', '') → safe access"
+      - "get_text(strip=True) — inner text with whitespace stripped"
+      - "class_ (not class) when filtering by CSS class in find_all"
+      - "tag.get('class', [])[N] — safely access Nth class from multi-valued class list"
+      - "Result dicts ({text, href}) compose with csv.DictWriter, json.dumps, and LLM prompts"
+    narration: >
+      The find_all + attribute access pattern covers the majority of real-world
+      scraping. You will use it to extract prices, ratings, images, dates,
+      and any other structured data that HTML pages encode in attributes.
+      Tomorrow's lesson on CSS selectors gives you a more expressive way to
+      target elements — but find_all with attribute filters handles the cases
+      where CSS selectors get verbose.

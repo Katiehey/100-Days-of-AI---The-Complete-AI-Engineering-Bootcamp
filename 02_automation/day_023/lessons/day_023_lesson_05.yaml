@@ -1,0 +1,152 @@
+day: "023"
+lesson: "05"
+title: "AI-Powered Extraction from Scraped Pages"
+
+slides:
+
+  - type: title
+    heading: "AI + Scraping: Skip the Selectors"
+    subheading: "Strip HTML to text, then let the LLM extract"
+    narration: >
+      Lesson 5 adds the AI layer to scraping. CSS selectors are fast and
+      precise — but they break when the site redesigns. An LLM-based extractor
+      strips tags to plain text and lets the model answer questions about the
+      content in plain English. It is slower and uses more tokens, but it
+      adapts to any page layout without a single selector change. You build
+      ai_extract_from_page, which is today's AI complement to extract_by_selector.
+
+  - type: concept
+    label: "Selector vs LLM extraction"
+    heading: "Two Extraction Strategies"
+    body: >
+      CSS selector extraction is fast, precise, and fragile to HTML changes.
+      LLM extraction is slow, flexible, and robust to layout changes. They
+      complement each other: use selectors for high-volume structured data on
+      stable pages; use LLM extraction for unstructured content or one-off pages
+      where writing selectors is not worth the investment.
+    bullets:
+      - "Selectors: millisecond-fast, zero cost, brittle to HTML changes"
+      - "LLM: seconds per page, one model call, handles any layout"
+      - "Use selectors when: stable page structure, high volume, defined fields"
+      - "Use LLM when: variable layout, one-off page, open-ended questions"
+      - "Hybrid: selectors for the page skeleton, LLM for messy body text"
+    narration: >
+      The hybrid approach is the most practical in production. Selectors
+      reliably extract the structural data — article containers, prices, dates,
+      links — because those are repeated patterns the site's CSS targets too.
+      The body text of an article, on the other hand, may have inconsistent
+      structure: blockquotes, nested lists, embedded tables. You strip it to
+      plain text and ask the LLM to summarise or extract from it. Tomorrow's
+      Day 24 (AI-Powered Scraping) takes this hybrid approach to its logical
+      conclusion and builds a system that uses LLMs to extract structured
+      JSON from any page, replacing ad-hoc selector logic entirely.
+
+  - type: how_it_works
+    label: "Strip then ask"
+    heading: "The Strip-Then-Ask Pattern"
+    body: >
+      Step 1: Parse the HTML with BeautifulSoup. Step 2: Remove script and
+      style tags with decompose() — they add noise without meaning. Step 3:
+      Call get_text() to collapse the tree to plain text. Step 4: Cap at
+      3000 characters. Step 5: Ask the LLM a question about the text.
+    bullets:
+      - "soup(['script', 'style']) — shorthand for find_all(['script', 'style'])"
+      - "tag.decompose() — removes tag and all its contents from the tree in-place"
+      - "get_text(separator='\\n', strip=True) — join text nodes with newlines"
+      - "text[:3000] — hard cap to stay within llama3.2's context window"
+      - "System prompt: 'web page analyst, answer concisely'"
+      - "User prompt: page text + question"
+    narration: >
+      decompose() modifies the soup in place, which is why you call it before
+      get_text(). The script and style tags can be enormous — a single inline
+      JavaScript block can be tens of thousands of characters. Removing them
+      first means your 3000-character cap captures actual content rather than
+      JavaScript boilerplate. The separator='\n' argument to get_text() puts
+      each block-level element on its own line, which helps the model
+      understand structure — paragraph text stays together, headings are
+      separated. This is more readable than separator=' ' which runs everything
+      into a single wall of text.
+
+  - type: code
+    label: "ai_extract_from_page"
+    heading: "ai_extract_from_page — LLM Analysis of Any Page"
+    code: |
+      import ollama
+      from bs4 import BeautifulSoup
+
+      def ai_extract_from_page(
+          html_content: str,
+          question: str,
+          model: str = "llama3.2",
+      ) -> str:
+          """Strip HTML tags and ask the LLM a question about the content."""
+          soup = BeautifulSoup(html_content, "html.parser")
+          for tag in soup(["script", "style"]):
+              tag.decompose()
+          text = soup.get_text(separator="\n", strip=True)
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": "You are a web page analyst. "
+                                 "Answer questions about the page content concisely.",
+                  },
+                  {
+                      "role": "user",
+                      "content": f"Page content:\n{text[:3000]}\n\nQuestion: {question}",
+                  },
+              ],
+          )
+          return response["message"]["content"]
+
+      # Usage with scraped HTML
+      # html = fetch_and_parse("https://example.com").prettify()
+      # answer = ai_extract_from_page(html, "What is the main topic?")
+    narration: >
+      The function does not use format='json' — the answer is free-form text,
+      which is correct for open questions. If you needed structured output
+      (say, a list of extracted product names as JSON), you would add
+      format='json' and describe the expected keys in the system prompt —
+      exactly the pattern from Day 4 and Day 21's ai_tag_file. For today the
+      goal is a plain-English answer, which the model produces reliably without
+      JSON constraints.
+
+  - type: exercise
+    heading: "Exercise 5: ai_extract_from_page"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_extract_from_page(html_content,
+      question, model) that strips script/style tags, calls get_text(), caps at 3000
+      chars, and asks llama3.2 the question. Returns the answer as a string.
+    hint: >
+      soup(['script', 'style']) returns a list of those tags. Call
+      tag.decompose() on each. Then soup.get_text(separator='\\n', strip=True)
+      gives clean text. Pass text[:3000] in the user message.
+    narration: >
+      The check harness passes in the HTML_SAMPLE (the Book Reviews page from
+      exercises 1-3) and asks 'What is the main topic of this page?' — a
+      question the LLM can answer from the h1, h2, and p text after stripping.
+      One LLM call in Check 2, another in Check 5 for the empty HTML test.
+      The model must return a non-empty string of more than 10 characters for
+      checks 3 and 4 to pass. The empty HTML check verifies your function
+      does not raise when there is no text content — the LLM responds with
+      something about there being no content, which is a valid string.
+
+  - type: summary
+    heading: "AI Extraction: Key Takeaways"
+    bullets:
+      - "soup(['script', 'style']) — shorthand for find_all of multiple tags"
+      - "decompose() — removes tag from tree in-place; call before get_text()"
+      - "get_text(separator='\\n', strip=True) — clean, structured plain text"
+      - "text[:3000] — cap for context window safety with llama3.2"
+      - "Free-form answer (no format='json') for open-ended questions"
+      - "Hybrid: selectors for structure, LLM for unstructured body text"
+    narration: >
+      You now have the full Day 23 toolkit: parse_html for parsing, find_all_links
+      for link extraction, extract_by_selector for precise CSS targeting,
+      fetch_and_parse for network access, and ai_extract_from_page for
+      layout-agnostic AI analysis. The project wires all five into BookScraper —
+      a class that fetches books.toscrape.com, extracts structured book data
+      with CSS selectors, and asks the LLM to analyse the catalog. Day 24
+      takes this further: instead of open-ended questions, the LLM will
+      extract structured JSON fields from any page — no selectors needed.

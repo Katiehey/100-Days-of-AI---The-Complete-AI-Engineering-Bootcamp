@@ -1,0 +1,129 @@
+day: "023"
+lesson: "04"
+title: "Fetching Pages and Ethics"
+
+slides:
+
+  - type: title
+    heading: "Fetching Pages Responsibly"
+    subheading: "response.text, User-Agent, robots.txt, and rate limits"
+    narration: >
+      Lesson 4 connects the network layer to the parser. fetch_and_parse
+      adds one thing to the requests.get pattern from Day 22: instead of
+      calling response.json(), you call response.text and pass the HTML
+      string to BeautifulSoup. The lesson also covers the ethics side —
+      robots.txt, User-Agent, rate limiting — which separate a responsible
+      scraper from one that gets your IP banned.
+
+  - type: concept
+    label: "response.text"
+    heading: "response.text vs response.json()"
+    body: >
+      Day 22 used response.json() to parse API responses. Web pages return
+      HTML, not JSON. `response.text` gives you the decoded HTML string.
+      Pass it directly to BeautifulSoup. One line instead of two parsers.
+    bullets:
+      - "response.json() — for API endpoints that return JSON"
+      - "response.text — for HTML pages (decoded from response.encoding)"
+      - "response.content — raw bytes (use for images, PDFs, binary files)"
+      - "response.encoding — auto-detected from HTTP headers or HTML meta"
+      - "raise_for_status() still comes first — same discipline as Day 22"
+    narration: >
+      The encoding detection in response.text is one of requests' best
+      features. It reads the Content-Type response header, looks for a charset
+      parameter, and decodes the bytes accordingly. For most modern sites this
+      is UTF-8. If the site returns Latin-1 or Shift-JIS, requests handles
+      it automatically. You only need response.content (raw bytes) when you are
+      downloading binary files like images or PDFs. For HTML, always use
+      response.text.
+
+  - type: how_it_works
+    label: "Ethics and robots.txt"
+    heading: "Scraping Ethics: robots.txt and Rate Limits"
+    body: >
+      robots.txt is a file at the root of every domain that lists which paths
+      scrapers are allowed or forbidden to crawl. It is a convention, not a
+      technical barrier — but ignoring it is legally and ethically risky.
+      Rate limiting means adding delays between requests so you do not
+      overload the server.
+    bullets:
+      - "robots.txt at https://example.com/robots.txt — check before scraping"
+      - "Disallow: /private/ — do not scrape paths under /private/"
+      - "Crawl-delay: 2 — wait at least 2 seconds between requests"
+      - "User-Agent header — identify yourself; some sites block 'python-requests'"
+      - "time.sleep(1) between requests — one request per second as a safe default"
+      - "Never scrape behind auth without permission; never publish scraped content"
+    narration: >
+      Books.toscrape.com's robots.txt explicitly permits all scrapers — it is
+      a practice site. For real sites, the rule is: if you are unsure whether
+      scraping is allowed, either check the Terms of Service or do not do it.
+      Setting a User-Agent header that identifies your bot (and contact info)
+      is courteous and often required. The default 'python-requests/x.x.x'
+      User-Agent is frequently blocked by bot-detection systems — setting
+      'Mozilla/5.0 (educational scraper)' passes most basic bot checks while
+      still being honest about what you are doing.
+
+  - type: code
+    label: "fetch_and_parse"
+    heading: "fetch_and_parse — Fetch HTML and Parse It"
+    code: |
+      import requests
+      from bs4 import BeautifulSoup
+
+      def fetch_and_parse(url: str, headers: dict | None = None) -> BeautifulSoup:
+          """Fetch a URL and return the HTML parsed as BeautifulSoup."""
+          response = requests.get(url, headers=headers, timeout=10)
+          response.raise_for_status()
+          return BeautifulSoup(response.text, "html.parser")
+
+      # With a User-Agent header to avoid basic bot-detection
+      HEADERS = {"User-Agent": "Mozilla/5.0 (educational scraper)"}
+
+      soup = fetch_and_parse("https://books.toscrape.com", headers=HEADERS)
+      books = soup.select("article.product_pod")
+      print(f"Found {len(books)} books")  # 20
+    narration: >
+      The pattern is identical to Day 22's get_json except the last line
+      calls BeautifulSoup instead of response.json(). That is the only
+      difference between scraping and API consumption at the network layer.
+      The User-Agent header is optional for books.toscrape.com but should be
+      a habit — set it in a Session.headers.update() call in your BookScraper
+      __init__ so every request carries it automatically, the same pattern as
+      the auth headers in Day 22's PostsAPI.
+
+  - type: exercise
+    heading: "Exercise 4: fetch_and_parse"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement fetch_and_parse(url, headers)
+      that GETs the URL, calls raise_for_status(), and returns
+      BeautifulSoup(response.text, 'html.parser'). Test against
+      books.toscrape.com.
+    hint: >
+      response = requests.get(url, headers=headers, timeout=10);
+      response.raise_for_status();
+      return BeautifulSoup(response.text, 'html.parser').
+      Use 'html.parser' not 'lxml' to avoid an extra install.
+    narration: >
+      Exercise 4 is the first exercise with a live network call. The check
+      harness fetches books.toscrape.com and verifies that you return a
+      BeautifulSoup, that the page has a title element, and that it contains
+      article.product_pod elements (the book cards). A fifth check verifies
+      that your function raises when pointed at an unreachable port — confirming
+      that raise_for_status() and the timeout are both in place. One network
+      call total in the checks.
+
+  - type: summary
+    heading: "Fetching Pages: Key Takeaways"
+    bullets:
+      - "response.text — HTML string (auto-decoded); response.json() — for APIs only"
+      - "BeautifulSoup(response.text, 'html.parser') — the fetch-and-parse pattern"
+      - "User-Agent header — set it; default python-requests is often blocked"
+      - "robots.txt — check it; Crawl-delay — respect it"
+      - "time.sleep() between requests — one per second is a safe default"
+      - "Never scrape behind auth without permission; prefer an API if one exists"
+    narration: >
+      fetch_and_parse is the only new pattern in this lesson. Everything
+      else — raise_for_status, timeout, Session, headers — you already know
+      from Day 22. The ethics layer is not code; it is discipline. Apply it
+      every time you point a scraper at a new site. With BookScraper you apply
+      these patterns to a site built for exactly this kind of learning.

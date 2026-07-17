@@ -1,0 +1,138 @@
+day: "023"
+lesson: "03"
+title: "CSS Selectors"
+
+slides:
+
+  - type: title
+    heading: "CSS Selectors: Target Any Element"
+    subheading: "soup.select — the most expressive scraping tool"
+    narration: >
+      Lesson 3 introduces soup.select — BeautifulSoup's CSS selector engine.
+      CSS selectors are the same patterns you use in browser developer tools
+      to inspect elements. They are more concise and expressive than chained
+      find_all calls: a single selector like 'article.product_pod h3 a' targets
+      exactly the book title links inside book cards, with no extra filtering code.
+
+  - type: concept
+    label: "CSS selectors"
+    heading: "Why CSS Selectors Beat Nested find_all"
+    body: >
+      A CSS selector expresses element targeting in a single string. It handles
+      tag type, class, ID, attribute presence, attribute value, parent-child
+      relationships, and descendant relationships — all at once. soup.select()
+      always returns a list (never None), making it safe to iterate without
+      checking.
+    bullets:
+      - "'h2' — all h2 elements"
+      - "'.price_color' — elements with class price_color"
+      - "'#main' — element with id='main'"
+      - "'article.product_pod h3 a' — all <a> inside <h3> inside article.product_pod"
+      - "'p[class]' — p elements that have a class attribute"
+      - "soup.select() → list; soup.select_one() → first match or None"
+    narration: >
+      The selector 'article.product_pod h3 a' says: find any a tag that is
+      a descendant of an h3 that is a descendant of an article element that
+      has the class product_pod. In nested find_all terms that would be three
+      lines of code. In CSS selector terms it is one string. Browsers invented
+      CSS selectors for styling — scraping inherits this precision for free.
+      select_one() is the equivalent of find() — returns the first match or
+      None. select() returns all matches as a list — the equivalent of find_all().
+      Use select when you want many results; use select_one inside a loop when
+      you want one field per item.
+
+  - type: how_it_works
+    label: "Common selector patterns"
+    heading: "Selector Patterns You'll Use Every Day"
+    body: >
+      The four most-used patterns: tag selector (targets by element name),
+      class selector (dot prefix), ID selector (hash prefix), and descendant
+      selector (space between two selectors). Combined, they cover everything
+      on well-structured pages. Attribute selectors handle the rest.
+    bullets:
+      - "'h1, h2, h3' — any of these tags (comma = OR)"
+      - "'.card .title' — .title that is inside .card (descendant)"
+      - "'.card > .title' — direct child only (> means immediate child)"
+      - "'a[href]' — a tags that have an href (same as href=True in find_all)"
+      - "'a[href^=\"http\"]' — a tags whose href starts with http"
+      - "'li:nth-child(2)' — second li in its parent (rare in scraping)"
+    narration: >
+      You rarely need the more exotic selectors like nth-child in scraping.
+      The three-selector combination of tag, class, and descendant covers 95%
+      of real pages. The key mental model is: write the selector in your
+      browser's inspector (right-click → Inspect → copy selector), paste it
+      into soup.select(), and you get the matching elements immediately.
+      The browser inspector's 'copy selector' gives you a working selector
+      without you having to read the HTML manually.
+
+  - type: code
+    label: "extract_by_selector"
+    heading: "extract_by_selector — Universal Text Extractor"
+    code: |
+      from bs4 import BeautifulSoup
+
+      def extract_by_selector(soup: BeautifulSoup, css_selector: str) -> list[str]:
+          """Extract text from all elements matching a CSS selector."""
+          return [
+              el.get_text(strip=True)
+              for el in soup.select(css_selector)
+              if el.get_text(strip=True)
+          ]
+
+      # On a book page: extract all prices
+      html = """
+      <article class="product_pod">
+        <p class="price_color">£9.99</p>
+        <p class="star-rating Three"></p>
+        <h3><a href="/books/1" title="A Light in the Attic">A Light...</a></h3>
+      </article>
+      """
+      soup = BeautifulSoup(html, "html.parser")
+      prices  = extract_by_selector(soup, ".price_color")  # ['£9.99']
+      ratings = extract_by_selector(soup, ".star-rating")  # [''] → filtered out
+      titles  = extract_by_selector(soup, "h3 a")          # ['A Light...']
+    narration: >
+      The list comprehension filters out empty strings because some elements
+      contain only whitespace or nested tags with no direct text. Without the
+      filter you would get empty strings cluttering your results. Notice the
+      '.star-rating' case: the rating element has no text — only a class name
+      that encodes the rating value. For ratings you use tag.get('class')[1]
+      to extract the second class ('Three') rather than get_text(). This is
+      why extract_by_selector is a text extractor — for attribute values you
+      need the raw Tag objects from soup.select() and then call .get() on each.
+
+  - type: exercise
+    heading: "Exercise 3: extract_by_selector"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement extract_by_selector(soup,
+      css_selector) using soup.select() and get_text(strip=True). Filter
+      out empty strings.
+    hint: >
+      return [el.get_text(strip=True) for el in soup.select(css_selector)
+      if el.get_text(strip=True)]. The sample HTML has h2 and .highlight
+      elements to test against.
+    narration: >
+      The check harness uses the same HTML_SAMPLE as exercises 1 and 2.
+      It calls extract_by_selector(soup, 'h2') and expects exactly 2 results —
+      'Fiction' and 'Non-Fiction'. Then it calls extract_by_selector(soup,
+      '.highlight') and expects 2 results. Both checks confirm that tag
+      selectors and class selectors work correctly, and that your empty-string
+      filter is in place. The five checks together take under a second — no
+      LLM, no network.
+
+  - type: summary
+    heading: "CSS Selectors: Key Takeaways"
+    bullets:
+      - "soup.select(selector) → list; soup.select_one(selector) → first or None"
+      - "'tag.class' selects elements with both tag type and class"
+      - "' ' (space) = descendant; '>' = direct child"
+      - "select_one inside a loop per item, select once for all items of a type"
+      - "Filter empty strings with 'if el.get_text(strip=True)' in the comprehension"
+      - "For attribute values (not text), use .get() on the raw Tag from soup.select()"
+    narration: >
+      CSS selectors and find_all are complementary — not competing. Use
+      find_all when you need attribute filtering (href=True, class_='x').
+      Use select when you need structural targeting (descendant, child, combination).
+      The BookScraper project uses select('article.product_pod') for book cards
+      and select_one('h3 a'), select_one('p.price_color') inside each card — the
+      select + select_one pattern is the canonical way to scrape structured lists.
