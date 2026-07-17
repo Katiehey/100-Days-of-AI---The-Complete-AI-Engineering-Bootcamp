@@ -1,0 +1,143 @@
+day: "025"
+lesson: "03"
+title: "Composing and Sending Email"
+
+slides:
+
+  - type: title
+    heading: "Composing Reply Emails"
+    subheading: "EmailMessage, threading headers, and smtplib"
+    narration: >
+      Lesson 3 is about writing email from Python. Composing a reply is more
+      than putting text in a string — the Subject needs a Re: prefix, the
+      In-Reply-To header threads the conversation in the recipient's client,
+      and the From and To must be swapped correctly. We also look at how
+      smtplib sends a finished EmailMessage to a real mail server.
+
+  - type: concept
+    label: "threading headers"
+    heading: "Email Threading — The Hidden Infrastructure"
+    body: >
+      Email clients (Gmail, Outlook, Apple Mail) group messages into threads
+      using two headers: In-Reply-To and References. In-Reply-To contains the
+      Message-ID of the message being replied to. References is a space-separated
+      list of all prior Message-IDs in the thread. Without these headers, your
+      AI reply lands as a new conversation rather than a response — the
+      recipient loses context.
+    bullets:
+      - "Message-ID: <unique-id@domain> — unique identifier for every message"
+      - "In-Reply-To: <msg-id> — the immediate parent message's ID"
+      - "References: <id1> <id2> — full ancestor chain for deep threads"
+      - "Subject prefix: 'Re: ' before the original subject (add only if absent)"
+      - "From ↔ To swap: reply From is your address, reply To is the original From"
+    narration: >
+      The Re: prefix deduplication — 'if not subject.startswith(Re:)' — prevents
+      the subject from accumulating 'Re: Re: Re:' as the thread grows. Gmail
+      strips the extra Re: in display but the raw header is cleaner without them.
+      The References header is optional for a two-message thread; for long threads
+      you would append the original In-Reply-To to the existing References chain.
+      For today's EmailDrafter we only set In-Reply-To, which is sufficient for
+      most clients to thread correctly.
+
+  - type: how_it_works
+    label: "build_reply_email"
+    heading: "build_reply_email — Constructing a Threaded Reply"
+    body: >
+      build_reply_email takes the parsed original Message, the AI-drafted reply
+      body, the from_addr (the replying account), and an optional to_addr override.
+      It creates an EmailMessage, sets Subject with Re: prefix, sets From/To,
+      sets In-Reply-To from the original Message-ID if present, and sets the body
+      via set_content(reply_body).
+    bullets:
+      - "reply = email.message.EmailMessage() — new outbound message"
+      - "subject = 'Re: ' + original if not already prefixed"
+      - "reply['To'] = to_addr or original_msg.get('From', '') — reply-to sender"
+      - "msg_id = original_msg.get('Message-ID') — None if not present"
+      - "if msg_id: reply['In-Reply-To'] = msg_id — thread linking"
+    narration: >
+      original_msg.get('Message-ID') uses the safe .get() accessor which returns
+      None if the header is absent. The conditional set — if msg_id — means we
+      only set In-Reply-To when we have something to set it to. Emails from some
+      legacy systems or mailing lists omit Message-ID; the guard prevents setting
+      In-Reply-To to None, which would produce an invalid header.
+
+  - type: code
+    label: "smtplib sending"
+    heading: "Sending with smtplib — The Full Pattern"
+    code: |
+      import smtplib
+      import email.message
+
+      def build_reply_email(
+          original_msg: email.message.Message,
+          reply_body: str,
+          from_addr: str,
+          to_addr: str | None = None,
+      ) -> email.message.EmailMessage:
+          reply = email.message.EmailMessage()
+          subject = original_msg.get("Subject", "")
+          if not subject.startswith("Re:"):
+              subject = f"Re: {subject}"
+          reply["Subject"] = subject
+          reply["From"] = from_addr
+          reply["To"] = to_addr or original_msg.get("From", "")
+          msg_id = original_msg.get("Message-ID")
+          if msg_id:
+              reply["In-Reply-To"] = msg_id
+          reply.set_content(reply_body)
+          return reply
+
+      # Send via SMTP — NOT run in exercises (needs real credentials)
+      # with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+      #     server.login("you@gmail.com", "your-app-password")
+      #     server.send_message(reply)
+
+      # Outlook / Office 365
+      # with smtplib.SMTP("smtp.office365.com", 587) as server:
+      #     server.starttls()
+      #     server.login("you@outlook.com", "password")
+      #     server.send_message(reply)
+    narration: >
+      SMTP_SSL connects on port 465 with TLS from the start. SMTP on port 587
+      connects without encryption and calls starttls() to upgrade — this is the
+      'STARTTLS' pattern required by Outlook, many corporate servers, and
+      SendGrid. Gmail requires an App Password (not your account password) when
+      two-factor authentication is enabled. App Passwords are created in
+      Google Account → Security → 2-Step Verification → App passwords.
+      Store credentials in environment variables (Day 32); never hardcode them.
+
+  - type: exercise
+    heading: "Exercise 5: build_reply_email"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement build_reply_email(original_msg,
+      reply_body, from_addr, to_addr=None) that constructs a threaded
+      EmailMessage. Subject gets 'Re: ' prefix if not already present.
+      To is to_addr if provided, else original_msg['From']. In-Reply-To is set
+      to original Message-ID if present.
+    hint: >
+      reply = email.message.EmailMessage(). Get subject, prepend 'Re: ' if
+      not subject.startswith('Re:'). Set reply['Subject'], ['From'], ['To'].
+      msg_id = original_msg.get('Message-ID'). if msg_id: reply['In-Reply-To']
+      = msg_id. reply.set_content(reply_body). return reply.
+    narration: >
+      Exercise 5 closes the loop: after parse (Exercise 2), extract body
+      (Exercise 3), and AI draft (Exercise 4), build_reply_email assembles
+      the finished outbound message. The check verifies the Subject prefix,
+      From/To swap, and In-Reply-To against the sample email's Message-ID.
+      With all five functions working, the EmailDrafter project just wires
+      them together as methods.
+
+  - type: summary
+    heading: "Day 25 Lesson 3: Key Takeaways"
+    bullets:
+      - "Threading: In-Reply-To = original Message-ID threads the conversation"
+      - "Re: prefix: only add if subject doesn't already start with 'Re:'"
+      - "From ↔ To swap: reply['To'] = original_msg.get('From', '')"
+      - "email.message.EmailMessage() + set_content(body) — compose outbound message"
+      - "smtplib.SMTP_SSL (port 465) or SMTP + starttls (port 587) — send the message"
+    narration: >
+      Lesson 3 covered composing and sending. The threading headers — In-Reply-To
+      and the Re: subject prefix — are the small but critical details that make
+      your AI reply land in the correct thread rather than as a new message.
+      Lesson 4 shows how to add AI into this pipeline: the LLM drafts the reply
+      body, and your code handles the email plumbing around it.

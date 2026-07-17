@@ -1,0 +1,141 @@
+day: "025"
+lesson: "01"
+title: "Email Protocols and the Python email Module"
+
+slides:
+
+  - type: title
+    heading: "Email Automation"
+    subheading: "SMTP, IMAP, and Python's stdlib email toolkit"
+    narration: >
+      Day 25 is email automation — reading and sending email from code.
+      We start with the big picture: the two protocols that move every email
+      on earth, and the Python standard-library modules that speak them.
+      No paid API, no third-party service — Python ships everything you need
+      to build a complete email pipeline out of the box.
+
+  - type: concept
+    label: "SMTP vs IMAP"
+    heading: "Two Protocols, Two Jobs"
+    body: >
+      Every email in your inbox traveled via two distinct protocols.
+      SMTP (Simple Mail Transfer Protocol) is the outbound channel — it
+      moves email from sender to server to recipient server. IMAP (Internet
+      Message Access Protocol) is the inbound channel — it lets your client
+      read email from the server without deleting it. POP3 is the older
+      inbound protocol that does delete; IMAP is the modern standard.
+    bullets:
+      - "SMTP: port 587 (STARTTLS) or 465 (SSL/TLS) — sending only"
+      - "IMAP: port 993 (SSL/TLS) — reading without removal"
+      - "POP3: port 995 — reading with deletion (legacy, avoid)"
+      - "Python stdlib: smtplib for SMTP, imaplib for IMAP"
+      - "Both modules ship with Python — zero extra installs for basic email"
+    narration: >
+      The protocol split is the first thing to internalise. When your automation
+      crashes because you tried to read email via smtplib, the cause is always
+      this confusion. SMTP is write-only; IMAP is read-only. You need both for a
+      full email pipeline — IMAP to fetch incoming messages, your AI to process
+      them, SMTP to send replies. Today's exercises focus on the email module
+      and AI drafting, since SMTP and IMAP require live credentials.
+
+  - type: how_it_works
+    label: "email module"
+    heading: "Python's email Module — The Object Model"
+    body: >
+      Every email is an RFC 2822 message: a header block followed by a blank
+      line followed by the body. Python's email module turns this flat text
+      into a Message object with keyed header access and a payload API.
+      The modern entry point is email.message.EmailMessage; the legacy class
+      is email.message.Message — both are common in production code.
+    bullets:
+      - "email.message_from_string(raw) → Message — parse RFC 2822 text"
+      - "email.message_from_bytes(raw) → Message — parse bytes from IMAP fetch"
+      - "msg['From'], msg['Subject'], msg['To'] — header access by name"
+      - "msg.get_payload() → str (unencoded) or msg.get_payload(decode=True) → bytes"
+      - "email.message.EmailMessage() — create a new message; msg.set_content(body)"
+    narration: >
+      The header API feels like a dict but the underlying model is a list of
+      key-value pairs — RFC 2822 allows duplicate headers. msg.get('X-Header')
+      returns the first value; msg.get_all('X-Header') returns all of them.
+      For the common headers (From, To, Subject, Date) duplicates are rare and
+      the dict-style access is fine. get_payload(decode=True) decodes transfer
+      encoding (base64 or quoted-printable) and returns bytes; get_payload()
+      returns the raw string if there is no transfer encoding. You decode bytes
+      using the charset from get_content_charset() or defaulting to utf-8.
+
+  - type: code
+    label: "parse an email"
+    heading: "Parsing a Raw Email"
+    code: |
+      import email
+
+      RAW = """\
+      From: alice@example.com
+      To: bob@example.com
+      Subject: Project Kickoff Meeting
+      Message-ID: <20260717090000.alice@example.com>
+      Date: Mon, 17 Jul 2026 09:00:00 +0000
+      Content-Type: text/plain; charset=utf-8
+
+      Hi Bob,
+
+      Can we schedule a kickoff meeting for the new project?
+      I am available Tuesday or Wednesday afternoon.
+
+      Best,
+      Alice
+      """
+
+      msg = email.message_from_string(RAW)
+
+      print(msg['From'])     # alice@example.com
+      print(msg['Subject'])  # Project Kickoff Meeting
+
+      # Body extraction
+      payload = msg.get_payload(decode=True)  # bytes or None
+      if payload:
+          charset = msg.get_content_charset() or "utf-8"
+          body = payload.decode(charset)
+      else:
+          body = str(msg.get_payload() or "")  # fallback for unencoded text
+
+      print(body[:40])  # Hi Bob, ...
+    narration: >
+      The two-step body extraction pattern — try get_payload(decode=True)
+      first, fall back to get_payload() as a string — is the defensive pattern
+      used throughout today's exercises. get_payload(decode=True) returns None
+      when there is no Content-Transfer-Encoding header, which is normal for
+      plain-text emails composed without encoding. The fallback str(get_payload()
+      or "") ensures you always get a string even in that case.
+
+  - type: exercise
+    heading: "Exercise 1: build_email_message"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement build_email_message(to, subject,
+      body, from_addr='sender@example.com') that creates and returns an
+      email.message.EmailMessage with the given From, To, and Subject headers
+      and body text set via set_content(body).
+    hint: >
+      msg = email.message.EmailMessage(). Set msg['From'], msg['To'],
+      msg['Subject']. Call msg.set_content(body). Return msg.
+    narration: >
+      EmailMessage.set_content(body) automatically sets Content-Type to
+      text/plain and handles encoding. It is the new-style API introduced
+      in Python 3.6 and the recommended way to compose outgoing messages.
+      The older approach — MIMEText(body) — is still valid but requires
+      manual header setting and is harder to extend to HTML or attachments.
+
+  - type: summary
+    heading: "Day 25 Lesson 1: Key Takeaways"
+    bullets:
+      - "SMTP sends, IMAP reads — two protocols, two Python modules (smtplib, imaplib)"
+      - "email.message_from_string(raw) — parse RFC 2822 text into a Message object"
+      - "msg['Header'] — dict-style read access for any email header"
+      - "get_payload(decode=True) → bytes | None; fall back to get_payload() → str"
+      - "email.message.EmailMessage() + set_content(body) — compose new messages"
+    narration: >
+      Lesson 1 covered the plumbing. SMTP is outbound, IMAP is inbound, and
+      Python's email module turns raw RFC 2822 text into structured objects.
+      Lesson 2 goes deeper on parsing: multipart handling, body extraction
+      for both simple and MIME emails, and the defensive pattern that works
+      across all email types without crashing.

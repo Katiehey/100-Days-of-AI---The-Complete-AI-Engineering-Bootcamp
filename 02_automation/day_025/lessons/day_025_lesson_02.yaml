@@ -1,0 +1,153 @@
+day: "025"
+lesson: "02"
+title: "Parsing Emails in Python"
+
+slides:
+
+  - type: title
+    heading: "Parsing Real Emails"
+    subheading: "Single-part, multipart, and robust body extraction"
+    narration: >
+      Lesson 2 is all about parsing. Real emails arrive in every possible format:
+      plain text, HTML, multipart/alternative with both, multipart/mixed with
+      attachments. parse_email_string and get_email_body are the two workhorses
+      you will use before any AI call — clean input is the prerequisite for
+      clean AI output.
+
+  - type: concept
+    label: "MIME structure"
+    heading: "MIME — How Emails Carry Multiple Parts"
+    body: >
+      MIME (Multipurpose Internet Mail Extensions) is the standard that allows
+      an email to carry multiple content types. A multipart/alternative message
+      has a text/plain part and a text/html part — the client shows whichever
+      it prefers. A multipart/mixed message has a body part plus attachments.
+      Each part is itself a mini-email with its own Content-Type and payload.
+    bullets:
+      - "Content-Type: text/plain — single-part email (simplest case)"
+      - "Content-Type: text/html — single-part HTML email"
+      - "Content-Type: multipart/alternative — plain + HTML, client picks one"
+      - "Content-Type: multipart/mixed — body + attachments"
+      - "msg.is_multipart() → True when the message has sub-parts"
+    narration: >
+      Most AI email pipelines only need the plain-text body. The walk() method
+      on a multipart message returns every part recursively — you iterate and
+      pick the first text/plain part. For a single-part email, is_multipart()
+      is False and you extract the payload directly. get_email_body covers both
+      paths, so callers never need to think about MIME structure.
+
+  - type: how_it_works
+    label: "get_email_body"
+    heading: "Extracting the Body Defensively"
+    body: >
+      get_email_body follows a decision tree: if multipart, walk() the parts
+      looking for text/plain and return the first one found. If single-part,
+      try get_payload(decode=True) for bytes and decode them; fall back to
+      str(get_payload() or '') for unencoded text. Always returns a str,
+      never None.
+    bullets:
+      - "msg.walk() — iterate all MIME parts recursively (including the root)"
+      - "part.get_content_type() == 'text/plain' — filter for plain text"
+      - "get_payload(decode=True) → bytes | None — decodes base64/QP encoding"
+      - "get_content_charset() or 'utf-8' — charset for decoding bytes to str"
+      - "Always return str — never None — so AI calls can always receive text"
+    narration: >
+      The two-path pattern appears often in email parsing code because the
+      same function must handle emails composed by Gmail, Outlook, Apple Mail,
+      Thunderbird, and dozens of CLI mailers, all with subtly different MIME
+      structures. The defensive fallback — str(get_payload() or '') — handles
+      the edge case where the payload is genuinely empty, not just unencoded,
+      without raising an exception.
+
+  - type: code
+    label: "multipart walk"
+    heading: "Walking a Multipart Email"
+    code: |
+      import email
+
+      def get_email_body(msg: email.message.Message) -> str:
+          if msg.is_multipart():
+              for part in msg.walk():
+                  if part.get_content_type() == "text/plain":
+                      raw = part.get_payload(decode=True)
+                      if raw is not None:
+                          charset = part.get_content_charset() or "utf-8"
+                          return raw.decode(charset, errors="replace")
+                      return str(part.get_payload() or "")
+          # Single-part
+          raw = msg.get_payload(decode=True)
+          if raw is not None:
+              charset = msg.get_content_charset() or "utf-8"
+              return raw.decode(charset, errors="replace")
+          return str(msg.get_payload() or "")
+
+      # Single-part example
+      raw_email = (
+          "From: alice@example.com\n"
+          "Content-Type: text/plain; charset=utf-8\n"
+          "\n"
+          "Hello Bob!\n"
+      )
+      msg = email.message_from_string(raw_email)
+      print(msg.is_multipart())      # False
+      print(get_email_body(msg))     # Hello Bob!
+    narration: >
+      errors='replace' in the decode call substitutes the replacement character
+      for any bytes that are not valid in the declared charset. This is the
+      safe choice for email parsing: broken encodings are common in the wild
+      (especially for emails forwarded through old servers), and crashing on
+      a single bad byte is worse than substituting a few replacement characters
+      in a long email body. Your AI will still understand the content.
+
+  - type: exercise
+    heading: "Exercise 2: parse_email_string"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement parse_email_string(raw_email)
+      that calls email.message_from_string(raw_email) and returns the Message
+      object. The check verifies that the returned object gives correct From,
+      Subject, and Message-ID headers from a sample RFC 2822 email string.
+    hint: >
+      One line: return email.message_from_string(raw_email). The complexity
+      is in understanding what you get back — try msg['From'], msg['Subject'],
+      msg.keys() in a cell to explore the object.
+    narration: >
+      Exercise 2 is the simplest exercise today — one line — but the mental
+      model it builds is essential. After this exercise you have a concrete
+      feel for what a Message object is: an RFC 2822 text with a dict-style
+      header interface layered on top. All subsequent parsing in Exercises 3,
+      4, and 5 starts from this same Message object.
+
+  - type: exercise
+    heading: "Exercise 3: get_email_body"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement get_email_body(msg) that
+      extracts the plain-text body from any email.message.Message object.
+      Must return a string in all cases — never None. Handle both single-part
+      (check get_payload(decode=True) first, fall back to get_payload()) and
+      multipart (walk, find text/plain part).
+    hint: >
+      Start with the two-branch structure: if msg.is_multipart() → walk →
+      find text/plain. Else → get_payload(decode=True) → decode bytes if not
+      None. Final fallback: str(msg.get_payload() or '').
+    narration: >
+      Exercise 3 is the most important function you write today. Without a
+      reliable body extractor, the AI drafting pipeline in Exercise 4 cannot
+      start — it would receive None or crash. Once get_email_body is solid,
+      every other exercise is just wiring: feed the body to the LLM, build
+      the reply, assemble the full email.
+
+  - type: summary
+    heading: "Day 25 Lesson 2: Key Takeaways"
+    bullets:
+      - "MIME structure: text/plain, multipart/alternative, multipart/mixed"
+      - "msg.is_multipart() — True for emails with sub-parts"
+      - "msg.walk() — iterate all MIME parts including nested ones"
+      - "get_payload(decode=True) → bytes | None — handles base64 and QP encoding"
+      - "Always return str, never None — AI pipelines must not receive None"
+    narration: >
+      Lesson 2 gave you the defensive body-extraction pattern. Single-part or
+      multipart, encoded or raw, your get_email_body handles them all and
+      always returns a string. Lesson 3 builds on this — once you have the body
+      as clean text, building a proper reply means more than just a string:
+      it means constructing an EmailMessage with the correct headers to thread
+      the conversation.

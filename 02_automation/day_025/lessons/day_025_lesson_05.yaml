@@ -1,0 +1,153 @@
+day: "025"
+lesson: "05"
+title: "EmailDrafter and IMAP Reading"
+
+slides:
+
+  - type: title
+    heading: "EmailDrafter — The Full Pipeline"
+    subheading: "Class design, IMAP reading, and secure credential handling"
+    narration: >
+      Lesson 5 assembles the four functions from Lessons 1-4 into a single
+      EmailDrafter class, adds the imaplib reading pattern, and ends with
+      security: credentials in environment variables, App Passwords, and
+      why you never hardcode email credentials. This closes Day 25.
+
+  - type: concept
+    label: "class design"
+    heading: "EmailDrafter — Wrapping the Pipeline"
+    body: >
+      EmailDrafter is a thin class: each method delegates to one of the four
+      standalone functions. parse() calls parse_email_string. draft() calls
+      get_email_body then draft_reply. build_reply() calls build_reply_email.
+      run_pipeline() chains all three and returns a dict with the parsed
+      message, reply body, and reply EmailMessage. This is the same thin-wrapper
+      pattern as Day 23's BookScraper and Day 24's PageExtractor.
+    bullets:
+      - "parse(raw_email) → Message — wraps parse_email_string"
+      - "draft(msg, context, model) → str — body extraction + LLM call"
+      - "build_reply(original_msg, reply_body, from_addr) → EmailMessage"
+      - "run_pipeline(raw_email, context, from_addr, model) → dict"
+      - "dict keys: 'parsed', 'reply_body', 'reply_msg'"
+    narration: >
+      The class has no state beyond what is passed to each method. There is no
+      self.model or self.from_addr stored on __init__ — the EmailDrafter is
+      stateless, which makes it easier to test and reuse. If you wanted a
+      stateful version, you could store the from_addr and default_model in
+      __init__ and reduce argument repetition at call sites. Neither design is
+      wrong; stateless is simpler for today's scope.
+
+  - type: how_it_works
+    label: "imaplib reading"
+    heading: "Reading Email with imaplib"
+    body: >
+      imaplib.IMAP4_SSL connects to the mail server and gives you a session.
+      After login and select('INBOX'), search returns message IDs as a byte
+      string you split. fetch(msg_id, '(RFC822)') returns the full raw email
+      as bytes. email.message_from_bytes(raw) parses it — same object model
+      as message_from_string but for bytes. get_email_body works on both.
+    bullets:
+      - "imaplib.IMAP4_SSL(host) — connect on port 993 with TLS"
+      - "imap.login(user, password) — authenticate"
+      - "imap.select('INBOX') — open a mailbox (INBOX, Sent, etc.)"
+      - "imap.search(None, 'UNSEEN') — find unread message IDs"
+      - "imap.fetch(msg_id, '(RFC822)') → raw bytes — the full email"
+    narration: >
+      The IMAP search API is SQL-like but not SQL. 'UNSEEN' filters to unread
+      messages; 'ALL' returns everything; 'FROM alice@example.com' filters by
+      sender. The second element of the search result — data[0] — is a
+      space-separated byte string of message IDs. data[0].split() gives a list
+      of byte strings like [b'1', b'2', b'3']. You pass each to imap.fetch
+      to get the full RFC 2822 bytes. email.message_from_bytes wraps it into
+      a Message object, and from there get_email_body extracts the text.
+
+  - type: code
+    label: "full pipeline"
+    heading: "EmailDrafter and IMAP Pattern"
+    code: |
+      import email
+      import email.message
+      import ollama
+
+      class EmailDrafter:
+          def parse(self, raw_email: str) -> email.message.Message:
+              return parse_email_string(raw_email)
+
+          def draft(self, msg, context: str, model: str = "llama3.2") -> str:
+              body = get_email_body(msg)
+              return draft_reply(
+                  original_subject=msg.get("Subject", ""),
+                  original_body=body,
+                  context=context,
+                  model=model,
+              )
+
+          def build_reply(self, original_msg, reply_body: str, from_addr: str):
+              return build_reply_email(original_msg, reply_body, from_addr=from_addr)
+
+          def run_pipeline(self, raw_email, context, from_addr, model="llama3.2"):
+              parsed = self.parse(raw_email)
+              reply_body = self.draft(parsed, context=context, model=model)
+              reply_msg = self.build_reply(parsed, reply_body, from_addr=from_addr)
+              return {"parsed": parsed, "reply_body": reply_body, "reply_msg": reply_msg}
+
+      # IMAP reading — NOT run in exercises (needs real credentials)
+      # import imaplib
+      # with imaplib.IMAP4_SSL("imap.gmail.com") as imap:
+      #     imap.login("you@gmail.com", "app-password")
+      #     imap.select("INBOX")
+      #     _, data = imap.search(None, "UNSEEN")
+      #     for msg_id in data[0].split()[-5:]:
+      #         _, msg_data = imap.fetch(msg_id, "(RFC822)")
+      #         raw = msg_data[0][1]  # bytes
+      #         msg = email.message_from_bytes(raw)
+      #         result = drafter.run_pipeline(
+      #             msg.as_string(), "Acknowledge receipt", "me@example.com"
+      #         )
+    narration: >
+      The IMAP block is commented out because it requires live credentials,
+      but the pattern is complete: connect, login, select, search, fetch,
+      parse, process. Each step is one or two lines. The drafter.run_pipeline
+      call at the end is the same function you test in the project — the only
+      difference is that the raw_email input comes from the IMAP fetch rather
+      than from a hardcoded string. This is how production AI email pipelines
+      are structured: parsing and AI logic are fully testable offline; the IMAP
+      and SMTP connections are thin shells that you wire in when deploying.
+
+  - type: exercise
+    heading: "Project: EmailDrafter"
+    prompt: >
+      Open project/project.ipynb. Implement the EmailDrafter class with methods
+      parse, draft, build_reply, and run_pipeline. Run the pipeline on SAMPLE_EMAIL
+      with context 'Accept the meeting, suggest Thursday at 2pm.' and
+      from_addr='bob@example.com'. Store the result dict as 'result'.
+      Run _run_project_checks() to verify.
+    hint: >
+      Each method is one function call to a helper. parse → parse_email_string.
+      draft → get_email_body then draft_reply. build_reply → build_reply_email.
+      run_pipeline → call parse, draft, build_reply and return the dict.
+    narration: >
+      The project is intentionally straightforward — the hard work is in the
+      five helper functions from the exercises. EmailDrafter is the clean API
+      that hides those helpers from callers. If you wanted to productionize this,
+      you would add the IMAP reader as a method (read_inbox(host, user, password,
+      count=10)), keep run_pipeline as-is, and add a send method that calls
+      smtplib.send_message. The three-method surface area (read, process, send)
+      is exactly the interface a background job runner would call.
+
+  - type: summary
+    heading: "Day 25: Key Takeaways"
+    bullets:
+      - "EmailDrafter: thin class — each method delegates to one helper function"
+      - "run_pipeline → dict with 'parsed', 'reply_body', 'reply_msg'"
+      - "imaplib.IMAP4_SSL + search('UNSEEN') + fetch('(RFC822)') — read inbox"
+      - "email.message_from_bytes(raw) — parse IMAP-fetched bytes into Message"
+      - "Credentials: App Passwords (Gmail/Outlook), stored in env vars — never hardcoded"
+    narration: >
+      Day 25 complete. You can now construct, parse, and AI-draft email from
+      Python's stdlib alone — no third-party email library required. The missing
+      piece for a production pipeline is credentials: Day 32 covers environment
+      variables and secret management, which is when you would wire in the real
+      SMTP and IMAP connections. Day 26 moves to document automation: reading and
+      generating PDFs and Word documents — the same parse-then-AI pattern applied
+      to a different file format.

@@ -1,0 +1,156 @@
+day: "025"
+lesson: "04"
+title: "AI-Powered Email Drafting"
+
+slides:
+
+  - type: title
+    heading: "AI Email Drafting"
+    subheading: "Using the LLM to write professional replies"
+    narration: >
+      Lesson 4 plugs the LLM into the email pipeline. draft_reply is the
+      function that takes the original subject, the email body, and your
+      context hint, and returns a ready-to-send reply body. The technique
+      is the same as every other prompt-engineering exercise in this course:
+      a clear system prompt establishes the persona; the user prompt provides
+      the data. The difference here is that the output goes directly into a
+      real email, so tone, brevity, and format matter more than ever.
+
+  - type: concept
+    label: "prompt design for email"
+    heading: "Prompt Design for Email Drafting"
+    body: >
+      Email drafting is constrained free-form generation: the LLM must
+      produce something that sounds professional, matches the tone of the
+      original, and follows your instructions — but it has latitude on phrasing.
+      The system prompt establishes persona and format constraints; the user
+      prompt provides subject, body, and your context hint. Asking for 'body
+      only — no subject line' prevents the model from prepending 'Subject:',
+      which would break the email when used directly.
+    bullets:
+      - "System prompt: persona (professional email assistant), format constraint (body only)"
+      - "User prompt: original subject + body + your intent (the 'context' argument)"
+      - "'Write only the email body' — prevents Subject: prefix in output"
+      - "No format='json' — free-form text, not structured extraction"
+      - "The context arg is the user's steering: 'Accept, suggest Thursday at 2pm'"
+    narration: >
+      The context parameter is the human-in-the-loop. You do not tell the LLM
+      exactly what to write — you tell it your intent, and it handles phrasing.
+      This is more flexible than a template ('Dear {name}, I accept your invitation
+      on {date}') and more controllable than a bare 'reply to this email' prompt.
+      The steering context can be a single phrase ('decline politely') or a
+      multi-sentence instruction ('Accept, say we need to move it to Thursday,
+      mention that the API team should also join').
+
+  - type: how_it_works
+    label: "draft_reply"
+    heading: "draft_reply — Structure of the Prompt Call"
+    body: >
+      draft_reply builds a two-message list: system (persona + format) and user
+      (subject + body + context + instruction to write). It calls ollama.chat
+      with model (default llama3.2) and no format='json' argument, since the
+      output is plain prose. It returns response['message']['content'] directly —
+      no post-processing needed.
+    bullets:
+      - "system: 'professional email assistant; write only the email body'"
+      - "user: 'Original subject: {subject}\\n\\nOriginal message:\\n{body}'"
+      - "user continued: '\\n\\nContext for your reply: {context}'"
+      - "user instruction: '\\n\\nWrite a reply email body:'"
+      - "return response['message']['content'] — raw LLM string, no parse needed"
+    narration: >
+      The four-section user prompt — subject, body, context, instruction —
+      is a reliable structure for email drafting. Separating them with double
+      newlines makes the structure visible to the model. The trailing 'Write a
+      reply email body:' is a completion cue: it tells the model to produce
+      content immediately, not to acknowledge or explain. Compare this to
+      Day 6's prompt templates — the same principle, applied to email.
+
+  - type: code
+    label: "draft_reply implementation"
+    heading: "draft_reply"
+    code: |
+      import ollama
+
+      def draft_reply(
+          original_subject: str,
+          original_body: str,
+          context: str,
+          model: str = "llama3.2",
+      ) -> str:
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a professional email assistant. "
+                          "Write concise, polite email replies. "
+                          "Match the tone of the original. "
+                          "Return only the email body — no subject line, no 'Subject:' prefix."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": (
+                          f"Original subject: {original_subject}\n\n"
+                          f"Original message:\n{original_body}\n\n"
+                          f"Context for your reply: {context}\n\n"
+                          "Write a reply email body:"
+                      ),
+                  },
+              ],
+          )
+          return response["message"]["content"]
+
+      # Example
+      reply = draft_reply(
+          original_subject="Project Kickoff Meeting",
+          original_body="Hi, can we schedule a kickoff meeting?",
+          context="Accept the meeting, propose Thursday at 2pm.",
+      )
+      print(reply)
+    narration: >
+      The system prompt is kept intentionally short: persona, tone instruction,
+      and format constraint. Longer system prompts often confuse smaller models
+      — llama3.2 at 3B parameters performs better with focused instructions than
+      with long lists of rules. 'Match the tone of the original' does a lot of
+      work: it means a casual email gets a casual reply, a formal email gets a
+      formal one. The 'no subject line' instruction prevents the most common
+      failure mode, where the model starts its response with 'Subject: Re: ...'
+      even when not asked.
+
+  - type: exercise
+    heading: "Exercise 4: draft_reply"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement draft_reply(original_subject,
+      original_body, context, model='llama3.2') that calls ollama.chat with a
+      system prompt establishing a professional email assistant persona and a user
+      prompt containing the original subject, body, and context. Return the content
+      string from the response. No format='json'.
+    hint: >
+      ollama.chat(model=model, messages=[system_msg, user_msg]). System content:
+      'professional email assistant; return only the email body'. User content:
+      f-string with original_subject, original_body, and context. Return
+      response['message']['content'].
+    narration: >
+      Exercise 4 is the AI step of today's pipeline. The check makes two LLM
+      calls: one with a real subject and body to verify you get a meaningful
+      reply, and one with empty inputs to verify your function doesn't crash on
+      edge cases (the LLM will still respond, perhaps with a generic acknowledgement).
+      Both must return a non-empty string.
+
+  - type: summary
+    heading: "Day 25 Lesson 4: Key Takeaways"
+    bullets:
+      - "System prompt: persona + 'email body only' constraint — no subject line prefix"
+      - "User prompt: four sections — original subject, body, context, instruction"
+      - "context arg: human-in-the-loop steering ('Accept, propose Thursday')"
+      - "No format='json' — free-form prose output, return content directly"
+      - "Two LLM calls per check: normal input + empty input for robustness"
+    narration: >
+      Lesson 4 is where the AI enters the pipeline. draft_reply follows the
+      same pattern as every ollama.chat call in this course — system persona,
+      user data, return content — but the output is immediately actionable:
+      plug it into build_reply_email and you have a complete, sendable reply.
+      Lesson 5 assembles all four functions into the EmailDrafter class and
+      previews how to connect to real mail servers.
