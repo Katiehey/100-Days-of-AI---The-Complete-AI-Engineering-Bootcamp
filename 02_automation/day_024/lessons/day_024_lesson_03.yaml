@@ -1,0 +1,143 @@
+day: "024"
+lesson: "03"
+title: "Pydantic Validation of Extracted Data"
+
+slides:
+
+  - type: title
+    heading: "Validation: Turning Raw Dicts Into Typed Objects"
+    subheading: "validate_extracted — the safety gate for LLM output"
+    narration: >
+      Lesson 3 closes the loop on the pipeline: validation. extract_schema_fields
+      returns a raw dict that the LLM filled in — but dicts are untyped. A missing
+      key, a null where a string was required, or a wrong type can corrupt downstream
+      logic silently. validate_extracted passes the raw dict to Pydantic's
+      model_validate and returns either a typed model instance or None. One function,
+      one decision: the data is valid or it is not.
+
+  - type: concept
+    label: "Why validate"
+    heading: "Three Reasons to Validate LLM Output"
+    body: >
+      LLMs are probabilistic. Even with format='json' and a clear prompt, the
+      model might return null for a required field, use the wrong key, or return
+      a number where you expected a string. Pydantic catches all three before the
+      bad data reaches the rest of your code.
+    bullets:
+      - "Missing required fields → ValidationError → validate_extracted returns None"
+      - "Wrong types → Pydantic coerces if possible, fails if not"
+      - "Extra keys → silently ignored by default (Pydantic v2 behaviour)"
+      - "None return → caller retries, skips, or logs — never a crash"
+      - "Typed instance → .title, .price, .rating — autocomplete, no KeyError"
+    narration: >
+      The distinction between None-on-failure and raising is important. In a
+      batch pipeline that processes 100 pages, you never want one bad extraction
+      to stop the whole run. validate_extracted returns None so the batch loop
+      can record the failure and continue. The caller — scrape_and_extract or
+      PageExtractor.extract — decides what to do with None. For the project,
+      PageExtractor.extract returns the None to its caller, which prints a
+      message and continues. In a production system you would log the failure
+      and potentially retry with a different prompt or model.
+
+  - type: how_it_works
+    label: "model_validate"
+    heading: "model_validate vs model_validate_json"
+    body: >
+      Day 4 introduced model_validate_json(str) for parsing a JSON string.
+      model_validate(dict) takes a Python dict directly — no JSON string
+      involved. Since extract_schema_fields already calls json.loads, you have
+      a dict, not a string. Use model_validate(dict).
+    bullets:
+      - "model_validate(dict) — validate a Python dict (use after json.loads)"
+      - "model_validate_json(str) — parse JSON string AND validate (Day 4)"
+      - "Both raise ValidationError on invalid data"
+      - "ValidationError is a subclass of Exception — caught by bare except Exception"
+      - "model.model_dump() — back to dict; model.model_dump_json() — to JSON str"
+    narration: >
+      The choice between model_validate and model_validate_json depends on
+      what you have. If you have a string from the LLM, model_validate_json
+      is one call instead of two (json.loads then model_validate). Since
+      extract_schema_fields already calls json.loads and returns a dict,
+      validate_extracted gets a dict and uses model_validate. There is no
+      meaningful performance difference between the two for typical payloads.
+      The more important point is the try/except: always catch ValidationError
+      from model_validate — in a scraping pipeline, invalid LLM output is
+      expected, not exceptional.
+
+  - type: code
+    label: "validate_extracted"
+    heading: "validate_extracted — None-Safe Pydantic Validation"
+    code: |
+      from pydantic import BaseModel
+
+      def validate_extracted(
+          raw: dict,
+          model_class: type[BaseModel],
+      ) -> BaseModel | None:
+          """Validate raw dict against a Pydantic model. Returns None on failure."""
+          try:
+              return model_class.model_validate(raw)
+          except Exception:
+              return None
+
+      # Example schema
+      class BookInfo(BaseModel):
+          title: str
+          price: str
+          rating: str | None = None  # optional field
+
+      # Success
+      good = {"title": "A Light in the Attic", "price": "£51.77", "rating": "Three"}
+      book = validate_extracted(good, BookInfo)
+      print(book.title)   # A Light in the Attic
+      print(book.rating)  # Three
+
+      # Failure (missing required field 'price')
+      bad = {"title": "Tipping the Velvet"}
+      result = validate_extracted(bad, BookInfo)
+      print(result)  # None
+    narration: >
+      The function is three lines. Its value is not in the code but in the
+      contract: any function that calls validate_extracted knows it will either
+      get a typed model or None, never an exception. Notice the rating field
+      uses str | None = None — an optional field with a default. Pydantic v2
+      accepts the dict whether or not rating is present. Required fields (title,
+      price) must be present and non-null or model_validate raises
+      ValidationError. The try/except catches that and returns None.
+
+  - type: exercise
+    heading: "Exercise 3: validate_extracted"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement validate_extracted(raw,
+      model_class) using model_class.model_validate(raw) inside a try/except.
+      Return the model instance on success, None on any exception.
+    hint: >
+      try: return model_class.model_validate(raw)
+      except Exception: return None
+      That is the entire implementation. The exercise checks valid dicts, missing
+      required fields, and extra keys.
+    narration: >
+      Exercise 3 has no LLM calls and no network calls — pure Pydantic. The
+      check harness defines BookRecord(BaseModel) with title: str and price: str,
+      then tests a valid dict, correct field values, a missing-required-field
+      failure, and a dict with extra keys (which Pydantic v2 ignores by default).
+      Five checks, all deterministic, all under a second. This is one of the
+      cleanest exercises in the day.
+
+  - type: summary
+    heading: "Validation: Key Takeaways"
+    bullets:
+      - "model_validate(dict) — takes a Python dict; use after json.loads"
+      - "model_validate_json(str) — takes a JSON string; use when you have raw LLM output"
+      - "ValidationError on missing required fields or wrong types — catch it"
+      - "None return → never crashes; caller retries or skips"
+      - "Optional fields: str | None = None — always validate successfully"
+      - "Extra keys are ignored by Pydantic v2 default — no config needed"
+    narration: >
+      The pattern of building a schema-validation safety gate around LLM output
+      is one of the most important patterns in AI engineering. It separates the
+      probabilistic world of LLM output from the deterministic world of your
+      application logic. Everything downstream of validate_extracted works with
+      typed Python objects — not dicts, not strings. Day 9's schema-guided
+      extraction revisited this idea for document parsing; here it applies to
+      web pages.

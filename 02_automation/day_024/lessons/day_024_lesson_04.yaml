@@ -1,0 +1,132 @@
+day: "024"
+lesson: "04"
+title: "The Full Scrape-and-Extract Pipeline"
+
+slides:
+
+  - type: title
+    heading: "Wiring It All Together"
+    subheading: "scrape_and_extract: four steps in one function"
+    narration: >
+      Lesson 4 assembles the pipeline. scrape_and_extract takes a URL and a list
+      of fields, runs the four steps — fetch, clean, extract, return — and gives
+      back the raw dict. It raises on network or HTTP errors so the caller can
+      decide how to handle them. Exercise 4 is the first full-pipeline test:
+      one network call to books.toscrape.com, one LLM call, structured output.
+
+  - type: concept
+    label: "Function composition"
+    heading: "Composing Small Functions Into a Pipeline"
+    body: >
+      scrape_and_extract is a composition of three functions: requests.get,
+      clean_html_text, and extract_schema_fields. It does not duplicate logic
+      from any of them — it just calls them in the right order. This is
+      the function-composition pattern: each step is tested independently,
+      and the composition is tested end-to-end.
+    bullets:
+      - "Fetch: requests.get(url, timeout=10) → response"
+      - "Validate status: response.raise_for_status() — HTTP errors propagate"
+      - "Clean: clean_html_text(response.text) → plain text string"
+      - "Extract: extract_schema_fields(text, fields, model) → dict"
+      - "Three lines of logic, three already-tested functions"
+    narration: >
+      The decision to let scrape_and_extract raise (rather than return an error
+      envelope) is intentional. This function is the building block — it does
+      one thing well. The error envelope is added in the next layer:
+      batch_scrape_extract wraps scrape_and_extract in try/except and collects
+      {url, status, data/error} dicts. This separation means you can use
+      scrape_and_extract directly when you want exceptions (in an interactive
+      notebook or when you are only processing one URL), or wrap it in
+      batch_scrape_extract when you want resilience over a list.
+
+  - type: how_it_works
+    label: "Error propagation"
+    heading: "Why scrape_and_extract Raises"
+    body: >
+      Exceptions from requests.get (ConnectionError, HTTPError, Timeout) and
+      from extract_schema_fields (rare, but possible) propagate to the caller.
+      This follows the principle: low-level functions raise; high-level
+      batch functions catch and record. The caller knows what to expect and
+      handles the error at the right layer.
+    bullets:
+      - "ConnectionError — host unreachable (domain doesn't exist, port closed)"
+      - "HTTPError — 4xx/5xx response (raise_for_status() triggers this)"
+      - "Timeout — server too slow (timeout=10 is the guard)"
+      - "All propagate to caller — caller decides retry vs. skip vs. alert"
+      - "batch_scrape_extract catches them all with except Exception"
+    narration: >
+      The layered error handling pattern — raise at the bottom, catch at the
+      top — is one of the clearest design principles in the course. You first
+      saw it on Day 5 (engineering hygiene), applied it to API calls on
+      Day 22 (safe_get wrapping get_json), and here you apply it again to
+      scraping. The inner function is clean and testable; the outer batch
+      function is resilient. Clean separation of concerns.
+
+  - type: code
+    label: "scrape_and_extract"
+    heading: "scrape_and_extract — The Four-Step Pipeline"
+    code: |
+      import requests
+
+      def scrape_and_extract(
+          url: str,
+          fields: list[str],
+          model: str = "llama3.2",
+      ) -> dict:
+          """Fetch, clean, extract. Raises on network/HTTP errors."""
+          response = requests.get(url, timeout=10)
+          response.raise_for_status()
+          text = clean_html_text(response.text)
+          return extract_schema_fields(text, fields, model=model)
+
+      # Usage
+      data = scrape_and_extract(
+          "https://books.toscrape.com",
+          fields=["site_name", "main_purpose"],
+      )
+      print(data)
+      # {'site_name': 'Books to Scrape', 'main_purpose': 'web scraping practice'}
+    narration: >
+      Four lines. Each line corresponds to one step: fetch, raise on error, clean,
+      extract. The function delegates completely — no logic is duplicated from
+      the helper functions. In the project, PageExtractor.extract calls
+      scrape_and_extract and then passes the result to validate_extracted. That
+      one extra line adds the Pydantic safety gate. The pipeline is composed
+      incrementally — each function adds one capability to the previous.
+
+  - type: exercise
+    heading: "Exercise 4: scrape_and_extract"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement scrape_and_extract(url, fields,
+      model). Wire together: requests.get + raise_for_status + clean_html_text
+      + extract_schema_fields. Raises on bad URLs.
+    hint: >
+      response = requests.get(url, timeout=10); response.raise_for_status();
+      text = clean_html_text(response.text);
+      return extract_schema_fields(text, fields, model=model).
+      Provided helpers (clean_html_text, extract_schema_fields) are already
+      defined in the notebook above the stub.
+    narration: >
+      Exercise 4 makes one network call to books.toscrape.com and one LLM call.
+      The check harness extracts ['site_name', 'description'] and verifies the
+      result is a dict with both keys. Check 4 verifies at least one value is
+      non-null — a reasonable expectation for a working site. Check 5 verifies
+      the function raises on an unreachable port, confirming raise_for_status
+      or the connection error propagates correctly. Two calls total (network +
+      LLM), under 15 seconds.
+
+  - type: summary
+    heading: "The Pipeline: Key Takeaways"
+    bullets:
+      - "scrape_and_extract = requests.get + clean_html_text + extract_schema_fields"
+      - "Raises on network/HTTP errors — intentional; let the caller handle it"
+      - "response.text (HTML) → clean_html_text → plain text → extract_schema_fields"
+      - "No CSS selectors in the pipeline — LLM reads plain text directly"
+      - "Compose: scrape_and_extract → validate_extracted → typed model (in PageExtractor)"
+      - "Low-level raises; high-level catches — the layered error handling principle"
+    narration: >
+      scrape_and_extract is the core primitive. Everything else in the day builds
+      on it: batch_scrape_extract loops over it, PageExtractor.extract calls it
+      and validates. The function is testable, composable, and side-effect-free
+      beyond the network call. It is the minimal useful unit of the AI-scraping
+      pipeline.

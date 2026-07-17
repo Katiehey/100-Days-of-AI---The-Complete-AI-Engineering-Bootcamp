@@ -1,0 +1,141 @@
+day: "024"
+lesson: "05"
+title: "Batch Processing and PageExtractor"
+
+slides:
+
+  - type: title
+    heading: "Batch Scraping and the PageExtractor Class"
+    subheading: "Error envelopes, resilient loops, and schema-bound extractors"
+    narration: >
+      Lesson 5 completes the Day 24 stack. batch_scrape_extract runs the pipeline
+      over a list of URLs without letting one failure stop the rest — the same
+      error-envelope pattern from Day 22's safe_get and Day 21's batch_process_files.
+      Then PageExtractor wraps everything into a clean class: define your Pydantic
+      schema once, extract from any URL, get back validated typed objects.
+
+  - type: concept
+    label: "Batch with envelopes"
+    heading: "batch_scrape_extract — Resilient Batch Pipeline"
+    body: >
+      batch_scrape_extract loops over URLs, calls scrape_and_extract inside a
+      try/except for each, and returns a list of result dicts. On success:
+      {url, status='ok', data}. On error: {url, status='error', error}.
+      The same envelope structure as Day 22's batch_process_files and Day 21's
+      safe_get.
+    bullets:
+      - "One try/except per URL — one bad page never aborts the batch"
+      - "{'url': url, 'status': 'ok', 'data': dict} on success"
+      - "{'url': url, 'status': 'error', 'error': str(e)} on any failure"
+      - "Order preserved — result[i] corresponds to urls[i]"
+      - "Inspect results after: filter by status='ok', log status='error'"
+    narration: >
+      The envelope pattern appears three times in this section (Days 21, 22, 24)
+      because it is the correct abstraction for any batch operation that may
+      partially fail. The alternative — stopping on first error — is unsuitable
+      for scraping: pages go down temporarily, bot detection kicks in for specific
+      URLs, some pages have no extractable content. The envelope lets you process
+      1000 URLs and then triage the 50 that failed, without re-running the 950
+      that succeeded. This is Day 22's error-envelope lesson applied to scraping.
+
+  - type: how_it_works
+    label: "PageExtractor"
+    heading: "PageExtractor — Schema-Bound Extractor Class"
+    body: >
+      PageExtractor takes a Pydantic model class in __init__ and derives the
+      field list from model.model_fields.keys() (Pydantic v2). Each method
+      delegates to one of the pipeline functions. to_json serialises a validated
+      instance to a pretty-printed JSON string using json.dumps(model.model_dump()).
+    bullets:
+      - "__init__: self.fields = list(model_class.model_fields.keys()) — derive from schema"
+      - "extract(url) → model instance or None: scrape_and_extract + validate_extracted"
+      - "extract_many(urls) → list of envelopes: batch_scrape_extract"
+      - "to_json(instance) → str: json.dumps(instance.model_dump(), indent=2)"
+      - "model_fields — Pydantic v2 class attribute; maps field names to FieldInfo"
+    narration: >
+      model_fields is a Pydantic v2 class attribute (not an instance attribute).
+      It maps field names to FieldInfo objects. .keys() gives the field names in
+      definition order. This means PageExtractor automatically picks up any
+      change to the model — add a field to SiteInfo and the extractor's field
+      list updates without changing any PageExtractor code. This is the power
+      of schema-first design: the schema is the single source of truth for both
+      validation and extraction.
+
+  - type: code
+    label: "batch and PageExtractor"
+    heading: "batch_scrape_extract and PageExtractor"
+    code: |
+      class PageExtractor:
+          def __init__(self, model_class: type[BaseModel], model: str = "llama3.2"):
+              self.model_class = model_class
+              self.llm_model = model
+              self.fields = list(model_class.model_fields.keys())
+
+          def extract(self, url: str) -> BaseModel | None:
+              data = scrape_and_extract(url, self.fields, model=self.llm_model)
+              return validate_extracted(data, self.model_class)
+
+          def extract_many(self, urls: list[str]) -> list[dict]:
+              return batch_scrape_extract(urls, self.fields, model=self.llm_model)
+
+          def to_json(self, instance: BaseModel) -> str:
+              return json.dumps(instance.model_dump(), indent=2)
+
+      # Usage
+      class SiteInfo(BaseModel):
+          site_name: str | None = None
+          main_purpose: str | None = None
+
+      extractor = PageExtractor(SiteInfo)
+      print(extractor.fields)  # ['site_name', 'main_purpose']
+
+      info = extractor.extract("https://books.toscrape.com")
+      if info:
+          print(extractor.to_json(info))
+    narration: >
+      PageExtractor is a thin wrapper — all five methods together are under
+      15 lines. Its value is ergonomic: you instantiate once with a schema,
+      and all subsequent calls are method calls on one object rather than
+      function calls with repeated arguments. The model_fields.keys() approach
+      is cleaner than listing the fields manually, because it stays in sync
+      with the Pydantic class automatically. When you add a field to SiteInfo,
+      PageExtractor immediately extracts it. This is schema-driven design in
+      practice.
+
+  - type: exercise
+    heading: "Exercise 5: batch_scrape_extract"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement batch_scrape_extract(urls,
+      fields, model) that loops over urls, calls scrape_and_extract inside
+      a try/except for each, and returns a list of {url, status, data/error} dicts.
+    hint: >
+      results = []. For each url: try: data = scrape_and_extract(url, fields);
+      results.append({'url': url, 'status': 'ok', 'data': data})
+      except Exception as e: results.append({'url': url, 'status': 'error', 'error': str(e)}).
+      return results.
+    narration: >
+      Exercise 5 makes one network call (books.toscrape.com) and one LLM call.
+      The bad URL (localhost:9999) fails immediately at the TCP level, so the
+      error envelope is recorded without any LLM cost. The check harness verifies
+      that you get exactly 2 results, the first has status='ok' and a 'data' key,
+      the second has status='error' and an 'error' key, and each result has the
+      correct 'url' value. This confirms your loop, your try/except placement,
+      and your envelope structure.
+
+  - type: summary
+    heading: "Batch and PageExtractor: Key Takeaways"
+    bullets:
+      - "batch_scrape_extract: try/except per URL — one failure never aborts the batch"
+      - "{url, status, data/error} envelope — the consistent result structure"
+      - "PageExtractor: schema-driven class; fields auto-derived from model_fields"
+      - "model_class.model_fields.keys() — Pydantic v2 field name discovery"
+      - "to_json: json.dumps(instance.model_dump(), indent=2) — pretty-print to string"
+      - "Swap model_class → extract different data from the same URLs"
+    narration: >
+      You now have the full Day 24 toolkit: clean HTML, extract fields, validate
+      against a schema, run over a URL list resilently, and wrap it all in a
+      schema-bound class. The project wires all five into PageExtractor and
+      demonstrates the selector-free extraction approach on books.toscrape.com.
+      Day 25 moves to email automation — a completely different automation
+      domain, but the same principle: define what you want, use the LLM to
+      extract or draft it, validate before delivering.

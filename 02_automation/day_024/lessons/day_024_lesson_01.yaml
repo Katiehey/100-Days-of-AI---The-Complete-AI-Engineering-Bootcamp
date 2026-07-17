@@ -1,0 +1,133 @@
+day: "024"
+lesson: "01"
+title: "AI-Powered Scraping: The Pipeline"
+
+slides:
+
+  - type: title
+    heading: "AI-Powered Scraping"
+    subheading: "From any page to structured data — no selectors needed"
+    narration: >
+      Day 23 showed you two extraction strategies: CSS selectors (fast, brittle)
+      and open-ended LLM questions (flexible, free-form). Day 24 combines them
+      into a single, schema-guided pipeline. You define a Pydantic model for the
+      data you want, point the extractor at a URL, and get back a validated
+      Python object. No selector maintenance. No schema drift. The LLM adapts
+      to any page layout automatically.
+
+  - type: concept
+    label: "The pipeline"
+    heading: "Four Steps: Fetch → Clean → Extract → Validate"
+    body: >
+      Every AI-powered scrape follows the same four steps. Fetch the raw HTML
+      with requests. Clean it to plain text by stripping tags, scripts, and
+      styles. Pass the text to the LLM with a field list to extract. Validate
+      the raw dict against a Pydantic model and return a typed instance — or
+      None if the LLM couldn't fill required fields.
+    bullets:
+      - "Fetch: requests.get → response.text (HTML string)"
+      - "Clean: BeautifulSoup + decompose() + get_text() + collapse whitespace"
+      - "Extract: ollama.chat with format='json' and a field list in the system prompt"
+      - "Validate: model_class.model_validate(raw) inside try/except → None on failure"
+      - "None return = signal to retry, skip, or log — never a crash"
+    narration: >
+      Each step is a separate function — clean_html_text, extract_schema_fields,
+      validate_extracted, scrape_and_extract. Keeping them separate makes each
+      testable in isolation: exercise 1 tests clean_html_text with no LLM call,
+      exercise 2 tests extract_schema_fields with no network call, exercise 3
+      tests validate_extracted with no LLM or network. Only exercise 4 runs
+      the full pipeline. This separation also means you can swap out any step —
+      replace clean_html_text with a Markdown converter, replace ollama.chat
+      with a different model — without touching the other functions.
+
+  - type: how_it_works
+    label: "clean_html_text"
+    heading: "Step 1: Clean HTML to Plain Text"
+    body: >
+      Raw HTML is toxic for LLMs. A single page can have 50 KB of JavaScript,
+      minified CSS, and navigation boilerplate before the first word of actual
+      content. clean_html_text removes all of it and returns a compact,
+      readable string the model can reason about.
+    bullets:
+      - "decompose() removes <script> and <style> and their entire contents"
+      - "get_text(separator='\\n', strip=True) flattens the tree to plain text"
+      - "re.sub(r'\\n{3+}', '\\n\\n', text) collapses blank lines"
+      - "Result is typically 1–20 KB — well within llama3.2's context window"
+      - "Same function works on any page — no site-specific logic"
+    narration: >
+      The re.sub step is important. BeautifulSoup's get_text can produce dozens
+      of consecutive empty lines where a page had block elements with whitespace
+      between them. Collapsing runs of 3 or more newlines to 2 keeps the text
+      readable for the model while preserving paragraph breaks. Without it, a
+      typical page might have 200 blank lines consuming tokens without adding
+      information. The three-step clean — decompose, get_text, collapse — is a
+      reusable utility you will apply every time you scrape for LLM processing.
+
+  - type: code
+    label: "clean_html_text"
+    heading: "clean_html_text — Strip Everything Except Content"
+    code: |
+      import re
+      from bs4 import BeautifulSoup
+
+      def clean_html_text(html_string: str) -> str:
+          """Strip HTML tags, scripts, and styles. Return clean plain text."""
+          soup = BeautifulSoup(html_string, "html.parser")
+          for tag in soup(["script", "style"]):
+              tag.decompose()
+          text = soup.get_text(separator="\n", strip=True)
+          text = re.sub(r"\n{3,}", "\n\n", text)
+          return text.strip()
+
+      # Before vs after
+      dirty = """
+      <html><head><style>body{margin:0}</style></head>
+      <body>
+        <script>gtag('event', 'page_view')</script>
+        <h1>Books to Scrape</h1>
+        <p>A website for web scraping practice.</p>
+      </body></html>
+      """
+      print(clean_html_text(dirty))
+      # Books to Scrape
+      # A website for web scraping practice.
+    narration: >
+      Notice how the output is just two clean lines — the script, style, and
+      HTML structure are completely removed. The text[:3000] cap in
+      extract_schema_fields (next lesson) ensures only the most relevant
+      content reaches the model even if the cleaned text is large. Together,
+      clean_html_text and the cap keep your LLM prompts tight.
+
+  - type: exercise
+    heading: "Exercise 1: clean_html_text"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement clean_html_text(html_string)
+      that removes script/style tags, calls get_text with separator='\\n',
+      collapses 3+ newlines to 2, and returns the stripped text.
+    hint: >
+      soup(['script', 'style']) returns all script and style tags.
+      Call tag.decompose() on each. Then get_text(separator='\\n', strip=True).
+      Then re.sub(r'\\n{3,}', '\\n\\n', text).strip().
+    narration: >
+      Exercise 1 has no LLM calls and no network calls — it is a pure
+      BeautifulSoup and regex test. The check harness uses HTML with embedded
+      JavaScript and CSS and verifies that the visible text is present in the
+      output while script and style content are absent. This is the fastest
+      exercise of the day — under a second to run all five checks.
+
+  - type: summary
+    heading: "The AI Scraping Pipeline: Key Takeaways"
+    bullets:
+      - "Fetch → Clean → Extract → Validate: four functions, one pipeline"
+      - "decompose() + get_text() + re.sub: the three-step HTML cleaning recipe"
+      - "Separate functions = testable in isolation; composable into scrape_and_extract"
+      - "None return from validate_extracted: caller decides retry/skip — no crash"
+      - "format='json' in ollama.chat: the same constraint from Day 4, applied to scraping"
+      - "Any URL, any schema — swap model_class and the output changes"
+    narration: >
+      The power of this pipeline is its generality. The same four functions
+      extract news article metadata, product listings, job postings, or research
+      paper abstracts — you only change the Pydantic model. The rest of the
+      course will use this pattern in more contexts: Day 35's Auto-Analyst
+      pipeline scrapes data and summarises it, Day 40's AI analysis generates
+      narratives from structured data you scraped here.

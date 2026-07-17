@@ -1,0 +1,149 @@
+day: "024"
+lesson: "02"
+title: "Schema-Guided LLM Extraction"
+
+slides:
+
+  - type: title
+    heading: "Schema-Guided Extraction"
+    subheading: "Tell the LLM what to extract — it fills in the values"
+    narration: >
+      Lesson 2 is the heart of the pipeline: extract_schema_fields. You give
+      the LLM plain text and a list of field names; it returns a JSON dict with
+      one value per field. The field list acts as a lightweight schema. format='json'
+      guarantees parseable output. A fallback dict with null values handles
+      the rare case where JSON parsing still fails.
+
+  - type: concept
+    label: "Field-list extraction"
+    heading: "Field Names as a Schema"
+    body: >
+      Instead of writing a full JSON Schema (which is verbose), you pass a list
+      of field names. The LLM understands what each field should contain from
+      the name alone — "price" means a price, "author" means an author. The
+      system prompt tells it to use null for fields it cannot find, so the
+      caller always gets a dict with exactly the requested keys.
+    bullets:
+      - "fields = ['title', 'price', 'rating'] — the schema in plain Python"
+      - "json.dumps(fields) in the system prompt — LLM sees the list as JSON"
+      - "format='json' — grammar-constrained JSON output (Day 4)"
+      - "json.loads on response — parse to Python dict"
+      - "Fallback: {f: None for f in fields} — safe return on parse failure"
+    narration: >
+      The field-list approach is simpler than passing a full JSON Schema (which
+      you would build with model_json_schema() from Day 4). Full schemas give
+      the model more guidance about types and constraints — useful when precision
+      matters. Field lists are faster to write and work well for natural language
+      fields like title, description, and author where the model already knows
+      the expected format from the field name. For typed numeric fields like
+      price or year, you might add a type hint in the field name or the system
+      prompt: 'price (numeric string)', 'year (4-digit string)'.
+
+  - type: how_it_works
+    label: "Prompt structure"
+    heading: "How the Extraction Prompt is Built"
+    body: >
+      The system prompt lists the exact fields using json.dumps so the model
+      sees a clean JSON array. It instructs the model to use null for missing
+      fields and to return only JSON with no preamble. The user prompt
+      contains the cleaned page text, capped at 3000 characters.
+    bullets:
+      - "system: 'extract these fields: [\"f1\",\"f2\"]. use null for missing. json only.'"
+      - "user: f'Extract from this text:\\n\\n{text[:3000]}'"
+      - "format='json' in ollama.chat — model grammar stays in JSON mode"
+      - "response['message']['content'] — the raw JSON string"
+      - "json.loads(raw) — parse; on exception return {f: None for f in fields}"
+    narration: >
+      The 3000-character cap is a conservative limit for llama3.2 with a
+      typical instruction prompt overhead. The model's context window is larger,
+      but passing more text increases latency and cost without proportionally
+      improving extraction quality — the most important content is almost always
+      in the first few thousand characters of a clean-text page. For longer
+      documents, the map-reduce pattern from Day 7 can extract fields from
+      chunks and merge the results. For today, 3000 characters covers every
+      exercise and project target reliably.
+
+  - type: code
+    label: "extract_schema_fields"
+    heading: "extract_schema_fields — LLM Field Extractor"
+    code: |
+      import json
+      import ollama
+
+      def extract_schema_fields(
+          text: str,
+          fields: list[str],
+          model: str = "llama3.2",
+      ) -> dict:
+          """Extract named fields from plain text using the LLM."""
+          fields_json = json.dumps(fields)
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a structured data extractor. "
+                          f"Extract the following fields from the text: {fields_json}. "
+                          "Return JSON with exactly these keys. "
+                          "Use null for any field you cannot find. "
+                          "Return only valid JSON, no explanation."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": f"Extract from this text:\n\n{text[:3000]}",
+                  },
+              ],
+              format="json",
+          )
+          raw = response["message"]["content"]
+          try:
+              return json.loads(raw)
+          except Exception:
+              return {f: None for f in fields}
+    narration: >
+      The f-string inside the system message content uses fields_json — a JSON
+      array string — so the model sees the fields as structured data, not a
+      comma-separated sentence. This is more reliable: the model is already in
+      JSON mode and interprets JSON inside the prompt more faithfully. The
+      fallback {f: None for f in fields} is a dict comprehension that returns
+      every requested field as null — a safe, well-typed result even if the
+      LLM produced unparseable output. With format='json' this fallback almost
+      never triggers, but it is there as a safety net.
+
+  - type: exercise
+    heading: "Exercise 2: extract_schema_fields"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement extract_schema_fields(text,
+      fields, model) that uses ollama.chat with format='json' to extract named
+      fields from plain text. Return the fallback dict on JSON parse failure.
+    hint: >
+      fields_json = json.dumps(fields). System prompt: 'extract fields:
+      {fields_json}; use null for missing; return only JSON'. User prompt:
+      f'Extract from this text:\\n\\n{text[:3000]}'. Parse with json.loads;
+      fallback {f: None for f in fields} on exception.
+    narration: >
+      Exercise 2 has two LLM calls: one on the sample Python text to extract
+      language_name, creator, and year, and one on empty text to confirm the
+      fallback dict is returned correctly. The checks verify the dict has all
+      requested keys and that at least one extracted value is non-null — a
+      loose check that lets the LLM answer naturally. Check 5 verifies the
+      empty-text fallback has the correct keys even when the LLM returns null
+      for everything.
+
+  - type: summary
+    heading: "Schema-Guided Extraction: Key Takeaways"
+    bullets:
+      - "fields as list[str] — the simplest schema; model infers types from names"
+      - "json.dumps(fields) in the prompt — model sees a JSON array, not prose"
+      - "format='json' — grammar-constrained output; nearly eliminates parse errors"
+      - "json.loads in try/except — safe parse; fallback dict on rare failures"
+      - "text[:3000] — cap before passing to model for latency and reliability"
+      - "Full JSON Schema (model_json_schema) for typed, validated fields — Day 4 pattern"
+    narration: >
+      extract_schema_fields is intentionally general — it works with any field
+      list and any text source. The next function, validate_extracted, adds the
+      type safety layer by running the raw dict through Pydantic. Together they
+      form the extract-validate pair: the LLM fills values, Pydantic checks
+      types and presence. This pattern scales to any domain.
