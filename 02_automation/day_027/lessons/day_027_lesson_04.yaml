@@ -1,0 +1,128 @@
+day: "027"
+lesson: "04"
+title: "Run Logging and Job State"
+
+slides:
+
+  - type: title
+    heading: "Run Logging"
+    subheading: "record_run, querying the log, and job state across restarts"
+    narration: >
+      Lesson 4 covers the run log in detail. record_run is the function that appends
+      to the log without mutating the original — pure data manipulation. The log is
+      a list of dicts, each recording who ran, when, what the result was, and whether
+      it succeeded. Querying this log powers is_due and also gives you an audit trail
+      of everything that ran and when.
+
+  - type: concept
+    label: "run record schema"
+    heading: "Run Record Schema"
+    body: >
+      Each run record is a dict with four keys: name (job identifier), ran_at (ISO
+      datetime string), result (human-readable outcome, e.g. the file path where
+      output was saved), and status ('ok' or 'error'). The ISO datetime format
+      is critical — it is both human-readable and parseable by
+      datetime.fromisoformat(), which is_due uses for elapsed-time calculation.
+    bullets:
+      - "name: str — which job ran (matches build_job's 'name' key)"
+      - "ran_at: str — datetime.now().isoformat() — parseable and readable"
+      - "result: str — what was produced ('saved to /tmp/briefing_2026-07-17.txt')"
+      - "status: 'ok' | 'error' — success or failure"
+      - "list[dict] — one record per run; latest is always at the end"
+    narration: >
+      The ISO 8601 format from datetime.now().isoformat() looks like
+      '2026-07-17T09:30:00.123456'. It is timezone-naive when using datetime.now()
+      without a tz argument. For a local automation system this is fine. For a
+      distributed system where servers may be in different timezones, use
+      datetime.now(timezone.utc).isoformat() and always compare datetimes in UTC.
+      For today's daily briefing scheduler, local time is correct.
+
+  - type: how_it_works
+    label: "pure append"
+    heading: "record_run — Pure Append Pattern"
+    body: >
+      record_run takes the existing log list and returns a new list with one record
+      added. It uses log + [new_record] (list concatenation) rather than log.append
+      (in-place mutation). The pure pattern means callers can safely chain calls —
+      log = record_run(log, 'job1', ...) then log = record_run(log, 'job2', ...) —
+      without worrying about side effects or aliases.
+    bullets:
+      - "log + [new_record] → new list — never mutates original"
+      - "Pure: same input always gives same shape of output"
+      - "Chainable: log = record_run(log, 'a', ...); log = record_run(log, 'b', ...)"
+      - "Caller saves: save_run_log(path, log) after all records added"
+      - "Contrast with list.append(): mutates in place, can cause aliasing bugs"
+    narration: >
+      The aliasing bug with .append() looks like this: passing `log` to a function,
+      which calls log.append(), mutates the list the caller holds — unexpected side
+      effect. Using log + [record] always creates a fresh list, so the caller's
+      original variable is untouched. This is the same pattern as Day 15's
+      append_turn (pure history building for the chatbot) — immutable data
+      structures for state that multiple functions touch.
+
+  - type: code
+    label: "record_run and querying"
+    heading: "record_run and Querying the Log"
+    code: |
+      from datetime import datetime
+
+      def record_run(log, name, result, status="ok") -> list[dict]:
+          return log + [{
+              "name":   name,
+              "ran_at": datetime.now().isoformat(),
+              "result": result,
+              "status": status,
+          }]
+
+      # Querying: last run time for a named job
+      def last_run_for(name: str, log: list[dict]) -> str | None:
+          runs = [r for r in log if r["name"] == name]
+          return runs[-1]["ran_at"] if runs else None
+
+      # Example
+      log = []
+      log = record_run(log, "briefing", "saved to /tmp/b.txt")
+      log = record_run(log, "briefing", "saved to /tmp/b2.txt")
+
+      print(f"Records: {len(log)}")
+      print(f"Last run: {last_run_for('briefing', log)}")
+      print(f"Due for 1440-min interval: {is_due(last_run_for('briefing', log), 1440)}")
+    narration: >
+      last_run_for is a one-liner query: list comprehension to filter by name,
+      then index -1 to get the most recent. This is faster than sorting the full
+      log and relies on the invariant that records are appended in chronological
+      order — the last record for a given name is the most recent run. The query
+      is O(n) in the number of log entries, which is fine for a daily log with
+      at most a few thousand entries per year.
+
+  - type: exercise
+    heading: "Exercise 4: record_run"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement record_run(log, name, result,
+      status='ok') that returns a new list with a new record dict appended.
+      The record must have keys 'name', 'ran_at' (ISO from datetime.now()),
+      'result', and 'status'. The function must be pure — the original log list
+      must not be modified.
+    hint: >
+      new_record = {'name': name, 'ran_at': datetime.now().isoformat(),
+      'result': result, 'status': status}. return log + [new_record].
+      The check verifies the original log is unchanged after the call.
+    narration: >
+      The purity check is the most important part of Exercise 4. The check harness
+      saves the length of the original log before calling record_run, then checks
+      it after — if append() was used instead of concatenation, the original list
+      would have grown and the check would fail. This directly tests the contract:
+      pure functions never surprise callers with hidden mutations.
+
+  - type: summary
+    heading: "Day 27 Lesson 4: Key Takeaways"
+    bullets:
+      - "Run record: {name, ran_at (ISO), result, status} — four-key schema"
+      - "datetime.now().isoformat() — human-readable, parseable by fromisoformat()"
+      - "record_run: log + [record] — pure append, never mutates original"
+      - "last_run_for(name, log): [r for r in log if r['name'] == name][-1]['ran_at']"
+      - "Save after all record_run calls: one save_run_log per scheduler invocation"
+    narration: >
+      Lesson 4 gave you the record_run function and the log querying pattern.
+      Lesson 5 assembles everything into DailyBriefingScheduler — the class that
+      extends Day 1's AI briefing with idempotent scheduling and file persistence.

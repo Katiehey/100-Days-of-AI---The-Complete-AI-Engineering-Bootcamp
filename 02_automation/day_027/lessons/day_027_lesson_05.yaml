@@ -1,0 +1,144 @@
+day: "027"
+lesson: "05"
+title: "DailyBriefingScheduler — The Full Pipeline"
+
+slides:
+
+  - type: title
+    heading: "DailyBriefingScheduler"
+    subheading: "AI generation, persistence, and idempotent scheduling assembled"
+    narration: >
+      Lesson 5 assembles all four components into DailyBriefingScheduler. The class
+      holds job configs, checks which are due, generates AI briefings, saves them
+      to dated files, and updates the run log. It extends Day 1's AI Briefing
+      Generator with durable scheduling state: the scheduler remembers what ran and
+      when, and will never generate a duplicate briefing in the same interval window.
+
+  - type: concept
+    label: "ai_daily_briefing"
+    heading: "ai_daily_briefing — The AI Step"
+    body: >
+      ai_daily_briefing takes a list of topics and returns a structured briefing
+      string. The system prompt establishes the briefing persona and two format
+      constraints: section headers and a 300-word limit. The topics list is the
+      human control point — the scheduler owner decides what matters. No format='json'
+      here; free-form structured text is the right output for a document.
+    bullets:
+      - "topics: list[str] — joined as '\\n- topic1\\n- topic2' in the user prompt"
+      - "System: 'briefing assistant; section headers (##); under 300 words'"
+      - "No format='json' — free-form text, not structured extraction"
+      - "Return response['message']['content'] directly"
+      - "Compose topics prompt: '\\n'.join(f'- {t}' for t in topics)"
+    narration: >
+      The 300-word limit in the system prompt is an important constraint for a
+      scheduled briefing. Without it, the LLM might produce a 2000-word essay
+      that nobody reads. Shorter briefings are read; longer ones are skipped.
+      The section headers (## Topic) help recipients skim to the sections they
+      care about. Both constraints are in the system prompt, which keeps them
+      consistent across every call without needing to repeat them in the user
+      prompt.
+
+  - type: how_it_works
+    label: "DailyBriefingScheduler"
+    heading: "DailyBriefingScheduler — Class Design"
+    body: >
+      The class has a log_path (where to persist run history) and a jobs list
+      (build_job dicts added via add_job). due_jobs() filters jobs where is_due is
+      True for the given now. save_briefing() writes to a dated file path.
+      run() chains: due → generate AI content → save file → update log → return dict.
+    bullets:
+      - "__init__: log_path, jobs = [] — stateful across run() calls"
+      - "add_job(name, fn, interval_minutes): append build_job result"
+      - "_last_run(name): load log, filter by name, return last ran_at or None"
+      - "due_jobs(now=None): [j['name'] for j in jobs if enabled and is_due(...)]"
+      - "run(topics, output_dir, model, now): due → ai → save → log → return dict"
+    narration: >
+      _last_run is a private method (underscore prefix by convention) because it
+      reads from disk on every call — a caller should not call it repeatedly and
+      expect the same cost as reading a variable. The now parameter on both due_jobs
+      and run flows through to is_due, making the entire scheduler testable with
+      a fixed timestamp. If you pass now=datetime(2026, 7, 17, 7, 0, 0), all
+      due checks use that time — no dependency on wall clock in tests.
+
+  - type: code
+    label: "full scheduler"
+    heading: "DailyBriefingScheduler"
+    code: |
+      class DailyBriefingScheduler:
+          def __init__(self, log_path="/tmp/run_log.json"):
+              self.log_path = log_path
+              self.jobs = []
+
+          def add_job(self, name, fn, interval_minutes):
+              self.jobs.append(build_job(name, fn, interval_minutes))
+
+          def _last_run(self, name):
+              log = load_run_log(self.log_path)
+              runs = [r for r in log if r["name"] == name]
+              return runs[-1]["ran_at"] if runs else None
+
+          def due_jobs(self, now=None):
+              return [
+                  j["name"] for j in self.jobs
+                  if j["enabled"] and is_due(self._last_run(j["name"]), j["interval_minutes"], now)
+              ]
+
+          def save_briefing(self, content, output_dir):
+              today = datetime.now().strftime("%Y-%m-%d")
+              path = str(Path(output_dir) / f"briefing_{today}.txt")
+              Path(path).write_text(content, encoding="utf-8")
+              return path
+
+          def run(self, topics, output_dir, model="llama3.2", now=None):
+              due = self.due_jobs(now)
+              content = ai_daily_briefing(topics, model=model)
+              path = self.save_briefing(content, output_dir)
+              log = load_run_log(self.log_path)
+              for name in due:
+                  log = record_run(log, name, f"briefing saved to {path}")
+              save_run_log(self.log_path, log)
+              return {"content": content, "path": path, "ran_jobs": due}
+    narration: >
+      run() always generates a briefing regardless of whether any jobs are due,
+      because the briefing itself is the payload — even if no jobs are 'due' in
+      the scheduling sense, the content is useful. The ran_jobs list in the return
+      dict tells the caller which job records were updated. If ran_jobs is empty,
+      it means the caller may want to check why no jobs were due (all disabled,
+      or intervals not elapsed). The path goes into the run record result so the
+      audit trail shows exactly which file each run produced.
+
+  - type: exercise
+    heading: "Exercise 5: ai_daily_briefing"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_daily_briefing(topics, model)
+      that formats topics as a bullet list, calls ollama.chat with a professional
+      briefing assistant persona (section headers, under 300 words), and returns
+      the response content string.
+    hint: >
+      topics_str = "\\n".join(f"- {t}" for t in topics). ollama.chat with system
+      'professional briefing assistant; ## headers; under 300 words' and user
+      showing the topics list with 'Today\\'s briefing:' cue at the end.
+      Return response['message']['content'].
+    narration: >
+      Exercise 5 is the AI step of today's pipeline — the same pattern as
+      ai_generate_section (Day 26) and draft_reply (Day 25). A system prompt
+      establishes persona and constraints; a user prompt provides the data;
+      the function returns the content string. The topics list is the only
+      variable between runs — the same system prompt generates different briefings
+      for different topic sets, making the function reusable across different
+      automation pipelines.
+
+  - type: summary
+    heading: "Day 27: Key Takeaways"
+    bullets:
+      - "DailyBriefingScheduler: add_job → due_jobs → run — three-method public API"
+      - "due_jobs(now=None): testable with fixed timestamp; now flows to is_due"
+      - "save_briefing: dated filename (briefing_2026-07-17.txt) — one file per day"
+      - "run(): generate AI → save file → update log — always generate, conditionally record"
+      - "APScheduler wraps scheduler.run() — the scheduler class works with or without it"
+    narration: >
+      Day 27 complete. You now have a complete idempotent scheduling system:
+      job configs, due-time checks, run-log persistence, and AI content generation.
+      DailyBriefingScheduler can be plugged directly into APScheduler or run
+      from a cron job. Day 28 moves to spreadsheets — reading and writing Google
+      Sheets from Python, a key automation surface in business workflows.

@@ -1,0 +1,142 @@
+day: "027"
+lesson: "03"
+title: "Idempotency — Running Jobs Safely"
+
+slides:
+
+  - type: title
+    heading: "Idempotency in Scheduling"
+    subheading: "What it is, why it matters, and how to implement it"
+    narration: >
+      Lesson 3 is idempotency — the most important design principle for scheduled
+      jobs. An idempotent operation produces the same outcome whether you run it
+      once or many times. A daily briefing generator should produce exactly one
+      briefing per day, not ten briefings if the scheduler fires ten times due to
+      a bug or restart. Idempotency is implemented with three building blocks:
+      a due-check, a run record, and a last-run lookup.
+
+  - type: concept
+    label: "idempotency"
+    heading: "What Idempotency Means for Scheduled Jobs"
+    body: >
+      A scheduled job is idempotent if: (1) it checks whether it already ran
+      before running again, and (2) multiple runs in the same period produce the
+      same result as one run. For a daily briefing: if you call run() three times
+      in the same hour, only the first call generates and saves the briefing.
+      The next two see that the job ran less than 24 hours ago and skip.
+    bullets:
+      - "Non-idempotent: every run() call generates and saves a new briefing file"
+      - "Idempotent: run() checks last_run; skips if ran within interval_minutes"
+      - "Three building blocks: is_due() + record_run() + load/save_run_log()"
+      - "is_due: should I run now? record_run: I just ran, record it"
+      - "Run log: durable state that survives process restarts"
+    narration: >
+      The idempotency gap is the most common production bug in automation systems.
+      A system that sends a daily email works fine for 6 months and then sends 5
+      emails on a restart day because the scheduler ran 5 times before the process
+      stabilised. The fix is always the same: check before doing, record after doing.
+      is_due implements the check; record_run implements the record. Together they
+      form the standard gate-and-log pattern for any scheduled operation.
+
+  - type: how_it_works
+    label: "gate and log"
+    heading: "Gate-and-Log Pattern"
+    body: >
+      The gate-and-log pattern has three steps. Before running: load the run log,
+      call is_due with the last_run timestamp for this job. If not due, return early.
+      If due: execute the job. After the job completes: call record_run to build
+      a new log with the result appended, then save_run_log to persist it. The
+      record is written after the job so a crash mid-job does not falsely mark
+      it as done.
+    bullets:
+      - "Step 1 (gate): log = load_run_log(path); last = last_run_for(name, log)"
+      - "Step 2 (check): if not is_due(last, interval_minutes): return early"
+      - "Step 3 (run): result = execute_job()"
+      - "Step 4 (log): log = record_run(log, name, result); save_run_log(path, log)"
+      - "Write after success: no false completion record if job crashes mid-run"
+    narration: >
+      Writing the record after success is a deliberate choice. If you write before
+      executing, a crash leaves a record that says the job ran successfully even
+      though it did not. The next run sees 'ran N hours ago' and skips — the job
+      never actually completes. Writing after execution means a crash on execution
+      leaves no record, so the next run picks it up and tries again. The downside
+      is the small risk of running twice at a restart boundary; for most automation
+      tasks, that is acceptable and better than silently missing runs.
+
+  - type: code
+    label: "idempotent run"
+    heading: "Idempotent run() Implementation"
+    code: |
+      from datetime import datetime
+      from pathlib import Path
+      import json
+
+      def idempotent_run(
+          name: str,
+          log_path: str,
+          interval_minutes: int,
+          job_fn,
+      ) -> str | None:
+          """Run job only if due; return result or None if skipped."""
+          log = load_run_log(log_path)
+          runs = [r for r in log if r["name"] == name]
+          last_run_iso = runs[-1]["ran_at"] if runs else None
+
+          if not is_due(last_run_iso, interval_minutes):
+              print(f"[{name}] Skipped — not due yet")
+              return None
+
+          print(f"[{name}] Running...")
+          result = job_fn()
+
+          log = record_run(log, name, result)
+          save_run_log(log_path, log)
+          print(f"[{name}] Done. Recorded.")
+          return result
+
+      # Example: only generates a briefing once per day
+      def generate():
+          return "Today's briefing: ..."
+
+      idempotent_run("daily_briefing", "/tmp/log.json", 1440, generate)
+    narration: >
+      The result = job_fn() → log = record_run(log, name, result) → save pattern
+      is the core of the DailyBriefingScheduler.run method. The scheduler stores
+      the run log path and job configs; run() applies this gate-and-log pattern
+      to every due job. Notice that record_run returns a new list (pure function)
+      rather than mutating the existing log — this keeps the pattern composable:
+      multiple jobs can be processed in a loop, each adding to the running log
+      variable before a single final save.
+
+  - type: exercise
+    heading: "Exercise 3: save_run_log / load_run_log"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement save_run_log(path, records) that
+      writes records as JSON to path, and load_run_log(path) that reads and returns
+      the list. load_run_log must return [] for a missing file — first-time use
+      should work without pre-creating the file.
+    hint: >
+      save: Path(path).write_text(json.dumps(records, indent=2), encoding='utf-8').
+      load: p = Path(path). if not p.exists(): return [].
+      return json.loads(p.read_text(encoding='utf-8')). The check round-trips
+      a 2-record list and verifies that saving an empty list also works correctly.
+    narration: >
+      Exercise 3 implements the durable half of the gate-and-log pattern. JSON is
+      the right format here: human-readable (you can inspect the log with any text
+      editor), no schema migration needed, and Python's json module handles it
+      natively with no extra packages. The file is small — a typical daily run log
+      has 365 records per year — so in-memory load-modify-save is fast and correct.
+
+  - type: summary
+    heading: "Day 27 Lesson 3: Key Takeaways"
+    bullets:
+      - "Idempotent job: check before running, record after running"
+      - "Gate: load log → find last_run → is_due? → skip or proceed"
+      - "Log: record_run (pure) → save_run_log (persist) — both happen after execution"
+      - "Write after success: a crash never falsely marks a job as done"
+      - "JSON run log: human-readable, no schema, survives process restarts"
+    narration: >
+      Lesson 3 gave you the idempotency principle and the gate-and-log pattern.
+      Lesson 4 goes deeper on the run log itself: the record_run function that
+      keeps the log as a pure data structure, and how to query it to find the
+      last-run time for any named job.

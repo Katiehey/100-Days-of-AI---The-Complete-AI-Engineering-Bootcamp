@@ -1,0 +1,143 @@
+day: "027"
+lesson: "02"
+title: "APScheduler in Practice"
+
+slides:
+
+  - type: title
+    heading: "APScheduler"
+    subheading: "BlockingScheduler, BackgroundScheduler, and job management"
+    narration: >
+      Lesson 2 is the APScheduler API. APScheduler is the most widely used
+      Python scheduling library — it ships with interval, cron, and date
+      triggers, supports in-memory and database job stores, and integrates with
+      asyncio, gevent, and Tornado. For today's use case — a simple daily
+      automation script — the blocking or background scheduler with in-memory
+      job storage is exactly right.
+
+  - type: concept
+    label: "scheduler types"
+    heading: "Blocking vs Background Schedulers"
+    body: >
+      BlockingScheduler.start() never returns — it enters an event loop and
+      keeps the process alive. Use it for standalone scripts whose only purpose
+      is running scheduled tasks. BackgroundScheduler.start() returns immediately
+      and runs the schedule in a daemon thread. Use it inside a web server or
+      any process that also does other work. Both share the same trigger and
+      job API.
+    bullets:
+      - "BlockingScheduler: start() blocks; Ctrl+C to exit; right for standalone scripts"
+      - "BackgroundScheduler: start() returns; scheduler runs in background thread"
+      - "Both: from apscheduler.schedulers.blocking/background import BlockingScheduler"
+      - "Background + FastAPI: start scheduler in lifespan, shutdown in lifespan cleanup"
+      - "Use shutdown(wait=False) for immediate stop; shutdown(wait=True) waits for running jobs"
+    narration: >
+      The background scheduler's daemon thread means the scheduler stops when
+      the main thread exits. If your script finishes immediately after
+      BackgroundScheduler.start(), the process exits and no jobs ever run.
+      You need to keep the main thread alive — with a sleep loop, a web server,
+      or a blocking event. BlockingScheduler avoids this by simply blocking the
+      main thread. For a dedicated automation script, BlockingScheduler is always
+      the right choice.
+
+  - type: how_it_works
+    label: "job management"
+    heading: "Adding, Pausing, and Removing Jobs"
+    body: >
+      Jobs can be added with add_job(fn, trigger, **trigger_kwargs, id='job_id').
+      The id lets you reference the job later. pause_job(id) suspends a job
+      without removing it; resume_job(id) re-enables it. remove_job(id) deletes
+      it. get_jobs() returns all registered jobs. These are the operations a
+      management API would expose — start, stop, pause, reschedule.
+    bullets:
+      - "scheduler.add_job(fn, 'cron', hour=8, id='morning') — programmatic add"
+      - "scheduler.pause_job('morning') — suspend without removing"
+      - "scheduler.resume_job('morning') — re-enable a paused job"
+      - "scheduler.remove_job('morning') — delete the job"
+      - "scheduler.get_jobs() — list[Job]; job.id, job.next_run_time"
+    narration: >
+      The id parameter is optional but recommended — without it, APScheduler
+      generates a UUID which is hard to reference later. The next_run_time
+      attribute on a Job object shows when the job will next fire, which is
+      useful for status dashboards and health checks. reschedule_job(id, trigger,
+      **kwargs) changes the schedule without removing and re-adding the job.
+      For today's exercises, you build a simpler scheduler that uses the same
+      concepts (job id, is_due, pause/enable flags) without APScheduler's full
+      machinery.
+
+  - type: code
+    label: "APScheduler full example"
+    heading: "APScheduler with Job Management"
+    code: |
+      from apscheduler.schedulers.background import BackgroundScheduler
+      from datetime import datetime
+      import time
+
+      scheduler = BackgroundScheduler()
+
+      def generate_briefing():
+          print(f"[{datetime.now().strftime('%H:%M:%S')}] Running briefing job")
+
+      # Add with an id
+      scheduler.add_job(
+          generate_briefing,
+          'cron',
+          hour=7,
+          minute=30,
+          day_of_week='mon-fri',
+          id='morning_briefing',
+      )
+
+      # Also add an interval job
+      scheduler.add_job(generate_briefing, 'interval', minutes=60, id='hourly')
+
+      print("Jobs configured:")
+      for job in scheduler.get_jobs():
+          print(f"  {job.id}: next_run={job.next_run_time}")
+
+      # scheduler.start()
+      # time.sleep(3600)    # keep main thread alive for 1 hour
+      # scheduler.shutdown()
+      print("(scheduler not started — would need a live process)")
+    narration: >
+      BackgroundScheduler is imported from a different module than BlockingScheduler —
+      the package structure mirrors the blocking vs non-blocking distinction.
+      The 'mon-fri' string for day_of_week is APScheduler's format; the equivalent
+      cron expression would be '1-5'. APScheduler accepts both. For the exercises,
+      you build is_due() and build_job() — the components that make idempotent
+      interval scheduling work without needing a running APScheduler instance.
+
+  - type: exercise
+    heading: "Exercise 2: is_due"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement is_due(last_run_iso, interval_minutes,
+      now=None) that returns True if the job has never run (None) or if at least
+      interval_minutes * 60 seconds have elapsed since last_run_iso. Use
+      datetime.fromisoformat() to parse the ISO string. The now parameter defaults
+      to datetime.now() — accepting it as an argument makes the function testable
+      with fixed timestamps.
+    hint: >
+      if last_run_iso is None: return True. if now is None: now = datetime.now().
+      last_run = datetime.fromisoformat(last_run_iso).
+      elapsed = (now - last_run).total_seconds(). return elapsed >= interval_minutes * 60.
+    narration: >
+      The now parameter is the key testability feature. Without it, the function
+      always reads the real clock and tests would depend on wall time — impossible
+      to run deterministically. With a now parameter, tests can construct fixed
+      timestamps (datetime(2026, 7, 17, 9, 0, 0)) and verify the boundary
+      conditions precisely. This pattern — accepting 'now' as an optional parameter
+      that defaults to datetime.now() — is standard in well-tested scheduling code.
+
+  - type: summary
+    heading: "Day 27 Lesson 2: Key Takeaways"
+    bullets:
+      - "BlockingScheduler: blocks the process — right for standalone scripts"
+      - "BackgroundScheduler: background thread — right for web servers"
+      - "add_job(fn, trigger, **kwargs, id='name') — add with a referenceable id"
+      - "pause_job, resume_job, remove_job, get_jobs — management operations"
+      - "is_due: testable via 'now' parameter — never read the clock inside a check function"
+    narration: >
+      Lesson 2 covered APScheduler's API. Lesson 3 is idempotency — the principle
+      that running a job twice should produce the same result as running it once.
+      This is what distinguishes a robust scheduled job from a fragile one: a
+      well-designed job checks whether it needs to run before running.

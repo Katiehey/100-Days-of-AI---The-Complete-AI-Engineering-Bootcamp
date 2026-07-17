@@ -1,0 +1,131 @@
+day: "027"
+lesson: "01"
+title: "Scheduling Concepts and Cron Syntax"
+
+slides:
+
+  - type: title
+    heading: "Scheduling & Automation"
+    subheading: "Cron syntax, trigger types, and the scheduling mental model"
+    narration: >
+      Day 27 is about running code automatically on a schedule. Once you have
+      automation scripts — AI briefing generators, document reporters, data scrapers —
+      the natural next question is 'how do I make this run every morning without
+      me starting it?' That is scheduling. Today you learn the three trigger types
+      (cron, interval, date), the cron expression syntax, the idempotency principle,
+      and how to build the components of a reliable scheduled job in Python.
+
+  - type: concept
+    label: "trigger types"
+    heading: "Three Trigger Types"
+    body: >
+      Every scheduled task has a trigger: the rule that says when to run.
+      There are three trigger types. Cron triggers fire at specific calendar
+      times using cron expressions (Monday at 8am, every weekday at 9:30am).
+      Interval triggers fire every N seconds/minutes/hours/days from a start time.
+      Date triggers fire once at a specific datetime. Most daily automation uses
+      cron or interval.
+    bullets:
+      - "Cron: at specific times — '08:30 Mon-Fri', '0 * * * *' (top of every hour)"
+      - "Interval: every N units — every 60 minutes, every 24 hours"
+      - "Date: once — run at 2026-07-17 09:00:00, then never again"
+      - "Cron is the standard for daily/weekly tasks; interval for polling loops"
+      - "APScheduler supports all three with a unified API"
+    narration: >
+      Cron is named after the Unix cron daemon, which has been scheduling jobs
+      since 1975. The cron expression syntax became a de-facto standard and is
+      used by everything from Linux's crontab to GitHub Actions to APScheduler.
+      Interval triggers are simpler to reason about for AI pipelines (run every
+      hour) but cron gives you calendar-aware control (skip weekends, run at a
+      specific hour). Most daily briefing systems use cron so they fire at a
+      consistent time regardless of when the process was started.
+
+  - type: how_it_works
+    label: "cron expressions"
+    heading: "Cron Expression Syntax"
+    body: >
+      A cron expression has five (or six) space-separated fields. Left to right:
+      minute (0-59), hour (0-23), day of month (1-31), month (1-12), day of week
+      (0-6, Sunday=0). An asterisk (*) means 'every value'. A slash (*/N) means
+      'every N'. A comma separates multiple values. A hyphen is a range.
+    bullets:
+      - "'0 8 * * 1-5'  — 08:00 every Monday through Friday"
+      - "'30 7 * * *'   — 07:30 every day"
+      - "'*/15 * * * *' — every 15 minutes"
+      - "'0 9 1 * *'    — 09:00 on the 1st of every month"
+      - "'0 0 * * 0'    — midnight every Sunday"
+    narration: >
+      The five-field cron format is from traditional Unix crontab. APScheduler
+      adds a sixth field for seconds (leading position) when you need sub-minute
+      precision, but the standard five-field form is sufficient for daily automation.
+      You do not need to memorise this — crontab.guru is a browser-based cron
+      expression editor that translates to and from plain English. The key ones
+      to internalise are the asterisk (all values), the slash (step), and
+      the hyphen (range).
+
+  - type: code
+    label: "cron and interval"
+    heading: "Cron and Interval in APScheduler"
+    code: |
+      from apscheduler.schedulers.blocking import BlockingScheduler
+
+      scheduler = BlockingScheduler()
+
+      # Cron trigger: fire at 07:30 every weekday
+      @scheduler.scheduled_job('cron', hour=7, minute=30, day_of_week='mon-fri')
+      def morning_briefing():
+          print("Generating morning briefing...")
+
+      # Interval trigger: fire every 60 minutes
+      @scheduler.scheduled_job('interval', minutes=60)
+      def hourly_check():
+          print("Hourly check...")
+
+      # Date trigger: fire once at a specific time
+      @scheduler.scheduled_job('date', run_date='2026-12-31 23:59:59')
+      def year_end():
+          print("Happy New Year!")
+
+      # scheduler.start()  # blocks until interrupted — run in a terminal, not a notebook
+      print("Scheduler configured (not started — would block here)")
+    narration: >
+      BlockingScheduler holds the process until interrupted (Ctrl+C). This is
+      right for a dedicated script or a Docker container whose only job is
+      running scheduled tasks. BackgroundScheduler runs in a background thread
+      so your main process can keep doing other things — useful in a web server
+      (FastAPI, Flask) that also needs to run periodic tasks. The @scheduled_job
+      decorator is shorthand; you can also call scheduler.add_job(fn, trigger,
+      **kwargs) to add jobs programmatically.
+
+  - type: exercise
+    heading: "Exercise 1: build_job"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement build_job(name, fn,
+      interval_minutes, enabled=True) that returns a serialisable job config
+      dict with keys 'name', 'fn_name' (fn.__name__), 'interval_minutes', and
+      'enabled'. Raise ValueError if interval_minutes <= 0.
+    hint: >
+      if interval_minutes <= 0: raise ValueError(...). Return
+      {'name': name, 'fn_name': fn.__name__, 'interval_minutes': interval_minutes,
+      'enabled': enabled}. The dict is JSON-serialisable — no callable reference.
+    narration: >
+      Exercise 1 builds the job config object. In APScheduler, the scheduler
+      holds a reference to the callable directly. Our DailyBriefingScheduler
+      uses a simpler approach: the config dict records fn.__name__ for logging,
+      and the scheduler always calls ai_daily_briefing directly. This separation
+      means job configs are fully serialisable — you can save them to disk,
+      inspect them, and reload them without any pickleability concerns.
+
+  - type: summary
+    heading: "Day 27 Lesson 1: Key Takeaways"
+    bullets:
+      - "Three trigger types: cron (calendar times), interval (every N), date (once)"
+      - "Cron expression: minute hour dom month dow — * = all, */N = step, - = range"
+      - "'0 8 * * 1-5' = 08:00 Mon-Fri; '30 7 * * *' = 07:30 daily"
+      - "APScheduler: @scheduler.scheduled_job('cron', hour=8) or ('interval', minutes=60)"
+      - "build_job → serialisable dict; fn_name for logging, not callable reference"
+    narration: >
+      Lesson 1 introduced the concepts. Lesson 2 digs into APScheduler's API —
+      BlockingScheduler vs BackgroundScheduler, the add_job call, and how to
+      configure triggers programmatically. Then lessons 3 and 4 cover the components
+      that make scheduled jobs reliable: the is_due check and the run log.
