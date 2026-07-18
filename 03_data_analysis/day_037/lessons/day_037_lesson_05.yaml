@@ -1,0 +1,124 @@
+day: "037"
+lesson: "05"
+title: "The Cleaning Pipeline"
+slides:
+  - type: title
+    heading: "The Cleaning Pipeline"
+    subheading: "Composing strip → fill → dedup into one function"
+    narration: >
+      In lesson 5 you compose everything you have learned today into a
+      single clean_dataframe function: strip all string columns, fill numeric
+      nulls with each column's median, then drop duplicates. This is the
+      pattern real data engineering teams ship — a reusable entry point that
+      guarantees the same clean contract regardless of how messy the input is.
+
+  - type: concept
+    label: "Pipeline ordering"
+    heading: "Order matters: strip before dedup"
+    body: >
+      Strip whitespace before deduplication, or '  Widget  ' and 'Widget'
+      will look like different rows and the dedup will miss them.
+      Fill nulls before dropping duplicates too — a null and a filled
+      value are different in the comparison.
+    bullets:
+      - "Step 1: strip strings (so 'Widget' and ' Widget' unify)"
+      - "Step 2: fill numeric nulls (before dedup sees them)"
+      - "Step 3: drop duplicates (after all values are normalised)"
+    narration: >
+      The order of operations in a cleaning pipeline is not arbitrary.
+      Whitespace stripping must come first: if you deduplicate before
+      stripping, the rows space-Widget and Widget are treated as different
+      and both survive. Only after stripping do they collapse to the same
+      value and get deduplicated. Similarly, filling nulls before dedup
+      ensures that two rows that are identical except that one has NaN and
+      the other has a filled value are correctly identified as duplicates
+      after filling. Get the order wrong and you produce a DataFrame that
+      looks clean but still has subtle duplicates hidden behind whitespace.
+
+  - type: how_it_works
+    label: "select_dtypes pattern"
+    heading: "Apply operations to the right column type"
+    body: >
+      Use select_dtypes to target only string or only numeric columns.
+      This makes the pipeline generic — it works on any DataFrame
+      regardless of which columns are numeric or string.
+    bullets:
+      - "select_dtypes(include='object') — string columns"
+      - "select_dtypes(include='number') — int and float columns"
+      - "Loop over .columns and apply operation column by column"
+    narration: >
+      The select_dtypes pattern is what makes clean_dataframe generic. Instead
+      of hardcoding which columns to strip or fill, you ask pandas to tell you
+      which columns are strings and which are numeric. Then you apply the
+      right operation to each group. This means the same function works on a
+      three-column sales CSV and a fifty-column analytics export without any
+      changes. The alternative — a long series of if statements or hardcoded
+      column names — breaks every time the schema changes.
+
+  - type: code
+    label: "Full cleaning pipeline"
+    heading: "clean_dataframe — three steps, one function"
+    code: |
+      import pandas as pd
+
+      def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+          result = df.copy()
+
+          # 1. Strip string columns
+          for col in result.select_dtypes(include='object').columns:
+              result[col] = result[col].str.strip()
+
+          # 2. Fill numeric nulls with column median
+          for col in result.select_dtypes(include='number').columns:
+              result[col] = result[col].fillna(result[col].median())
+
+          # 3. Drop duplicates and reset index
+          return result.drop_duplicates().reset_index(drop=True)
+
+      messy = pd.DataFrame({
+          'product': ['  Widget  ', ' Widget', 'Gadget'],
+          'price':   [25.0, 25.0, None],
+      })
+      print(clean_dataframe(messy))
+      # Widget  25.0
+      # Gadget  25.0  (null filled with median 25.0)
+    narration: >
+      Here is the complete function. The first loop strips every string column.
+      The second loop fills every numeric null with the column median. The final
+      line drops duplicates — after stripping, the two Widget rows are identical
+      and one is removed — and resets the index. The result is a DataFrame with
+      consistent types, no nulls, no whitespace, and no duplicates. Every
+      downstream function can now rely on this guarantee without adding its own
+      defensive checks.
+
+  - type: exercise
+    heading: "Exercise 5 — clean_dataframe"
+    prompt: >
+      Implement `clean_dataframe(df) -> pd.DataFrame` using select_dtypes
+      to strip all object columns, fill all numeric column nulls with median,
+      then drop_duplicates and reset_index. Use df.copy().
+    hint: >
+      Three loops (or expressions): `for col in result.select_dtypes('object').columns:
+      result[col] = result[col].str.strip()`, then numeric fill, then return
+      `result.drop_duplicates().reset_index(drop=True)`.
+    narration: >
+      The project caps the day with this function applied to a real messy CSV
+      with multiple simultaneous issues. The checks verify no nulls, no
+      whitespace, no duplicates, and no mutation — all four cleaning guarantees
+      in one function.
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "strip strings first, then fill nulls, then deduplicate"
+      - "select_dtypes makes the pipeline generic across any schema"
+      - "clean_dataframe is the reusable entry point for any dataset"
+      - "Every downstream analysis can trust a clean input"
+      - "Day 38: EDA — explore the clean data you built today"
+    narration: >
+      You now have a complete data cleaning toolkit: null handling, type
+      coercion, string normalisation, and deduplication — all composable into
+      a single function. Tomorrow on Day 38 you will apply exploratory data
+      analysis techniques to understand the cleaned data: distributions,
+      correlations, and pivot tables. The data you clean today is the data
+      you will analyse tomorrow.

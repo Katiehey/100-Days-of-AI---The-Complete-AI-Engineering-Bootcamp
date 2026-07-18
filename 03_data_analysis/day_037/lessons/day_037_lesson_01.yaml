@@ -1,0 +1,128 @@
+day: "037"
+lesson: "01"
+title: "Detecting & Handling Missing Values"
+slides:
+  - type: title
+    heading: "Detecting & Handling Missing Values"
+    subheading: "dropna, fillna, and choosing a null strategy"
+    narration: >
+      Welcome to Day 37 — Data Cleaning. Yesterday you learned the pandas
+      fundamentals: creating DataFrames, loading data, filtering, and grouping.
+      Today you tackle the reality of real-world data: it is messy. Missing
+      values, bad types, dirty strings, and duplicate rows are the norm, not the
+      exception. By the end of today you will have a toolkit that can take a
+      broken CSV and produce a clean, trustworthy table ready for analysis.
+      Lesson 1 starts with the most common problem — NaN values.
+
+  - type: concept
+    label: "What is NaN?"
+    heading: "NaN — Not a Number — signals a missing value"
+    body: >
+      pandas uses a special float value called NaN to represent any missing or
+      unrepresentable cell. It propagates through arithmetic: any operation on
+      NaN produces NaN, so a single missing value can corrupt an entire column.
+    bullets:
+      - "df.isnull() — True where value is NaN"
+      - "df.isnull().sum() — null count per column"
+      - "df.isnull().sum().sum() — total null cells"
+    narration: >
+      NaN stands for Not a Number. pandas uses it as a universal placeholder
+      for any missing, deleted, or unreadable value — whether it came from a
+      blank CSV cell, a failed type conversion, or an explicit None in Python.
+      The critical property of NaN is that it propagates: 5 plus NaN equals
+      NaN, and NaN greater than 10 is False. This means a single missing price
+      will silently make the whole column sum come out wrong. Before you do any
+      analysis, you need to know exactly where the NaNs are and decide what to
+      do with them.
+
+  - type: how_it_works
+    label: "dropna vs fillna"
+    heading: "Two strategies: remove or replace"
+    body: >
+      dropna() removes every row that contains at least one NaN.
+      fillna(value) replaces every NaN with the given value.
+      Neither is always right — it depends on why the data is missing.
+    bullets:
+      - "df.dropna() — remove rows with any null"
+      - "df.fillna(0) — replace all nulls with zero"
+      - "df['col'].fillna(df['col'].mean()) — column-specific fill"
+    narration: >
+      You have two fundamental choices when a value is missing. Drop it —
+      remove the entire row from the dataset. Or fill it — replace the NaN
+      with some sensible substitute. Dropping is correct when missing data
+      means the record is invalid and should not be analysed. Filling is
+      correct when the missingness is incidental — a sensor glitch, a form
+      that was left blank, a value that can be imputed from context. For
+      numeric columns the most common fill values are zero (when absence
+      really means zero), the column mean (when you want to preserve the
+      average), and the column median (when there are outliers that would
+      skew the mean). The median is generally safer than the mean for
+      real-world data with outliers.
+
+  - type: code
+    label: "Null detection and filling"
+    heading: "isnull, dropna, fillna"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'a': [1.0, 2.0, None, 4.0],
+          'b': [10.0, None, 30.0, 40.0],
+      })
+
+      # detect
+      print(df.isnull().sum())     # a: 1, b: 1
+
+      # drop — removes rows 1 and 2
+      print(df.dropna().reset_index(drop=True))
+
+      # fill with zero
+      print(df.fillna(0))
+
+      # fill per column with median
+      df2 = df.copy()
+      for col in df2.select_dtypes(include='number').columns:
+          df2[col] = df2[col].fillna(df2[col].median())
+      print(df2)    # a[2] = 3.0, b[1] = 35.0
+    narration: >
+      Here are all three patterns in code. isnull dot sum shows you exactly
+      how many nulls each column has. dropna with reset_index gives you a
+      clean table with continuous row numbers. fillna of zero is the
+      simplest replacement. And the loop at the bottom fills each numeric
+      column with its own median — notice select_dtypes include number
+      to avoid trying to compute a median for text columns. In your
+      exercise you will encapsulate all four strategies into a single
+      function that accepts a strategy string.
+
+  - type: exercise
+    heading: "Exercise 1 — drop_or_fill_nulls"
+    prompt: >
+      Implement `drop_or_fill_nulls(df, strategy) -> pd.DataFrame` with four
+      strategies: 'drop' (dropna + reset_index), 'zero' (fillna(0) on numeric
+      cols), 'mean' (fill with column mean), 'median' (fill with column median).
+      Raise ValueError for unknown strategies. Use df.copy().
+    hint: >
+      `result.select_dtypes(include='number').columns` gives you the numeric
+      column names. Loop over them and call `result[col].fillna(result[col].mean())`.
+      The 'drop' branch returns early with reset_index(drop=True).
+    narration: >
+      Your exercise wraps the detection-and-fill pattern into a reusable
+      function with an explicit strategy parameter. This is a good engineering
+      habit: decisions that affect downstream analysis — like how to handle
+      nulls — should be named and documented, not buried in a one-liner. The
+      checks verify all four strategies and confirm the original DataFrame is
+      never mutated.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "NaN propagates — one missing value corrupts the whole calculation"
+      - "df.isnull().sum() — null count per column"
+      - "df.dropna().reset_index(drop=True) — remove null rows"
+      - "df['col'].fillna(df['col'].median()) — fill with column statistic"
+      - "Choose strategy based on why the data is missing"
+    narration: >
+      You can now detect, measure, and handle missing values in any DataFrame.
+      In the next lesson you will tackle a related but different problem:
+      values that are present but have the wrong type — a price stored as a
+      string, or a column with a typo that should be numeric.

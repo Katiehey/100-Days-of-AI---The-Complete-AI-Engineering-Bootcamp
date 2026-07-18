@@ -1,0 +1,126 @@
+day: "037"
+lesson: "02"
+title: "Type Coercion & Conversion"
+slides:
+  - type: title
+    heading: "Type Coercion & Conversion"
+    subheading: "pd.to_numeric, pd.to_datetime, and errors='coerce'"
+    narration: >
+      Lesson 2 covers type problems — the second class of data quality issues.
+      When pandas reads a CSV where one cell in a numeric column contains the
+      string 'abc', it stores the whole column as object dtype rather than
+      float64. Your groupby and describe calls silently return wrong results.
+      The fix is pd.to_numeric with errors coerce, which converts what it can
+      and makes the rest NaN so you can see exactly what was bad.
+
+  - type: concept
+    label: "Why types go wrong"
+    heading: "Mixed types force a column to object dtype"
+    body: >
+      pandas infers column types at load time. A single non-numeric value
+      in a price column forces the entire column to object (string) dtype.
+      Arithmetic on object columns silently fails or gives wrong results.
+    bullets:
+      - "df.dtypes — check what type pandas inferred"
+      - "Object dtype = pandas could not infer a numeric type"
+      - "pd.api.types.is_numeric_dtype(series) — programmatic check"
+    narration: >
+      When pandas reads a CSV it scans each column and tries to infer the
+      best type. If it encounters even one value it cannot parse as a number —
+      like the string 'N/A', a dollar sign, or a typo like 'abc' — it falls
+      back to storing the whole column as Python objects, which are strings.
+      You can still print the DataFrame and it looks fine, but any numeric
+      operation — sum, mean, groupby sum — will either throw an error or
+      silently skip the column. Checking dtypes after loading is a mandatory
+      step in any cleaning pipeline.
+
+  - type: how_it_works
+    label: "pd.to_numeric"
+    heading: "errors='coerce' converts safely — bad values become NaN"
+    body: >
+      pd.to_numeric(series, errors='coerce') — converts each element to a
+      number. Elements it cannot parse become NaN instead of raising an error.
+      This gives you a numeric column plus a null audit trail.
+    bullets:
+      - "pd.to_numeric(series, errors='coerce') — safe conversion"
+      - "errors='raise' — default, throws on bad values"
+      - "errors='ignore' — silently leaves bad values as strings"
+    narration: >
+      pd.to_numeric is the standard tool for fixing mixed numeric columns.
+      The key parameter is errors. The default value 'raise' throws a
+      ValueError on the first bad entry — useful in development to catch
+      unexpected data early. The 'coerce' option replaces bad values with
+      NaN — useful in production where you want to continue processing and
+      inspect the NaNs afterward. The 'ignore' option leaves bad values as
+      strings, which almost never does what you want. Use 'coerce' in
+      cleaning pipelines: it converts what it can, surfaces what it cannot,
+      and lets you then fill those NaNs with your null strategy from lesson 1.
+
+  - type: code
+    label: "Coerce and convert"
+    heading: "pd.to_numeric, pd.to_datetime, astype"
+    code: |
+      import pandas as pd, io
+
+      df = pd.read_csv(io.StringIO(
+          "item,price,date\n"
+          "pen,5,2024-01-01\n"
+          "book,abc,2024-01-02\n"
+          "laptop,999,bad_date"
+      ))
+
+      print(df.dtypes)            # all object (mixed column)
+
+      # Fix numeric column
+      df['price'] = pd.to_numeric(df['price'], errors='coerce')
+      print(df['price'])          # [5.0, NaN, 999.0]
+
+      # Fix datetime column
+      df['date'] = pd.to_datetime(df['date'], errors='coerce')
+      print(df['date'])           # [2024-01-01, 2024-01-02, NaT]
+
+      # Cast to int (after nulls are handled)
+      df_no_null = df.dropna()
+      df_no_null['price'] = df_no_null['price'].astype(int)
+    narration: >
+      Here you see the full coercion workflow. First print dtypes to confirm
+      the problem — all object. Then call pd.to_numeric on price with
+      errors=coerce. The string 'abc' becomes NaN; 5 and 999 become floats.
+      For date columns, pd.to_datetime does the same thing: valid dates parse
+      successfully, invalid ones become NaT — Not a Timestamp, the datetime
+      equivalent of NaN. After coercion you have a numeric column with some
+      NaN, which you can then fill with your strategy from exercise 1. The
+      final astype call shows how to convert from float to int once you are
+      sure no nulls remain — calling astype before handling nulls raises.
+
+  - type: exercise
+    heading: "Exercise 2 — coerce_numeric_columns"
+    prompt: >
+      Implement `coerce_numeric_columns(df, columns) -> pd.DataFrame` that
+      loops over the given column names and applies
+      `pd.to_numeric(result[col], errors='coerce')` to each one.
+      Use df.copy(). The function body is four lines.
+    hint: >
+      `for col in columns: result[col] = pd.to_numeric(result[col], errors='coerce')`.
+      The 'coerce' argument is what makes it safe — without it a single
+      bad value raises a ValueError and the whole call fails.
+    narration: >
+      Coerce numeric columns is the type-repair layer of the cleaning pipeline.
+      The checks verify that bad values become NaN, good values convert to
+      float correctly, and the original DataFrame is not mutated. After this
+      exercise you will have both a null-handling function and a type-repair
+      function — the next two exercises address strings and duplicates.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Mixed values in a column force it to object dtype"
+      - "pd.to_numeric(series, errors='coerce') — convert safely to float"
+      - "pd.to_datetime(series, errors='coerce') — convert safely to datetime"
+      - "Bad values become NaN — then fill with your null strategy"
+      - "df.astype(int) after nulls are handled — final type cast"
+    narration: >
+      Type coercion is the second layer of every cleaning pipeline. After this
+      lesson, detecting a bad-type column and fixing it is a single function
+      call away. Next you will tackle dirty strings — the most human of all
+      data quality problems.

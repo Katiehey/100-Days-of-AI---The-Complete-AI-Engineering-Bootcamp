@@ -1,0 +1,119 @@
+day: "037"
+lesson: "03"
+title: "String Cleaning"
+slides:
+  - type: title
+    heading: "String Cleaning"
+    subheading: "The .str accessor: strip, lower, replace"
+    narration: >
+      Lesson 3 covers string cleaning — the most human-caused of all data
+      quality problems. Users type things differently: extra spaces, mixed
+      case, inconsistent abbreviations. pandas provides the dot-str accessor
+      which gives you the full Python string API as vectorised column
+      operations. You will learn strip, lower, and replace, and see why
+      normalising strings before a groupby or merge is non-negotiable.
+
+  - type: concept
+    label: "The .str accessor"
+    heading: "df['col'].str — vectorised string operations"
+    body: >
+      The .str accessor exposes string methods on every element of a Series
+      simultaneously. No loop needed. NaN values are propagated silently —
+      they stay NaN after any .str operation.
+    bullets:
+      - "series.str.strip() — remove leading/trailing whitespace"
+      - "series.str.lower() — lowercase every value"
+      - "series.str.replace(pat, repl) — regex or literal replace"
+    narration: >
+      The dot-str accessor is one of pandas' most powerful features. Normally
+      to apply a string method to every element of a column you would need a
+      for loop or an apply. With the dot-str accessor you write
+      series-dot-str-dot-strip and pandas applies it to every element at once.
+      This is both faster than a loop and more readable. The other important
+      property is NaN propagation: if a cell is NaN, all string operations
+      leave it as NaN rather than converting it to the string 'nan'. That
+      means your null-count stays accurate even after string cleaning.
+
+  - type: how_it_works
+    label: "Why whitespace matters"
+    heading: "' Widget' ≠ 'Widget' — groupby treats them as different"
+    body: >
+      A leading space makes two identical strings different to Python.
+      groupby('product') produces separate groups for 'Widget' and ' Widget'.
+      strip() before any groupby or merge collapses these into one group.
+    bullets:
+      - "series.str.strip() — fix both leading and trailing spaces"
+      - "series.str.lstrip() / rstrip() — one side only"
+      - "Chain: series.str.strip().str.lower() — strip then lowercase"
+    narration: >
+      Here is a concrete example of why this matters. Imagine a sales dataset
+      where some rows have 'Widget' and others have space-Widget because the
+      person entering data hit the spacebar first. A groupby on the product
+      column would produce two groups — 'Widget' and space-Widget — and the
+      revenue summary would be split. The fix is one line: strip before you
+      group. The same logic applies to casing: 'North', 'north', and 'NORTH'
+      are three different strings to Python. Lowercasing before a merge
+      collapses them into one. These are the kinds of bugs that pass all tests
+      and produce silently wrong results in production.
+
+  - type: code
+    label: "String cleaning in practice"
+    heading: "strip, lower, replace, contains"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product': ['  Widget  ', ' Gadget', 'DOOHICKEY'],
+          'region':  ['NORTH', ' South ', 'east'],
+      })
+
+      # strip + lowercase in one chain
+      df['product'] = df['product'].str.strip().str.lower()
+      df['region']  = df['region'].str.strip().str.lower()
+      print(df)
+      # product: ['widget', 'gadget', 'doohickey']
+      # region:  ['north', 'south', 'east']
+
+      # replace — e.g. remove currency symbols
+      prices = pd.Series(['$5.00', '$12.50', '$999.99'])
+      clean  = prices.str.replace('$', '', regex=False)
+      print(pd.to_numeric(clean))  # [5.0, 12.5, 999.99]
+    narration: >
+      Here is the complete string-cleaning toolkit in action. The chain
+      dot-str-dot-strip followed by dot-str-dot-lower handles both whitespace
+      and casing in one readable expression. For currency symbols or other
+      embedded characters, dot-str-dot-replace removes them before you coerce
+      to numeric. Notice the regex=False argument — without it pandas treats
+      the dollar sign as a regex metacharacter. Always pass regex=False when
+      you are doing a literal string replacement.
+
+  - type: exercise
+    heading: "Exercise 3 — clean_string_column"
+    prompt: >
+      Implement `clean_string_column(df, col) -> pd.DataFrame` that strips
+      whitespace and lowercases a single column using the .str accessor chain.
+      Use df.copy(). The function body is three lines.
+    hint: >
+      `result[col] = result[col].str.strip().str.lower()` — NaN values stay
+      NaN throughout. Only the named column is changed; all other columns
+      are untouched.
+    narration: >
+      Clean string column is the most targeted of today's functions — it
+      applies normalisation to exactly one column. This makes it easy to
+      call in a loop over all string columns, or selectively on just the
+      columns that need it. The checks verify stripping, lowercasing,
+      non-target column preservation, and mutation protection.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "series.str.strip() — remove whitespace without a loop"
+      - "series.str.lower() — normalise casing"
+      - "series.str.replace(pat, repl, regex=False) — literal replace"
+      - "Chain .str methods: strip().lower() in one expression"
+      - "NaN propagates — .str operations never turn NaN into 'nan'"
+    narration: >
+      String cleaning is the invisible glue that makes groupby and merge
+      produce correct results. You now have a one-function solution for any
+      column with whitespace or casing problems. In the next lesson you will
+      tackle the last major source of dirty data: duplicate rows.

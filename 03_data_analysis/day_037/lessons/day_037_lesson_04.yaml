@@ -1,0 +1,123 @@
+day: "037"
+lesson: "04"
+title: "Deduplication"
+slides:
+  - type: title
+    heading: "Deduplication"
+    subheading: "drop_duplicates, duplicated, and the subset parameter"
+    narration: >
+      Lesson 4 covers deduplication — removing rows that appear more than once.
+      Duplicates creep in from re-running ingestion jobs, concatenating
+      overlapping exports, or receiving the same record from two API calls.
+      pandas makes deduplication a single method call, and the subset parameter
+      gives you precise control over which columns define what counts as a
+      duplicate.
+
+  - type: concept
+    label: "Where duplicates come from"
+    heading: "Three common sources of duplicate rows"
+    body: >
+      Re-running an ETL job without idempotency, concatenating two CSV exports
+      that overlap in time, or syncing from a queue that delivers at-least-once
+      — all produce exact or near-exact duplicate rows that inflate aggregations.
+    bullets:
+      - "Exact duplicates: every column is identical"
+      - "Key duplicates: same ID but different other columns"
+      - "df.duplicated() — True for every row that is a repeat of a prior row"
+    narration: >
+      Duplicates are one of those problems that are obvious once you know to look
+      for them but completely invisible otherwise. A sales total that is off by
+      exactly double, or a user count that is slightly higher than expected —
+      these are the symptoms. The cause is usually an ingestion job that was
+      re-run without checking whether the data was already loaded, or a daily
+      export that includes yesterday's rows as well as today's. The first step
+      is always df.duplicated dot sum to count them; the second is deciding
+      which columns define uniqueness.
+
+  - type: how_it_works
+    label: "drop_duplicates"
+    heading: "drop_duplicates keeps the first occurrence by default"
+    body: >
+      df.drop_duplicates() compares every row to every prior row.
+      The first occurrence is kept; subsequent identical rows are removed.
+      The subset parameter limits the comparison to specific columns.
+    bullets:
+      - "df.drop_duplicates() — compare all columns"
+      - "df.drop_duplicates(subset=['order_id']) — compare only order_id"
+      - "keep='last' — keep the most recent instead of the first"
+    narration: >
+      drop_duplicates scans rows top-to-bottom and, for each row, checks
+      whether it has already appeared. The default keep value of 'first' means
+      the first occurrence is retained and every later copy is dropped. If you
+      set keep to 'last', the last occurrence is kept instead — useful when
+      rows represent updates and you want the most recent version. The subset
+      parameter is the most important option: it restricts the comparison to a
+      list of columns rather than all columns, so two rows can differ in a
+      timestamp but still be considered duplicates if their order_id matches.
+      After drop_duplicates the row indices may have gaps, so always chain
+      reset_index to get a clean 0, 1, 2 sequence.
+
+  - type: code
+    label: "Detecting and removing duplicates"
+    heading: "duplicated, drop_duplicates, subset"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'id':      [1, 2, 1, 3, 2],
+          'product': ['A', 'B', 'A', 'C', 'B'],
+          'price':   [10, 20, 10, 30, 20],
+      })
+
+      # detect duplicates
+      print(df.duplicated())          # [F, F, T, F, T]
+      print(df.duplicated().sum())    # 2
+
+      # remove exact duplicates
+      print(df.drop_duplicates().reset_index(drop=True))
+      # 3 rows: id=[1,2,3]
+
+      # remove by key column only
+      print(df.drop_duplicates(subset=['id']).reset_index(drop=True))
+      # same 3 rows, but would differ if prices varied per id
+    narration: >
+      Here df.duplicated returns a boolean Series; True marks each row that
+      is a repeat of an earlier row. Summing it gives the duplicate count.
+      drop_duplicates with no arguments removes any row whose entire content
+      appeared before. With subset=['id'], only the id column is checked —
+      two rows with the same id are considered duplicates even if they differ
+      in price. This is often what you want for entity-keyed datasets: keep
+      only one record per entity regardless of what other fields say.
+
+  - type: exercise
+    heading: "Exercise 4 — deduplicate"
+    prompt: >
+      Implement `deduplicate(df, subset=None) -> pd.DataFrame` that calls
+      `df.drop_duplicates(subset=subset).reset_index(drop=True)`.
+      The function is one line. Check that the subset parameter works
+      for both None (all columns) and a list of column names.
+    hint: >
+      `return df.drop_duplicates(subset=subset).reset_index(drop=True)`.
+      When subset=None, drop_duplicates compares all columns — this is the
+      default and correct behaviour.
+    narration: >
+      Deduplicate is deliberately the simplest function of the day — one line.
+      The complexity is in understanding when to pass subset and what column
+      to use. The checks verify both the all-columns case and the subset case,
+      confirm the index is reset, and confirm the original is not mutated.
+      After this exercise you have all four building blocks of a cleaning
+      pipeline.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "df.duplicated() — boolean mask of repeated rows"
+      - "df.duplicated().sum() — count of duplicate rows"
+      - "df.drop_duplicates() — remove exact duplicates"
+      - "subset=['col'] — define uniqueness by specific columns"
+      - "Always chain .reset_index(drop=True) after drop_duplicates"
+    narration: >
+      You can now detect and remove duplicates at any level of granularity.
+      In the final lesson you will compose all four cleaning techniques into
+      a single clean_dataframe pipeline — the deliverable engineers actually
+      ship.
