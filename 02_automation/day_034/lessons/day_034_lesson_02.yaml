@@ -1,0 +1,143 @@
+day: "034"
+lesson: "02"
+title: "Types and Choices — make_extended_parser"
+
+slides:
+
+  - type: title
+    heading: "Typed Arguments and Constrained Choices"
+    subheading: "type=int, choices=[], nargs — free input validation from argparse"
+    narration: >
+      add_argument accepts a type= parameter that converts the raw string from the
+      command line to any Python type — and raises an error automatically if the
+      conversion fails. choices= restricts the valid values to a fixed list. nargs
+      lets one argument consume multiple values. Together these three features give
+      you strong input validation for free: the user gets a clear error message
+      before your code even runs.
+
+  - type: concept
+    label: "type conversion"
+    heading: "type= — Automatic Conversion and Validation"
+    body: >
+      By default all command-line values are strings. type=int tells argparse to
+      call int(value) on the raw string; if the call raises ValueError, argparse
+      prints an error and exits. This is free validation: type=int rejects 'abc'
+      automatically. Any callable that accepts a string and returns a value can
+      be used as type= — including custom validators. type=float, type=Path, or
+      a lambda that checks a range are all valid.
+    bullets:
+      - "type=int: '5' → 5; 'abc' → error (auto-validated)"
+      - "type=float: '0.7' → 0.7; 'x' → error"
+      - "type=str: default — no conversion"
+      - "choices=['text', 'json']: value must be one of the listed strings"
+      - "choices with type: conversion happens first, then membership check"
+    narration: >
+      Combining type=int with choices=[1, 2, 5, 10] gives you an integer enum.
+      The common pattern for temperature (0.0 to 1.0) is type=float with no
+      choices restriction — too many valid values to list — but you can write a
+      custom type validator. Lambda functions work: type=lambda x: float(x) is
+      the same as type=float; type=lambda x: (float(x) if 0<=float(x)<=1 else
+      (_ for _ in ()).throw(ValueError("must be 0-1"))) is more complex but the
+      argparse ecosystem usually uses a dedicated validator function for clarity.
+
+  - type: how_it_works
+    label: "nargs"
+    heading: "nargs — Multiple Values from One Argument"
+    body: >
+      nargs controls how many command-line tokens one argument consumes. nargs='+'
+      requires one or more values and returns a list. nargs='*' requires zero or
+      more. nargs='?' takes an optional single value. nargs=N (integer) takes
+      exactly N values. These let a single flag accept a variable number of inputs
+      without requiring repeated flags: --labels positive negative neutral passes
+      all three to a list.
+    bullets:
+      - "nargs='+': one or more → list; error if zero given"
+      - "nargs='*': zero or more → list (can be empty)"
+      - "nargs='?': optional single value → value or None"
+      - "nargs=2: exactly 2 values → list of 2"
+      - "--labels pos neg → ns.labels == ['pos', 'neg'] with nargs='+'"
+    narration: >
+      nargs='?' is the most subtle: when the flag is absent, the value is default=;
+      when the flag is present but with no value, the value is const=; when the flag
+      is present with a value, the value is that value. This is useful for flags that
+      optionally accept a filename: --output (no value) could default to stdout, while
+      --output results.txt writes to a file. Most batch AI tools use nargs='+' for
+      lists of items to process.
+
+  - type: code
+    label: "make_extended_parser"
+    heading: "make_extended_parser — Full Implementation"
+    code: |
+      from argparse import ArgumentParser
+
+      def make_extended_parser() -> ArgumentParser:
+          """Parser with typed args, choices, and float temperature."""
+          parser = ArgumentParser(
+              prog='ai-batch',
+              description='AI batch processing tool',
+          )
+          parser.add_argument(
+              '--prompt', '-p', type=str, required=True,
+              help='Prompt text',
+          )
+          parser.add_argument(
+              '--count', '-n', type=int, default=1,
+              help='Number of completions (default: 1)',
+          )
+          parser.add_argument(
+              '--format', '-f',
+              choices=['text', 'json', 'markdown'],
+              default='text',
+              help='Output format (default: text)',
+          )
+          parser.add_argument(
+              '--temperature', type=float, default=0.7,
+              help='Sampling temperature 0.0–1.0 (default: 0.7)',
+          )
+          return parser
+
+      parser = make_extended_parser()
+      ns = parser.parse_args(['--prompt', 'hi', '--count', '3', '--format', 'json'])
+      print(ns.count)        # 3  (int, not str)
+      print(ns.format)       # json
+      print(ns.temperature)  # 0.7  (float default)
+    narration: >
+      Notice that ns.count is the integer 3, not the string '3'. type=int means
+      argparse converts it automatically — and prints 'invalid int value: abc'
+      if the user types --count abc. choices=['text', 'json', 'markdown'] means
+      --format html prints 'invalid choice: html (choose from text, json, markdown)'.
+      Both error messages are generated by argparse; your code never sees invalid
+      values. This is the key benefit: validation is declarative, not imperative.
+
+  - type: exercise
+    heading: "Exercise 2: make_extended_parser"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement make_extended_parser() that returns
+      an ArgumentParser with: --prompt/-p (str, required), --count/-n (int, default=1),
+      --format/-f (choices=['text','json','markdown'], default='text'), and
+      --temperature (float, default=0.7). The check harness verifies type conversion,
+      choice enforcement, and default values.
+    hint: >
+      parser.add_argument('--count', '-n', type=int, default=1, help='...').
+      parser.add_argument('--format', '-f', choices=['text','json','markdown'], default='text').
+      parser.add_argument('--temperature', type=float, default=0.7).
+      type=int means the count value is automatically an integer, not a string.
+    narration: >
+      The check harness tests: count parses as int (not str), an invalid choice for
+      --format raises SystemExit(2), all four defaults are correct when only --prompt
+      is given, and temperature parses as float. These checks run without calling the
+      LLM — all validation happens in argparse before any AI call.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "type=int / type=float: converts raw string; invalid input auto-rejected by argparse"
+      - "choices=['a','b','c']: value must be in list; invalid choice auto-rejected"
+      - "nargs='+': one or more values → list; nargs='*': zero or more; nargs='?': optional"
+      - "Defaults and types combine: type=int, default=1 means absent → 1 (int), not '1' (str)"
+      - "argparse prints the error and exits — your code never sees invalid input"
+    narration: >
+      Lesson 2 added type conversion, choices, and nargs to the argparse toolkit.
+      These features let argparse do most of your input validation automatically.
+      Lesson 3 introduces subcommands — the pattern for tools with multiple distinct
+      modes (chat, classify, summarize) each with their own argument set.

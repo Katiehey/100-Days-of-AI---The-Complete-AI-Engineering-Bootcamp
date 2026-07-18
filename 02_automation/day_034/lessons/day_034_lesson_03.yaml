@@ -1,0 +1,138 @@
+day: "034"
+lesson: "03"
+title: "Subcommands — make_subcommand_parser"
+
+slides:
+
+  - type: title
+    heading: "Subcommands with add_subparsers"
+    subheading: "One tool, many modes — git-style sub-commands in argparse"
+    narration: >
+      Many CLI tools have multiple modes: git has commit, push, pull; docker has
+      run, build, push. Argparse supports this with add_subparsers: you create a
+      top-level parser, add a subparsers group, then add individual subcommand
+      parsers to the group. Each subcommand has its own argument set. The user
+      types the subcommand name as the first positional argument, and argparse
+      routes everything after it to the subcommand's parser.
+
+  - type: concept
+    label: "add_subparsers"
+    heading: "add_subparsers — The Subcommand Registry"
+    body: >
+      add_subparsers(dest='command', required=True) adds a special positional
+      argument to the top-level parser that expects a subcommand name. dest='command'
+      means the chosen subcommand name is stored as ns.command. required=True (Python
+      3.7+) means argparse errors if no subcommand is given. The return value is a
+      subparsers action; you call add_parser('name', help='...') on it to register
+      each subcommand. Each add_parser call returns a normal ArgumentParser that you
+      configure independently.
+    bullets:
+      - "subs = parser.add_subparsers(dest='command', required=True)"
+      - "chat = subs.add_parser('chat', help='...'): registers 'chat' subcommand"
+      - "chat.add_argument(...): add args specific to the 'chat' subcommand"
+      - "ns.command: which subcommand was given ('chat', 'summarize', etc.)"
+      - "Subcommand args become attributes on ns alongside ns.command"
+    narration: >
+      dest='command' is the name of the attribute on the Namespace that holds the
+      chosen subcommand. Without it you can check which subcommand was picked, but
+      the attribute name is implicit and harder to read. required=True was added in
+      Python 3.7 and is usually the right choice — without it, running the tool with
+      no subcommand would just succeed silently with no ns.command attribute, causing
+      an AttributeError in dispatch. With required=True, argparse prints a usage error
+      immediately.
+
+  - type: how_it_works
+    label: "subcommand args"
+    heading: "Per-Subcommand Arguments — Each Sub-Parser is Independent"
+    body: >
+      Each sub-parser has its own add_argument calls. Arguments defined on one
+      subcommand are not available on another. Shared arguments (like --model) must
+      be added to each subcommand individually, or to a parent parser using the
+      parents= parameter. After parsing, the Namespace has ns.command (which
+      subcommand) plus all the attributes for that subcommand's arguments.
+    bullets:
+      - "chat = subs.add_parser('chat'); chat.add_argument('--prompt', required=True)"
+      - "summarize = subs.add_parser('summarize'); summarize.add_argument('--text', required=True)"
+      - "ns.command == 'chat' → ns.prompt is set; ns.text is not"
+      - "Shared args: add to each subparser (simple) or use parents=[parent_parser]"
+      - "help text: subs.add_parser('chat', help='Send a prompt') — shows in top-level --help"
+    narration: >
+      The parents= parameter can reduce duplication for shared args: create a
+      separate ArgumentParser(add_help=False) with the shared args (--model, --verbose),
+      then pass it as parents=[shared_parser] to each add_parser call. However,
+      for small tools with 2-3 subcommands and a handful of shared args, just
+      repeating add_argument is clearer. The parents pattern pays off when you
+      have 5+ subcommands all sharing the same 10 arguments.
+
+  - type: code
+    label: "make_subcommand_parser"
+    heading: "make_subcommand_parser — Full Implementation"
+    code: |
+      from argparse import ArgumentParser
+
+      def make_subcommand_parser() -> ArgumentParser:
+          """Parser with 'chat' and 'summarize' subcommands."""
+          parser = ArgumentParser(prog='ai-tool', description='AI CLI')
+          subs   = parser.add_subparsers(dest='command', required=True,
+                                         title='commands')
+
+          chat = subs.add_parser('chat', help='Send a prompt to the AI')
+          chat.add_argument('--prompt', '-p', required=True, help='The prompt')
+          chat.add_argument('--model',  '-m', default='llama3.2')
+
+          summarize = subs.add_parser('summarize', help='Summarize text')
+          summarize.add_argument('--text',  '-t', required=True,
+                                 help='Text to summarize')
+          summarize.add_argument('--model', '-m', default='llama3.2')
+
+          return parser
+
+      # Usage:
+      parser = make_subcommand_parser()
+      ns = parser.parse_args(['chat', '--prompt', 'hello'])
+      print(ns.command)   # chat
+      print(ns.prompt)    # hello
+      print(ns.model)     # llama3.2
+
+      ns2 = parser.parse_args(['summarize', '--text', 'long article...'])
+      print(ns2.command)  # summarize
+      print(ns2.text)     # long article...
+    narration: >
+      The subcommand name ('chat', 'summarize') is the first positional argument.
+      Everything after it is parsed by that subcommand's parser. This is why 'chat'
+      comes before '--prompt': it is a positional arg on the top-level parser, not
+      a flag. After parsing, ns.command tells you which branch to take in your
+      dispatch logic. Both subcommands share --model with the same default, so the
+      code does repeat it — acceptable for two subcommands.
+
+  - type: exercise
+    heading: "Exercise 3: make_subcommand_parser"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement make_subcommand_parser() that
+      returns an ArgumentParser with two subcommands: 'chat' (--prompt/-p required,
+      --model/-m default='llama3.2') and 'summarize' (--text/-t required,
+      --model/-m default='llama3.2'). Use add_subparsers(dest='command', required=True).
+    hint: >
+      subs = parser.add_subparsers(dest='command', required=True).
+      chat = subs.add_parser('chat', help='...'); chat.add_argument('--prompt', '-p', required=True).
+      summarize = subs.add_parser('summarize', help='...'); summarize.add_argument('--text', '-t', required=True).
+      Each subcommand also gets --model/-m with default='llama3.2'.
+    narration: >
+      The check harness tests: parse_args(['chat', '--prompt', 'hello']) sets
+      ns.command='chat' and ns.prompt='hello'; parse_args(['summarize', '--text', 'txt'])
+      sets ns.command='summarize' and ns.text='txt'; no subcommand raises SystemExit(2);
+      wrong subcommand raises SystemExit(2); --model default is 'llama3.2' on both.
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "add_subparsers(dest='command', required=True): register the subcommand slot"
+      - "subs.add_parser('name', help='...'): creates an independent sub-parser"
+      - "ns.command: the subcommand name chosen ('chat', 'summarize', etc.)"
+      - "Subcommand args are set on ns: ns.prompt for chat, ns.text for summarize"
+      - "required=True: argparse errors if no subcommand given (prevents silent failure)"
+    narration: >
+      Lesson 3 introduced subcommands — the argparse feature that turns a single tool
+      into a multi-mode program. Lesson 4 adds dispatch: the function that reads
+      ns.command and routes execution to the right handler, plus the exit-code
+      conventions that make CLI tools play well with shell scripts.

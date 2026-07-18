@@ -1,0 +1,138 @@
+day: "034"
+lesson: "04"
+title: "Dispatch and Exit Codes"
+
+slides:
+
+  - type: title
+    heading: "Dispatch and Exit Codes"
+    subheading: "Route subcommands to handlers — signal success and failure to the shell"
+    narration: >
+      A parser tells argparse what to expect. A dispatcher tells Python what to do
+      with the result. Dispatch reads ns.command, looks up the corresponding handler
+      function, and calls it. Exit codes signal the outcome to the caller: 0 means
+      success, non-zero means failure. Shell scripts and CI pipelines check the exit
+      code — a tool that always exits 0 is impossible to use in automation. Getting
+      dispatch and exit codes right makes your CLI tool a well-behaved Unix citizen.
+
+  - type: concept
+    label: "dispatch pattern"
+    heading: "Dispatch — Route a Namespace to the Right Handler"
+    body: >
+      The dispatch pattern uses a dict mapping command names to handler functions.
+      After parse_args, read ns.command and call handlers[ns.command](ns). This is
+      cleaner than a chain of if/elif statements because it is extensible: adding a
+      new command means adding one entry to the dict, not one more elif branch.
+      argparse's set_defaults(func=handler) is an alternative: each subparser attaches
+      its handler via set_defaults, and dispatch is then just ns.func(ns).
+    bullets:
+      - "handlers = {'chat': _chat_fn, 'summarize': _summarize_fn}"
+      - "handlers[ns.command](ns): route to handler, pass full namespace"
+      - "KeyError if command not in handlers: explicit is better than silent"
+      - "set_defaults(func=handler): each subparser attaches its own handler"
+      - "ns.func(ns): dispatch in one line when set_defaults is used"
+    narration: >
+      Both patterns work. The handlers dict is explicit and testable — you can inspect
+      the dict, inject mock handlers in tests, and see all commands in one place.
+      set_defaults(func=...) co-locates the handler with the subparser definition,
+      which can be clearer in large tools. They are not mutually exclusive: you can
+      use set_defaults as the registration mechanism and then call ns.func(ns) in
+      your main() function. The exercise uses the handlers dict pattern because it
+      is easier to test without side effects.
+
+  - type: how_it_works
+    label: "exit codes"
+    heading: "Exit Codes — Signal Outcome to the Shell"
+    body: >
+      sys.exit(0) exits with code 0 (success). sys.exit(1) exits with code 1 (error).
+      By convention: 0 = success, 1 = application error, 2 = usage error (argparse
+      uses 2 for bad arguments). Shell scripts use $? to check the exit code, and
+      CI pipelines fail the build on non-zero exit. A Python program that exits
+      without calling sys.exit() exits with code 0 by default; an uncaught exception
+      exits with code 1.
+    bullets:
+      - "sys.exit(0): success — shell sees exit code 0"
+      - "sys.exit(1): error — shell sees exit code 1 (build fails in CI)"
+      - "sys.exit(2): usage error — argparse uses 2 for bad arguments"
+      - "Uncaught exception: Python exits with code 1 and prints traceback"
+      - "if __name__ == '__main__': sys.exit(main()) — pattern for scripts"
+    narration: >
+      The pattern sys.exit(main()) in the if __name__ == '__main__' block is idiomatic:
+      main() returns 0 on success and 1 on failure, and sys.exit passes that to the
+      shell. This keeps all the logic in main() while making the entry point a thin
+      wrapper. Testing is easier too: you test main() directly by calling it with mock
+      args, without worrying about sys.exit being called in your test.
+
+  - type: code
+    label: "dispatch"
+    heading: "dispatch — Full Implementation"
+    code: |
+      def dispatch(ns, handlers: dict) -> str:
+          """Route a parsed Namespace to the correct handler; return result string."""
+          cmd = ns.command
+          if cmd not in handlers:
+              raise KeyError(f"No handler registered for command: {cmd!r}")
+          return handlers[cmd](ns)
+
+      # Example usage with stub handlers
+      def _chat_handler(ns):
+          return f"[chat] prompt={ns.prompt!r} model={ns.model!r}"
+
+      def _summarize_handler(ns):
+          return f"[summarize] text={ns.text[:30]!r} model={ns.model!r}"
+
+      handlers = {
+          'chat':      _chat_handler,
+          'summarize': _summarize_handler,
+      }
+
+      # Parse + dispatch
+      parser = make_subcommand_parser()
+
+      ns = parser.parse_args(['chat', '--prompt', 'hello'])
+      print(dispatch(ns, handlers))
+      # [chat] prompt='hello' model='llama3.2'
+
+      ns2 = parser.parse_args(['summarize', '--text', 'A long article about AI.'])
+      print(dispatch(ns2, handlers))
+      # [summarize] text='A long article about AI.' model='llama3.2'
+    narration: >
+      dispatch raises KeyError on an unknown command rather than returning None silently.
+      Fail-loud is better here: if a new subcommand is added to the parser but its
+      handler is not added to the dict, the KeyError immediately surfaces the bug.
+      The handlers dict is passed in rather than being a global or class attribute —
+      this makes it easy to inject mock handlers in tests. The handler signature
+      always receives the full Namespace, so it can access any attribute the subparser
+      defines.
+
+  - type: exercise
+    heading: "Exercise 4: dispatch"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement dispatch(ns, handlers) that looks
+      up ns.command in the handlers dict and calls handlers[ns.command](ns), returning
+      the result string. Raise KeyError if the command is not in handlers. The check
+      harness provides stub handlers and uses make_subcommand_parser() to build test
+      Namespace objects.
+    hint: >
+      cmd = ns.command. if cmd not in handlers: raise KeyError(f'...: {cmd!r}').
+      return handlers[cmd](ns). That is the full implementation — three lines.
+      The complexity lives in the handlers, not in dispatch itself.
+    narration: >
+      The check harness tests: routing 'chat' to the chat handler, routing 'summarize'
+      to the summarize handler, raising KeyError for an unknown command, and verifying
+      that the handler receives the correct namespace attributes. No LLM calls are
+      made — handlers are stubs that return formatted strings.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "handlers = {'cmd': fn}: maps subcommand names to handler functions"
+      - "dispatch(ns, handlers): handlers[ns.command](ns) — route and call"
+      - "Raise KeyError for unknown commands — fail-loud, not silent None"
+      - "sys.exit(0)=success, sys.exit(1)=error, sys.exit(2)=usage error (argparse)"
+      - "if __name__ == '__main__': sys.exit(main()) — idiomatic script entry point"
+    narration: >
+      Lesson 4 added dispatch and exit codes — the glue between parsing and handling.
+      Lesson 5 assembles everything into AICli: a class that wraps argparse, dispatch,
+      and ollama into a single reusable object. It also covers entry points — how to
+      make your tool installable as a system command.

@@ -1,0 +1,140 @@
+day: "034"
+lesson: "01"
+title: "ArgumentParser Basics — make_parser"
+
+slides:
+
+  - type: title
+    heading: "Building a CLI Tool"
+    subheading: "argparse — package any automation as a command-line program"
+    narration: >
+      Every automation you have built so far runs from a notebook or a fixed script.
+      A CLI tool turns it into a proper program: other people (or scheduled jobs) can
+      call it with flags and get results without touching the code. argparse is the
+      stdlib module for this: you declare what arguments the program accepts, and
+      argparse generates the parser, the help text, and the error messages automatically.
+      Day 34 builds from a single ArgumentParser up to a reusable AICli class that
+      wraps any prompt function behind a command-line interface.
+
+  - type: concept
+    label: "ArgumentParser"
+    heading: "ArgumentParser — Declare Arguments, Get Help for Free"
+    body: >
+      ArgumentParser is the core object. You create one, call add_argument for each
+      flag or positional argument the program accepts, and then call parse_args().
+      parse_args() reads sys.argv[1:] by default, validates the input, and returns
+      a Namespace object where each argument is an attribute. If the user passes
+      invalid arguments, argparse prints a usage message and exits with code 2 —
+      you do not need to write error handling for bad input yourself.
+    bullets:
+      - "ArgumentParser(prog='name', description='...'): create the parser"
+      - "parser.add_argument('--flag', ...): register each expected argument"
+      - "parser.parse_args(): parse sys.argv[1:]; returns Namespace"
+      - "parser.parse_args(['--flag', 'val']): parse a list (useful for testing)"
+      - "Namespace attributes: ns.flag gives the value of --flag"
+    narration: >
+      The prog= and description= arguments appear in the generated --help output.
+      prog defaults to sys.argv[0] (the script filename); setting it explicitly
+      makes the help text look right regardless of how the script is invoked.
+      description appears at the top of the help, before the argument list.
+      ArgumentParser also auto-generates --help / -h, so you always get a working
+      help flag for free.
+
+  - type: how_it_works
+    label: "optional vs positional"
+    heading: "Optional Arguments (--flag) vs Positional Arguments"
+    body: >
+      Optional arguments start with -- (long form) or - (short form) and can appear
+      anywhere on the command line. Positional arguments are bare values with no
+      prefix — they are matched by position. Most CLI tools use optional arguments
+      for settings (--model, --verbose) and positional arguments for the main input
+      (the file to process, the text to classify). Both can be required; optional
+      arguments need required=True explicitly, while positional arguments are
+      required by default.
+    bullets:
+      - "Optional: --prompt 'hello' or -p 'hello' (prefix with -- or -)"
+      - "Positional: add_argument('filename') — no prefix, matched by position"
+      - "required=True on optional arguments makes them mandatory"
+      - "Positional args are mandatory unless nargs='?' is set"
+      - "action='store_true': flag with no value — sets attr to True when present"
+    narration: >
+      The distinction between optional and positional is entirely syntactic — both
+      can be required or optional at the semantic level. A common pattern for AI
+      tools is to make --prompt required (because there is no sensible default)
+      and make --model optional with a default (llama3.2). --verbose is a flag
+      with action='store_true': it takes no value, it is either present (True) or
+      absent (False). Flags are good for boolean settings that default to off.
+
+  - type: code
+    label: "make_parser"
+    heading: "make_parser — Full Implementation"
+    code: |
+      from argparse import ArgumentParser
+
+      def make_parser() -> ArgumentParser:
+          """Create and return a configured ArgumentParser for an AI CLI."""
+          parser = ArgumentParser(
+              prog='ai-tool',
+              description='AI command-line tool powered by local LLM',
+          )
+          parser.add_argument(
+              '--prompt', '-p', type=str, required=True,
+              help='Prompt to send to the model',
+          )
+          parser.add_argument(
+              '--model', '-m', type=str, default='llama3.2',
+              help='Ollama model name (default: llama3.2)',
+          )
+          parser.add_argument(
+              '--verbose', '-v', action='store_true',
+              help='Print extra diagnostic output',
+          )
+          return parser
+
+      # Test it (simulating command-line args as a list):
+      parser = make_parser()
+      ns = parser.parse_args(['--prompt', 'hello', '-v'])
+      print(ns.prompt)   # hello
+      print(ns.model)    # llama3.2  (default)
+      print(ns.verbose)  # True
+    narration: >
+      The function returns the parser rather than calling parse_args inside it.
+      This separation makes it testable: tests can call make_parser() and pass
+      arbitrary lists to parse_args(). It also allows the caller to add more
+      arguments before parsing — useful when make_parser() provides a base that
+      sub-modules extend. Note the short forms (-p, -m, -v) — they let power
+      users type less while the long forms (--prompt, --model, --verbose) keep
+      scripts readable.
+
+  - type: exercise
+    heading: "Exercise 1: make_parser"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement make_parser() that returns an
+      ArgumentParser configured with: --prompt/-p (str, required), --model/-m
+      (str, default='llama3.2'), and --verbose/-v (store_true flag). The check
+      harness calls parser.parse_args([...]) to verify each argument works.
+    hint: >
+      from argparse import ArgumentParser. parser = ArgumentParser(prog='ai-tool', ...).
+      parser.add_argument('--prompt', '-p', type=str, required=True, help='...').
+      parser.add_argument('--model', '-m', type=str, default='llama3.2', help='...').
+      parser.add_argument('--verbose', '-v', action='store_true', help='...').
+      return parser.
+    narration: >
+      The check harness verifies each argument by parsing test lists:
+      ['--prompt', 'hello'] for defaults, ['-p', 'test', '-v'] for short forms and
+      verbose flag, ['--prompt', 'hi', '--model', 'llama3.1'] for custom model,
+      and [] for the missing-required error (expects SystemExit code 2).
+
+  - type: summary
+    heading: "Lesson 1: Key Takeaways"
+    bullets:
+      - "ArgumentParser(prog, description): create the parser — prog and description appear in --help"
+      - "add_argument('--name', '-n', type=str, required=True): required optional argument"
+      - "add_argument('--model', default='llama3.2'): optional with default"
+      - "action='store_true': flag — True if present, False if absent, no value consumed"
+      - "parse_args(['--flag', 'val']): parse a list (for testing without sys.argv)"
+    narration: >
+      Lesson 1 built the basic make_parser: three arguments covering the three main
+      patterns (required string, optional-with-default string, boolean flag). Lesson 2
+      extends this to typed arguments: integers with bounds, floats, and constrained
+      choices — the tools for validating numeric config and enum-style options.

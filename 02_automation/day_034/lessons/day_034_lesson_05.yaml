@@ -1,0 +1,151 @@
+day: "034"
+lesson: "05"
+title: "AICli — The Full CLI Class"
+
+slides:
+
+  - type: title
+    heading: "AICli and Entry Points"
+    subheading: "Composable CLI class + pyproject.toml makes it installable"
+    narration: >
+      AICli assembles argparse, dispatch, and ollama into a single class. It provides
+      add_command to register prompt functions as subcommands, and run to parse
+      a list of args and return the LLM's reply. A single line of pyproject.toml
+      turns the Python file into an installable system command — after pip install -e .,
+      users type ai-tool chat --input 'hello' from any directory and get a response.
+
+  - type: concept
+    label: "AICli design"
+    heading: "AICli — Argparse + Dispatch + Ollama in One Class"
+    body: >
+      AICli's constructor creates an ArgumentParser with a subparsers group.
+      add_command(name, prompt_fn, help) adds a subparser for name, registers a
+      required --input/-i argument, and stores prompt_fn in a dict keyed by name.
+      run(args_list) calls parse_args, looks up the registered prompt_fn for
+      ns.command, builds the prompt as prompt_fn(ns.input), calls ollama.chat,
+      and returns the reply. add_command returns self for fluent chaining.
+    bullets:
+      - "__init__(prog, model): creates parser + subparsers + empty _prompt_fns dict"
+      - "add_command(name, prompt_fn, help='') -> AICli: registers subcommand"
+      - "--input/-i required on every subcommand — the raw text to process"
+      - "run(args_list) -> str: parse → prompt_fn → ollama.chat → return reply"
+      - "add_command returns self: cli.add_command(...).add_command(...) chaining"
+    narration: >
+      Every subcommand shares the same --input argument because AICli's model is
+      that each command takes one piece of text and transforms it with an LLM. More
+      complex commands could add extra arguments to their sub-parser via the returned
+      sub-parser object — the design is extendable. For Day 34 the single --input
+      is enough to cover chat, classify, summarize, and similar tasks.
+
+  - type: how_it_works
+    label: "entry points"
+    heading: "Entry Points — Making the Tool Installable"
+    body: >
+      pyproject.toml [project.scripts] maps a command name to a Python module:function
+      path. After pip install -e ., the command is available system-wide. The function
+      at that path is the entry point: it must be a plain function with no arguments
+      that calls parse_args from sys.argv and handles the result. The if __name__ ==
+      '__main__': block is still needed for direct 'python script.py' invocation.
+    bullets:
+      - "[project.scripts]: ai-tool = 'mypackage.cli:main'"
+      - "pip install -e .: installs the package in editable/development mode"
+      - "ai-tool chat --input 'hello': runs after installation"
+      - "main() must be zero-argument and call sys.argv-based parse_args"
+      - "if __name__ == '__main__': main() — still needed for python script.py"
+    narration: >
+      The -e flag in pip install -e . stands for 'editable' — changes to your
+      Python files are reflected immediately without reinstalling. This is standard
+      for development. The pyproject.toml approach replaced setup.py in modern Python.
+      The [project.scripts] table is the replacement for the setup.py entry_points
+      console_scripts list. For a single-file tool, the module path would be
+      'tool_filename:main' without a package, using the file's module name.
+
+  - type: code
+    label: "AICli"
+    heading: "AICli — Full Implementation"
+    code: |
+      import ollama
+      from argparse import ArgumentParser
+
+      class AICli:
+          def __init__(self, prog: str = 'ai-tool', model: str = 'llama3.2'):
+              self.model       = model
+              self._parser     = ArgumentParser(prog=prog,
+                                                description='AI command-line tool')
+              self._subs       = self._parser.add_subparsers(dest='command',
+                                                              required=True)
+              self._prompt_fns: dict = {}
+
+          def add_command(self, name: str, prompt_fn,
+                          help: str = '') -> 'AICli':
+              sub = self._subs.add_parser(name, help=help)
+              sub.add_argument('--input', '-i', required=True,
+                               help='Input text')
+              self._prompt_fns[name] = prompt_fn
+              return self
+
+          def run(self, args_list: list[str]) -> str:
+              ns     = self._parser.parse_args(args_list)
+              prompt = self._prompt_fns[ns.command](ns.input)
+              resp   = ollama.chat(
+                  model=self.model,
+                  messages=[{'role': 'user', 'content': prompt}],
+              )
+              return resp['message']['content']
+
+      # Usage (in a notebook — args_list replaces sys.argv):
+      cli = (
+          AICli(model='llama3.2')
+          .add_command('ask',    lambda t: t,
+                       help='Send raw prompt')
+          .add_command('upper',  lambda t: f'UPPERCASE this text: {t}',
+                       help='Uppercase transformation')
+      )
+      reply = cli.run(['ask', '--input', 'What is 1+1?'])
+      print(reply)
+    narration: >
+      The fluent interface (add_command returns self) lets you build the full CLI
+      in a single chained expression. prompt_fn is called with ns.input — a string.
+      For more complex commands that need additional namespace attributes, the
+      prompt_fn could be replaced with a handler_fn(ns) that builds the prompt from
+      multiple args. AICli uses sync ollama.chat because CLI tools are invoked once
+      and wait for one result — the async overhead is not needed here. For batch
+      processing, combine AICli's arg parsing with Day 33's BatchProcessor.
+
+  - type: exercise
+    heading: "Exercise 5: AICli"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement the AICli class with:
+      __init__(prog='ai-tool', model='llama3.2') storing model and creating parser
+      with subparsers. add_command(name, prompt_fn, help='') -> AICli: adds subparser
+      with --input/-i required, stores prompt_fn, returns self. run(args_list) -> str:
+      parse → prompt_fn(ns.input) → ollama.chat → return reply string. All helpers
+      (make_parser, make_subcommand_parser, dispatch) are provided in the setup cell.
+    hint: >
+      __init__: self.model=model; self._parser=ArgumentParser(...);
+      self._subs=self._parser.add_subparsers(dest='command', required=True);
+      self._prompt_fns={}.
+      add_command: sub=self._subs.add_parser(name,help=help);
+      sub.add_argument('--input','-i',required=True); self._prompt_fns[name]=prompt_fn; return self.
+      run: ns=self._parser.parse_args(args_list); prompt=self._prompt_fns[ns.command](ns.input);
+      resp=ollama.chat(model=self.model, messages=[...]); return resp['message']['content'].
+    narration: >
+      The check harness verifies: __init__ stores model and creates parser; add_command
+      registers prompt_fn and returns self; run calls the LLM and returns a string;
+      fluent chaining works. The LLM is called once with a short prompt to verify
+      end-to-end integration.
+
+  - type: summary
+    heading: "Day 34: Key Takeaways"
+    bullets:
+      - "AICli: __init__ (parser + subs), add_command (subparser + prompt_fn), run (parse → LLM)"
+      - "add_command returns self: cli.add_command(...).add_command(...) fluent chaining"
+      - "--input/-i on every subcommand: the raw text to process"
+      - "Entry points: [project.scripts] in pyproject.toml; pip install -e . makes it a system command"
+      - "if __name__ == '__main__': main() for direct invocation; entry point for installed CLI"
+    narration: >
+      Day 34 complete. You can now turn any Python automation into a proper CLI tool:
+      declare arguments with argparse, add subcommands for multiple modes, dispatch
+      to handlers, and package with entry points. Day 35 is the Section 2 capstone —
+      Auto-Analyst — which assembles scraping, extraction, summarization, and delivery
+      into a scheduled end-to-end pipeline.
