@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–34 authored (lessons + exercises + project, gate-green). Warmup + Section 1 complete. Section 2 in progress (Days 21–34 done). Days 35–100 pending.
+**Authoring status:** Days 1–35 authored (lessons + exercises + project, gate-green). Warmup + Section 1 + Section 2 complete. Days 36–100 pending (next: Section 3 — Data &amp; Analysis).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
