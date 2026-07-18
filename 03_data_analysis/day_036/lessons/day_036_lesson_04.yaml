@@ -1,0 +1,127 @@
+day: "036"
+lesson: "04"
+title: "Column Transformations"
+slides:
+  - type: title
+    heading: "Column Transformations"
+    subheading: "apply(), lambda, df.copy(), and derived columns"
+    narration: >
+      Lesson 4 covers how to add new columns to a DataFrame and how to
+      transform existing ones. You will learn the apply pattern — passing a
+      function over every value in a column — and the critical habit of using
+      df.copy() to avoid mutating the original. These skills unlock the
+      feature engineering work that feeds every downstream analysis.
+
+  - type: concept
+    label: "Adding columns"
+    heading: "df['new'] = expression"
+    body: >
+      Assign a new column by naming it on the left of an assignment.
+      The right side can be a constant, a mathematical expression on
+      existing columns, or a Series produced by apply().
+    bullets:
+      - "df['revenue'] = df['price'] * df['quantity']  — vectorised"
+      - "df['label'] = df['col'].apply(fn)  — per-element function"
+      - "df.copy() before mutating  — protects the original"
+    narration: >
+      Adding a column in pandas looks like assigning to a dict key that does
+      not exist yet. On the right side you can put anything that produces a
+      value per row: a scalar that broadcasts to every row, a vectorised
+      arithmetic expression combining two existing columns, or the result of
+      apply. The apply method takes a function — typically a lambda or a named
+      helper — and calls it once for every element in the Series, returning a
+      new Series of results. It is the pandas equivalent of a list
+      comprehension, but with the alignment and indexing guarantees that pandas
+      provides.
+
+  - type: how_it_works
+    label: "df.copy() and mutation"
+    heading: "Always copy before adding columns"
+    body: >
+      Assigning a column to a DataFrame modifies it in place.
+      If the caller holds a reference to the same DataFrame, they see
+      the mutation. df.copy() creates an independent clone.
+    bullets:
+      - "result = df.copy()  — independent DataFrame"
+      - "result['new_col'] = ...  — mutates result, not df"
+      - "Avoids SettingWithCopyWarning in chained operations"
+    narration: >
+      Here is a subtle pandas trap. When you select a subset of rows with a
+      boolean filter and then try to add a column to that subset, pandas may
+      print a SettingWithCopyWarning because it is not sure whether the subset
+      is a view of the original or an independent copy. The safest habit is
+      to call df.copy at the top of any function that adds or modifies columns.
+      This makes the copy explicit, silences the warning, and protects the
+      caller's DataFrame from being changed unexpectedly. In a multi-step
+      pipeline this matters a lot: stage two should never corrupt stage one's
+      data.
+
+  - type: code
+    label: "apply() in practice"
+    heading: "Lambda, helper function, and pd.to_numeric"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'item':  ['pen', 'book', 'laptop'],
+          'price': [5, 35, 999],
+      })
+
+      # Vectorised expression
+      df2 = df.copy()
+      df2['discounted'] = df2['price'] * 0.9
+
+      # apply with lambda
+      df2['category'] = df2['price'].apply(
+          lambda p: 'budget' if p < 20 else 'standard' if p < 100 else 'premium'
+      )
+
+      # apply with named function
+      def tax(price):
+          return round(price * 1.15, 2)
+
+      df2['price_with_tax'] = df2['price'].apply(tax)
+      print(df2)
+    narration: >
+      Here is the full column-transformation toolkit. The discounted column
+      uses a vectorised expression — multiply the whole price column by 0.9
+      in one shot; this is faster than apply for simple maths. The category
+      column uses apply with a lambda that maps each price to a string bucket.
+      Lambdas are concise for short logic but hard to test; for anything more
+      than one condition, define a named function like the tax example and pass
+      it to apply. Named functions are easier to unit-test and easier for your
+      future self to read. Notice that df.copy is called once at the top, and
+      all assignments go to df2 so the original df is untouched.
+
+  - type: exercise
+    heading: "Exercise 4 — add_category_column"
+    prompt: >
+      Implement `add_category_column(df, price_col) -> pd.DataFrame` that
+      adds a 'category' column: 'budget' (price < 20), 'standard' (20–99),
+      'premium' (>= 100). Use df.copy() first and .apply() with a helper.
+    hint: >
+      Define a `categorize(price)` helper that returns the string,
+      then `result['category'] = result[price_col].apply(categorize)`.
+      Don't forget `result = df.copy()` first.
+    narration: >
+      Your exercise applies this pattern to a realistic use case: bucketing
+      prices into marketing categories. The checks verify not only that the
+      buckets are correct but also that the original DataFrame is not mutated.
+      That second check is the engineering discipline check — you can only pass
+      it by calling df.copy. After you pass, try changing the lambda to a
+      helper function and notice how much easier it is to read.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "df['new'] = expression  — adds a column in place"
+      - "df['col'].apply(fn)  — applies fn to every element"
+      - "lambda p: ... — inline single-expression function"
+      - "df.copy()  — make an independent clone before mutating"
+      - "Vectorised ops (*, +) are faster than apply for maths"
+    narration: >
+      You can now enrich a DataFrame with derived columns using any
+      Python logic — a lambda, a named function, or a vectorised expression.
+      The copy habit will save you from subtle bugs in every pipeline you
+      build. In the final lesson today you will learn groupby and aggregation:
+      how to collapse rows into per-group summaries.

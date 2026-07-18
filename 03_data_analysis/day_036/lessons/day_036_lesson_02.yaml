@@ -1,0 +1,122 @@
+day: "036"
+lesson: "02"
+title: "Reading & Writing Data"
+slides:
+  - type: title
+    heading: "Reading & Writing Data"
+    subheading: "pd.read_csv, io.StringIO, and to_csv"
+    narration: >
+      In lesson 2 you learn how pandas ingests and outputs data. The two most
+      common formats are CSV and JSON, and pandas reads both with a single
+      function call. You will also see io.StringIO — the trick that lets you
+      pass a string directly to read_csv without touching the filesystem.
+      This is essential for tests, pipelines, and in-memory transformations.
+
+  - type: concept
+    label: "CSV vs JSON"
+    heading: "Two formats, one DataFrame"
+    body: >
+      CSV: rows of comma-separated values, first row is the header.
+      JSON: list of objects (records) or a dict of lists (columns).
+      pandas reads both into the same DataFrame structure.
+    bullets:
+      - "pd.read_csv() — parses comma-separated text"
+      - "pd.read_json() — parses JSON arrays or column-dict"
+      - "Both accept a file path, URL, or file-like object"
+    narration: >
+      CSV and JSON are the two file formats you will encounter most often in
+      data engineering. CSV is the simplest: each row is a line of
+      comma-separated values, and the first row is the header that becomes
+      your column names. JSON comes in two orientations that pandas
+      understands automatically: a list of objects where each object is one
+      row, or a dict of lists where each key is a column. In both cases you
+      get the same DataFrame out the other end, which is the whole point —
+      pandas normalises different file formats into a single representation
+      you can query the same way regardless of source.
+
+  - type: how_it_works
+    label: "io.StringIO"
+    heading: "Treat a string as a file with io.StringIO"
+    body: >
+      pd.read_csv expects a file-like object, not a raw string.
+      io.StringIO wraps a string in a file interface so pandas can
+      seek and read it without writing to disk.
+    bullets:
+      - "import io; io.StringIO(csv_text) → file-like object"
+      - "Identical to passing an open file handle"
+      - "Essential for tests, API responses, and notebooks"
+    narration: >
+      Here is a subtle but important detail. pd.read_csv does not accept a
+      raw string — it expects either a file path or a file-like object that
+      has a read method and a seek method. io.StringIO wraps any string in
+      that interface. You construct it with io.StringIO of your CSV text, and
+      then pass that to pd.read_csv just as you would pass an open file.
+      The benefit is that nothing touches the filesystem. This makes your
+      functions testable in isolation: you can embed a CSV string directly
+      in the test cell and never depend on a file being present on disk.
+
+  - type: code
+    label: "Read & Write"
+    heading: "read_csv, read_json, to_csv"
+    code: |
+      import io
+      import pandas as pd
+
+      # Read from a string (in-memory)
+      csv_text = "name,age\nAlice,25\nBob,30"
+      df = pd.read_csv(io.StringIO(csv_text))
+
+      # Read from a file path
+      # df = pd.read_csv('data.csv')
+
+      # Read JSON records
+      json_text = '[{"name":"Alice","age":25},{"name":"Bob","age":30}]'
+      df2 = pd.read_json(io.StringIO(json_text))
+
+      # Write back to CSV string
+      out = df.to_csv(index=False)
+      print(out)
+      # name,age
+      # Alice,25
+      # Bob,30
+    narration: >
+      Here is the full read-write cycle. You pass io.StringIO of your CSV
+      text into pd.read_csv and get a DataFrame. If you have a file path
+      instead, just pass the path string directly — read_csv handles both
+      transparently. For JSON, pd.read_json works the same way: wrap the
+      string in io.StringIO or pass a file path. To go the other direction —
+      DataFrame back to CSV text — call df.to_csv with index=False. The
+      index=False argument tells pandas not to write the row numbers into
+      the file, which is almost always what you want; otherwise you get an
+      unnamed first column full of 0, 1, 2 when you reload the file.
+
+  - type: exercise
+    heading: "Exercise 2 — load_csv"
+    prompt: >
+      Implement `load_csv(csv_text: str) -> pd.DataFrame` that wraps
+      the CSV text in io.StringIO and passes it to pd.read_csv.
+      The function body is one line.
+    hint: >
+      `return pd.read_csv(io.StringIO(csv_text))` — that is the entire
+      implementation. The power is in what you can now do with the result.
+    narration: >
+      Your exercise is deliberately short because the concept is simple but
+      worth ingraining: always use io.StringIO when you have CSV as a string.
+      Once you have load_csv, you will use it in every subsequent exercise
+      today — it is the entry point to every dataset. After you pass the
+      checks, try calling df.dtypes on the result to see that pandas
+      correctly inferred numeric types from the CSV automatically.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "pd.read_csv(path_or_buffer) — load CSV into a DataFrame"
+      - "io.StringIO(text) — wrap a string as a file-like object"
+      - "pd.read_json(path_or_buffer) — load JSON records or column-dict"
+      - "df.to_csv(index=False) — write DataFrame back to CSV text"
+      - "index=False prevents a phantom unnamed column on reload"
+    narration: >
+      You can now get data in and out of pandas from any source: file path,
+      URL, or raw string. io.StringIO is the glue that makes string-based
+      testing painless. In the next lesson you will learn how to slice into
+      a DataFrame to select the rows and columns you actually care about.

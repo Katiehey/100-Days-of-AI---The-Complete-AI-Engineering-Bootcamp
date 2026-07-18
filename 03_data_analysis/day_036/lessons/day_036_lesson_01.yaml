@@ -1,0 +1,135 @@
+day: "036"
+lesson: "01"
+title: "DataFrames & Series"
+slides:
+  - type: title
+    heading: "DataFrames & Series"
+    subheading: "The two data structures that power pandas"
+    narration: >
+      Welcome to Day 36 — the start of Section 3: Data and Analysis. Today you learn
+      pandas, the library that turns raw tabular data into something you can query,
+      transform, and summarise in a few lines of Python. By the end of this lesson
+      you will be comfortable creating DataFrames and Series, reading their shape and
+      types, and getting a statistical summary in one call.
+
+  - type: concept
+    label: "What is a DataFrame?"
+    heading: "A DataFrame is a 2-D labeled table"
+    body: >
+      Think of a DataFrame as a spreadsheet in memory: rows are observations,
+      columns are variables. Every column shares the same row index, so you can
+      align, merge, and filter across columns with zero manual bookkeeping.
+    bullets:
+      - "2-D: rows × columns, each with a label"
+      - "Columns can have different types (int, float, str, datetime)"
+      - "Index labels rows — default is 0, 1, 2, …"
+    narration: >
+      A DataFrame is pandas' core object. Picture a CSV file loaded into memory
+      where every row has a position — its index — and every column has a name.
+      You can think of each column as a named array. Because every column shares
+      the same index, aligning two DataFrames, merging them, or slicing a subset
+      of rows is a single expression rather than a for-loop.
+
+  - type: concept
+    label: "What is a Series?"
+    heading: "A Series is a single labeled column"
+    body: >
+      Selecting one column from a DataFrame gives you a Series — a 1-D array
+      with an index. Series and DataFrames share the same API, so operations
+      you learn on one apply to the other.
+    bullets:
+      - "1-D: one column (or row) of labeled values"
+      - "df['column'] returns a Series"
+      - "df[['col1', 'col2']] returns a DataFrame"
+    narration: >
+      A Series is what you get when you pick a single column. It still has the
+      index from the parent DataFrame, so it lines up row-for-row with every
+      other column. When you do arithmetic between two Series — say price times
+      quantity — pandas aligns them by index automatically. The double-bracket
+      syntax, df with double brackets, gives you a DataFrame back instead of
+      collapsing to a Series; use that whenever you need to keep the tabular
+      structure for downstream steps.
+
+  - type: how_it_works
+    label: "Creating DataFrames"
+    heading: "pd.DataFrame() — two common patterns"
+    body: >
+      Build from a dict of lists (column-oriented) or a list of dicts
+      (row-oriented). Both give the same result; choose whichever your
+      data source provides naturally.
+    narration: >
+      The most common way to create a DataFrame from scratch is with a
+      dictionary where each key is a column name and each value is a list
+      of values. Pandas aligns the lists by position to form rows. The
+      second pattern — a list of dicts — is what you get back from most
+      APIs and JSON files: each dict is one row, and pandas figures out
+      the column names from the dict keys. Once you have the DataFrame,
+      the dot-head, dot-shape, dot-dtypes, and dot-describe methods give
+      you an instant orientation to whatever data you just loaded.
+
+  - type: code
+    label: "Inspect a DataFrame"
+    heading: "shape, dtypes, describe, isnull"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'name':  ['Alice', 'Bob', 'Carol'],
+          'age':   [25, 30, 35],
+          'score': [90.5, 85.0, 92.3],
+      })
+
+      print(df.shape)              # (3, 3)
+      print(df.dtypes)             # object, int64, float64
+      print(df.describe())         # stats for numeric cols
+      print(df.isnull().sum())     # null count per column
+
+      # select one column → Series
+      ages = df['age']
+
+      # select multiple columns → DataFrame
+      subset = df[['name', 'score']]
+    narration: >
+      Here is the inspection toolkit you will use on every new dataset.
+      Dot-shape returns a tuple of rows then columns — your first sanity check
+      that the data loaded correctly. Dot-dtypes tells you what pandas inferred
+      for each column; surprises here, like a numeric column stored as object,
+      are a signal of bad data to clean. Dot-describe gives you count, mean,
+      standard deviation, min, quartiles, and max for every numeric column in
+      one call. And dot-isnull dot-sum shows you how many missing values are in
+      each column. These four lines are your opening move with any new dataset.
+
+  - type: exercise
+    heading: "Exercise 1 — summarize_dataframe"
+    prompt: >
+      Implement `summarize_dataframe(df) -> dict` that returns
+      rows, cols, columns list, numeric_cols list, and null_count.
+      Use df.shape, df.columns.tolist(), df.select_dtypes(include='number'),
+      and df.isnull().sum().sum().
+    hint: >
+      `df.select_dtypes(include='number').columns.tolist()` gives you only the
+      numeric column names. Cast the null total to int() so the dict is
+      JSON-serialisable.
+    narration: >
+      Your exercise is to build a function that wraps the four inspection
+      calls into one clean dict. This is a pattern you will reuse constantly:
+      instead of running four separate print statements every time you load new
+      data, you call summarize_dataframe once and log or assert on the result.
+      Focus on dot-select-dtypes for the numeric columns and dot-isnull
+      dot-sum dot-sum — note the double sum — for the total null count across
+      the entire DataFrame.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "DataFrame = 2-D labeled table; Series = 1-D labeled column"
+      - "pd.DataFrame(dict_of_lists) or pd.DataFrame(list_of_dicts)"
+      - "df.shape, df.dtypes, df.describe(), df.isnull().sum()"
+      - "df['col'] → Series; df[['a','b']] → DataFrame"
+      - "select_dtypes(include='number') filters numeric columns"
+    narration: >
+      You now have the vocabulary of pandas. A DataFrame is your spreadsheet
+      in memory; a Series is one column of it. You know how to create both,
+      inspect their shape and types, get summary statistics in one line, and
+      count missing values. In the next lesson you will load real data from
+      CSV strings and files instead of constructing it by hand.

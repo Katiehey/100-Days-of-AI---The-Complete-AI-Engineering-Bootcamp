@@ -1,0 +1,127 @@
+day: "036"
+lesson: "03"
+title: "Selecting & Filtering"
+slides:
+  - type: title
+    heading: "Selecting & Filtering"
+    subheading: "Boolean masks, .loc[], and .iloc[]"
+    narration: >
+      Lesson 3 covers the three selection mechanisms you will use every day
+      in pandas: boolean filtering to keep only rows that match a condition,
+      dot-loc for label-based selection, and dot-iloc for integer-position
+      selection. By the end you will know which one to reach for in any
+      situation, and you will have implemented filter_by_threshold — a
+      reusable building block for data pipelines.
+
+  - type: concept
+    label: "Boolean filtering"
+    heading: "df[mask] — the most common pattern"
+    body: >
+      A boolean mask is a Series of True/False values, one per row.
+      Passing it inside square brackets keeps only the True rows.
+      Build a mask with a comparison: df['col'] >= value.
+    bullets:
+      - "mask = df['price'] >= 10.0  →  True/False per row"
+      - "df[mask]  →  only the True rows"
+      - "Chain conditions: (df['a'] > 0) & (df['b'] == 'x')"
+    narration: >
+      Boolean filtering is the workhorse of row selection. You write a
+      comparison expression on a column — df bracket price greater-than-or-equal
+      ten — and pandas evaluates it element-wise to produce a Series of True
+      and False values. Pass that mask back into bracket notation and you get
+      only the rows where the mask is True. To combine two conditions use the
+      ampersand operator for AND and the pipe operator for OR, and wrap each
+      sub-condition in its own parentheses because of Python's operator
+      precedence rules. This is different from Python's and/or keywords, which
+      do not work element-wise on Series.
+
+  - type: how_it_works
+    label: ".loc[] and .iloc[]"
+    heading: "Label vs integer position"
+    body: >
+      .loc[row_label, col_label] — select by label (index value and column name).
+      .iloc[row_int, col_int]    — select by integer position (0-based).
+      Both accept slices and lists.
+    bullets:
+      - "df.loc[0, 'name']   — row label 0, column 'name'"
+      - "df.iloc[0, 0]       — first row, first column"
+      - "df.loc[:, 'price']  — all rows, 'price' column (same as df['price'])"
+    narration: >
+      pandas has two indexers for fine-grained selection. dot-loc uses labels:
+      the index value for rows and the column name for columns. If your index is
+      the default 0, 1, 2, then labels happen to be the same as positions, which
+      can be confusing. dot-iloc always uses integer positions regardless of the
+      index labels — zero-based, like Python lists. In practice you will use
+      boolean filtering most often, dot-iloc when you need the first or last N
+      rows programmatically, and dot-loc when you have a meaningful row index
+      like a date or an ID. The colon means all of that axis, just like Python
+      slices.
+
+  - type: code
+    label: "Filtering examples"
+    heading: "mask, .loc[], .iloc[], reset_index"
+    code: |
+      import io, pandas as pd
+
+      df = pd.read_csv(io.StringIO(
+          "product,price,qty\n"
+          "apple,1.5,100\nbanana,0.75,200\n"
+          "cherry,3.0,50\norange,2.0,75"
+      ))
+
+      # Boolean filter
+      high = df[df['price'] >= 2.0].reset_index(drop=True)
+      print(high)
+      # cherry, orange
+
+      # .loc — label-based
+      print(df.loc[0, 'product'])   # apple
+
+      # .iloc — position-based
+      print(df.iloc[0, 0])          # apple
+
+      # Multiple conditions
+      cheap_heavy = df[(df['price'] < 2) & (df['qty'] > 100)]
+      print(cheap_heavy)            # banana
+    narration: >
+      Here you can see all three patterns side by side. The boolean filter
+      keeps cherry and orange because their prices are 3.0 and 2.0. Notice
+      the dot-reset-index with drop=True after the filter — this renumbers
+      the rows from zero again so the filtered result looks clean rather than
+      showing the original row numbers from the source DataFrame. The dot-loc
+      and dot-iloc examples both reach the first cell of the product column,
+      but via different mechanisms. And the last example chains two conditions
+      with ampersand to find cheap heavy items — only banana qualifies.
+
+  - type: exercise
+    heading: "Exercise 3 — filter_by_threshold"
+    prompt: >
+      Implement `filter_by_threshold(df, column, threshold) -> pd.DataFrame`
+      that returns rows where df[column] >= threshold with a reset index.
+      Two lines: build the mask, return df[mask].reset_index(drop=True).
+    hint: >
+      `mask = df[column] >= threshold` then `return df[mask].reset_index(drop=True)`.
+      The reset_index(drop=True) is important — without it the filtered
+      DataFrame keeps the original row numbers.
+    narration: >
+      Filter by threshold is the generic version of the pattern you just saw.
+      Instead of hardcoding the column name and value, you accept them as
+      parameters so the function works on any column of any DataFrame. The
+      reset_index call is the detail that makes the result production-ready:
+      downstream code often assumes a zero-based integer index, and a gap in
+      the index — because rows 1 and 3 were kept but row 2 was dropped — will
+      break iloc-based access.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Boolean mask: df['col'] >= value  →  Series of True/False"
+      - "df[mask]  →  rows where mask is True"
+      - ".reset_index(drop=True)  →  re-number rows from 0"
+      - "df.loc[row_label, col_label]  →  label-based access"
+      - "df.iloc[row_int, col_int]  →  position-based access"
+    narration: >
+      You now know the three ways to select data in pandas and you have
+      internalised the boolean-mask pattern — the most important one of the
+      three. In the next lesson you will go from reading data to transforming
+      it, adding derived columns with apply and lambda functions.

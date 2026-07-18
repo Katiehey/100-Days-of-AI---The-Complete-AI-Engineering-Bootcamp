@@ -1,0 +1,131 @@
+day: "036"
+lesson: "05"
+title: "Groupby & Aggregation"
+slides:
+  - type: title
+    heading: "Groupby & Aggregation"
+    subheading: "split-apply-combine with groupby, agg, and sort_values"
+    narration: >
+      The final lesson today introduces groupby — the most powerful
+      aggregation tool in pandas. You will learn the split-apply-combine
+      pattern, how to produce named aggregations with dot-agg, and how to
+      sort and reset the result into a clean output DataFrame. After this
+      lesson you can answer questions like "which product generated the most
+      revenue?" or "how many orders came from each region?" in three lines.
+
+  - type: concept
+    label: "Split-apply-combine"
+    heading: "groupby() implements split-apply-combine"
+    body: >
+      1. Split — divide rows into groups by a column's values.
+      2. Apply — compute an aggregate function per group (sum, mean, count).
+      3. Combine — collect per-group results back into one DataFrame.
+    bullets:
+      - "df.groupby('category') — creates a GroupBy object"
+      - "['col'].agg(total='sum', count='count') — apply two functions"
+      - ".reset_index() — bring group key back as a regular column"
+    narration: >
+      Split-apply-combine is the mental model for every aggregation in data
+      analysis. First pandas splits the DataFrame into sub-tables, one per
+      unique value of the grouping column. Then it applies your aggregation
+      function — sum, mean, count, max, or a custom function — to each
+      sub-table independently. Finally it combines the per-group results into
+      a new DataFrame where each row represents one group. The GroupBy object
+      that df.groupby returns is lazy: it does not actually split the data
+      until you call an aggregation method on it. This means you can chain
+      operations fluidly without paying a cost until you actually need the
+      result.
+
+  - type: how_it_works
+    label: "Named aggregations with agg()"
+    heading: "agg(name='function') — name your output columns"
+    body: >
+      Pass keyword arguments to agg() to name the result columns.
+      Each keyword becomes a column name; the value is the aggregation
+      function as a string ('sum', 'mean', 'count', 'max', 'min').
+    bullets:
+      - "agg(total='sum', count='count') — two named columns"
+      - "After agg() the group key is the index — call reset_index()"
+      - "sort_values('total', ascending=False) — rank groups"
+    narration: >
+      The named-aggregation syntax was introduced in pandas 0.25 and is
+      now the standard way to aggregate because it gives you full control
+      over column names. Before named aggregations, the output column
+      names were the function strings themselves — 'sum', 'count' — which
+      made chaining awkward. Now you write agg with total equals sum and
+      count equals count as keyword arguments, and the result has exactly
+      those column names. After agg the group key becomes the row index
+      rather than a regular column; calling reset_index moves it back to
+      a column so the result DataFrame is uniform and easy to pass to
+      the next step.
+
+  - type: code
+    label: "Full groupby pipeline"
+    heading: "groupby → agg → reset_index → sort_values"
+    code: |
+      import io, pandas as pd
+
+      df = pd.read_csv(io.StringIO(
+          "region,product,sales\n"
+          "North,Widget,100\nSouth,Widget,150\n"
+          "North,Gadget,200\nSouth,Gadget,50\n"
+          "East,Widget,60"
+      ))
+
+      summary = (
+          df.groupby('product')['sales']
+          .agg(total='sum', count='count')
+          .reset_index()
+          .sort_values('total', ascending=False)
+          .reset_index(drop=True)
+      )
+      print(summary)
+      # product  total  count
+      # Widget    310      3
+      # Gadget    250      2
+
+      # value_counts shortcut for frequency tables
+      print(df['region'].value_counts())
+    narration: >
+      Here is the complete pipeline chained with dot notation. The parentheses
+      around the whole expression let you break it across multiple lines for
+      readability. groupby of product selects the sales column from each group,
+      agg produces named total and count columns, reset_index brings product
+      back as a column, sort_values ranks by total descending, and a final
+      reset_index with drop=True cleans up the numbering. Widget comes first
+      with 310 total across three orders. Notice value_counts at the bottom —
+      it is a shortcut for counting how many times each unique value appears
+      in a Series, and it already sorts by frequency descending.
+
+  - type: exercise
+    heading: "Exercise 5 — group_summary"
+    prompt: >
+      Implement `group_summary(df, group_col, value_col) -> pd.DataFrame`
+      that groups by group_col, aggregates value_col into 'total' (sum)
+      and 'count', resets index, and sorts by 'total' descending.
+    hint: >
+      Chain: df.groupby(group_col)[value_col].agg(total='sum', count='count')
+      .reset_index().sort_values('total', ascending=False).reset_index(drop=True)
+    narration: >
+      Group summary is the pattern you will reuse in virtually every analysis
+      session. The checks verify the column names, the totals, the sort order,
+      and the index reset — all of which matter in a real pipeline. Once you
+      pass, try calling group_summary on the region column of the same dataset
+      to see which region generated the most sales. The function is fully
+      generic: the same code works on any column pair.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "groupby('col')['value'].agg(total='sum', count='count')"
+      - ".reset_index() — move the group key back to a column"
+      - ".sort_values('col', ascending=False) — rank results"
+      - ".value_counts() — frequency table for a single column"
+      - "Chain with () for readable multi-step expressions"
+    narration: >
+      You now have the complete pandas fundamentals toolkit: create,
+      load, inspect, select, filter, transform, and aggregate. In the
+      project you will combine all five skills to analyse a sales dataset
+      from scratch. Tomorrow on Day 37 you will apply these tools to
+      messy real-world data — missing values, wrong types, duplicates —
+      and learn how to clean it before analysis.
