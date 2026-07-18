@@ -1,0 +1,133 @@
+day: "030"
+lesson: "03"
+title: "Pipeline State — summarize_run"
+
+slides:
+
+  - type: title
+    heading: "Pipeline State"
+    subheading: "Aggregating step results into a run summary"
+    narration: >
+      After chain_steps returns a list of step result dicts, the pipeline has a
+      complete record of what happened. summarize_run converts that list into a
+      compact summary dict: total steps, how many passed, failed, or were skipped,
+      the combined duration, and a boolean all_ok. This summary is what you log,
+      display to the user, or pass to an alerting system — it is the pipeline's
+      'return value' at the macro level.
+
+  - type: concept
+    label: "run summary"
+    heading: "Run Summary — Aggregate Stats from Step Results"
+    body: >
+      summarize_run is a pure function: it reads the step_results list and returns
+      a new dict with aggregate statistics. It never modifies the input list. The
+      output dict has six keys: total (len), passed (count of 'ok'), failed (count
+      of 'error'), skipped (count of 'skipped'), total_duration_s (sum of duration_s
+      values, rounded), and all_ok (bool — True only when every status is 'ok').
+    bullets:
+      - "total: len(step_results) — always equals len(steps) from chain_steps"
+      - "passed: statuses.count('ok') — how many steps completed successfully"
+      - "failed: statuses.count('error') — how many steps raised an exception"
+      - "skipped: statuses.count('skipped') — how many were not executed"
+      - "total_duration_s: round(sum of duration_s across all steps, 3)"
+      - "all_ok: bool — True iff passed == total (no failures, no skips)"
+    narration: >
+      all_ok being True means passed == total AND failed == 0 AND skipped == 0.
+      Checking 'all(s == ok for s in statuses)' is the clearest expression of this.
+      total_duration_s sums all steps including skipped ones (which have duration_s=0.0),
+      so the sum is equivalent to the sum of steps that actually ran. Rounding to 3
+      decimal places is consistent with run_step's duration_s — no precision mismatch.
+
+  - type: how_it_works
+    label: "summarize_run"
+    heading: "summarize_run — Implementation Pattern"
+    body: >
+      Extract statuses into a list comprehension for clean re-use. Use list.count
+      for passed/failed/skipped — readable and O(n) over a small list. Sum duration_s
+      values with a generator expression. all_ok uses the built-in all() function on
+      a generator — short-circuits on the first non-'ok' status.
+    bullets:
+      - "statuses = [s['status'] for s in step_results]"
+      - "passed  = statuses.count('ok')"
+      - "failed  = statuses.count('error')"
+      - "skipped = statuses.count('skipped')"
+      - "total_duration_s = round(sum(s.get('duration_s', 0.0) for s in step_results), 3)"
+      - "all_ok = all(s == 'ok' for s in statuses)"
+    narration: >
+      s.get('duration_s', 0.0) instead of s['duration_s'] is defensive programming —
+      it handles the case where step_results come from a source that omitted the key.
+      In normal use (chain_steps → summarize_run), every record has duration_s, so
+      the default never fires. Using .get is a small robustness win at zero cost.
+      statuses is a local variable: extracted once and reused for passed, failed,
+      skipped, and all_ok — four list operations over one list rather than four
+      separate comprehensions over step_results.
+
+  - type: code
+    label: "summarize_run"
+    heading: "summarize_run — Full Implementation"
+    code: |
+      def summarize_run(step_results: list) -> dict:
+          """Aggregate step result list into a run summary dict."""
+          statuses = [s["status"] for s in step_results]
+          return {
+              "total":            len(step_results),
+              "passed":           statuses.count("ok"),
+              "failed":           statuses.count("error"),
+              "skipped":          statuses.count("skipped"),
+              "total_duration_s": round(
+                  sum(s.get("duration_s", 0.0) for s in step_results), 3
+              ),
+              "all_ok":           all(s == "ok" for s in statuses),
+          }
+
+      # Example
+      results = chain_steps([
+          ("step_a", lambda: 1 + 1),
+          ("step_b", lambda: (_ for _ in ()).throw(RuntimeError("oops"))),
+          ("step_c", lambda: "done"),
+      ])
+      summary = summarize_run(results)
+      print(summary)
+      # {'total': 3, 'passed': 1, 'failed': 1, 'skipped': 1,
+      #  'total_duration_s': 0.001, 'all_ok': False}
+    narration: >
+      Notice that all_ok is False even though 'passed' is 1 — all_ok requires all
+      steps to have status='ok', with no failures and no skips. This is the right
+      default for an alerting system: you want all_ok=True to mean the pipeline ran
+      cleanly from start to finish with no issues, not merely that at least one step
+      succeeded. If you want to alert only on failures (not skips), check failed == 0
+      instead of all_ok.
+
+  - type: exercise
+    heading: "Exercise 3: summarize_run"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement summarize_run(step_results) that
+      accepts a list of step result dicts (each has name, status, result, error, duration_s)
+      and returns a summary dict with six keys: total (len of list), passed (count of
+      status=='ok'), failed (count of status=='error'), skipped (count of status=='skipped'),
+      total_duration_s (round(sum of duration_s, 3)), and all_ok (True only if every
+      status is 'ok').
+    hint: >
+      statuses = [s['status'] for s in step_results]. Use statuses.count('ok'), etc.
+      all_ok = all(s == 'ok' for s in statuses). total_duration_s = round(sum(...), 3).
+      Return a dict with all six keys.
+    narration: >
+      The check harness for Exercise 3 passes in a known step_results list so the
+      expected summary values are deterministic: it does not call chain_steps or rely
+      on run_step. This makes Exercise 3 independently testable even if exercises 1 and 2
+      were not completed — summarize_run is a pure function that operates on any list
+      matching the step result schema.
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "summarize_run: pure function over step_results list → compact summary dict"
+      - "Six keys: total, passed, failed, skipped, total_duration_s, all_ok"
+      - "all_ok = True iff ALL statuses are 'ok' — no failures, no skips"
+      - "statuses list extracted once and reused for all four count operations"
+      - "Use s.get('duration_s', 0.0) for robustness; 0.0 default for skipped steps"
+    narration: >
+      Lesson 3 gave us summarize_run. Lesson 4 is ai_pipeline_summary — an LLM call
+      that takes the step_results list, formats it as a readable text report, and
+      returns a 2–3 sentence natural-language summary. This is what you display to a
+      user or send to a Slack channel after the pipeline finishes.

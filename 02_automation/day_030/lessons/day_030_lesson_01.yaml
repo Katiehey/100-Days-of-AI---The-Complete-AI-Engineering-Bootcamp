@@ -1,0 +1,142 @@
+day: "030"
+lesson: "01"
+title: "Workflow Orchestration Concepts"
+
+slides:
+
+  - type: title
+    heading: "Workflow Orchestration"
+    subheading: "Steps, pipelines, and the step-result schema"
+    narration: >
+      Day 30 is about workflow orchestration — chaining multiple automation steps
+      into a reliable pipeline. The earlier automation days (25–29) each built
+      a single tool: email parsing, document generation, scheduling, spreadsheets,
+      webhooks. Orchestration is what connects them: fetch data → process it →
+      generate a report → send a notification → log the result. When any step
+      fails, the rest should be skipped, not left in an unknown state. The
+      foundation is a standardised step result schema that every step produces.
+
+  - type: concept
+    label: "pipeline model"
+    heading: "The Pipeline Model — Steps in Sequence"
+    body: >
+      A pipeline is an ordered list of steps. Each step is a named, callable unit
+      of work. Steps run in sequence: the pipeline is done when all steps complete
+      (or when one fails and stop-on-error is active). The key design principles are
+      isolation (each step is independently testable), standard output (every step
+      returns the same shaped result dict), and composability (any function can be
+      a step — no special base class needed).
+    bullets:
+      - "Isolation: each step is a separate function — no shared mutable state"
+      - "Standard output: every step returns {name, status, result, error, duration_s}"
+      - "Sequential: steps run in order; earlier results can inform later steps"
+      - "Stop-on-error: if step N fails, steps N+1 onward are skipped (not aborted)"
+      - "Composability: any zero-arg callable can be a step — wrap with a closure"
+    narration: >
+      The 'standard output' principle is what makes orchestration possible. Without
+      it, you would need to know the internal structure of each step to check whether
+      it succeeded. With a standard schema, the pipeline runner can check status='ok'
+      or status='error' on any step without knowing anything about what the step does.
+      This is the same principle as HTTP status codes: 200 means success, 500 means
+      server error — you don't need to know the endpoint's internals to know whether
+      to retry.
+
+  - type: how_it_works
+    label: "step result schema"
+    heading: "Step Result Schema — {name, status, result, error, duration_s}"
+    body: >
+      Every step produces exactly one dict with five keys. name is the human-readable
+      step identifier ('fetch_data', 'generate_report'). status is 'ok', 'error', or
+      'skipped'. result holds the step's return value (any type; None on failure).
+      error is None on success or str(exception) on failure. duration_s is a float
+      measuring how long the step took in seconds, measured with time.time().
+    bullets:
+      - "name: str — human-readable step label"
+      - "status: 'ok' | 'error' | 'skipped'"
+      - "result: any — return value of fn(); None if error or skipped"
+      - "error: None | str — str(exception) on failure; None on success or skipped"
+      - "duration_s: float — time.time() elapsed; 0.0 for skipped steps"
+    narration: >
+      The str(exception) pattern for the error field is deliberate. Storing the
+      exception object itself would make the step result non-serialisable (exceptions
+      can't always be json.dumps'd). Storing str(e) loses the traceback but preserves
+      the message, which is what a pipeline monitor needs to display. If you need
+      the full traceback for debugging, use traceback.format_exc() instead.
+      duration_s=0.0 for skipped steps preserves the schema: every record has all
+      five keys, regardless of whether the step ran.
+
+  - type: code
+    label: "run_step"
+    heading: "run_step — Safe Step Execution"
+    code: |
+      import time
+
+      def run_step(name: str, fn) -> dict:
+          """Run fn() safely; return a standard step result dict."""
+          start = time.time()
+          try:
+              result = fn()
+              return {
+                  "name":       name,
+                  "status":     "ok",
+                  "result":     result,
+                  "error":      None,
+                  "duration_s": round(time.time() - start, 3),
+              }
+          except Exception as e:
+              return {
+                  "name":       name,
+                  "status":     "error",
+                  "result":     None,
+                  "error":      str(e),
+                  "duration_s": round(time.time() - start, 3),
+              }
+
+      # Example
+      step1 = run_step("load_data", lambda: {"rows": 500})
+      step2 = run_step("bad_step",  lambda: 1 / 0)
+
+      print(step1)
+      # {'name': 'load_data', 'status': 'ok', 'result': {'rows': 500}, ...}
+      print(step2["status"], step2["error"])
+      # error  division by zero
+    narration: >
+      run_step never raises — any exception from fn() is caught and recorded.
+      This is the critical contract: the pipeline runner can call run_step without
+      a try/except around it and be confident it always gets a dict back. The
+      round(..., 3) on duration_s gives millisecond precision, which is enough
+      for pipeline monitoring. time.time() is a float measuring wall-clock seconds
+      — appropriate for measuring automation steps that take milliseconds to minutes.
+
+  - type: exercise
+    heading: "Exercise 1: run_step"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement run_step(name, fn) that calls fn()
+      inside a try/except, measures duration with time.time(), and returns the standard
+      step result dict with keys name, status ('ok' or 'error'), result (fn's return
+      value or None), error (None or str(e)), and duration_s (round(elapsed, 3)).
+      The function must never raise even when fn() raises.
+    hint: >
+      start = time.time(). try: result = fn() → return ok dict.
+      except Exception as e: → return error dict with str(e) and duration.
+      Both branches return the same five keys. round(time.time() - start, 3) for duration.
+    narration: >
+      The key invariant to test is that run_step never raises — Exercise 1's check
+      harness verifies that calling run_step with a function that raises ZeroDivisionError
+      returns a dict with status='error' and error='division by zero', never re-raising
+      the exception. This is the foundation on which chain_steps (Exercise 2) and
+      Pipeline (Exercise 5) are built.
+
+  - type: summary
+    heading: "Day 30 Lesson 1: Key Takeaways"
+    bullets:
+      - "Pipeline: ordered list of named steps; each step is a zero-arg callable"
+      - "Standard schema: {name, status, result, error, duration_s} — every step"
+      - "status: 'ok' | 'error' | 'skipped' — three possible outcomes"
+      - "run_step: never raises; catches Exception; records str(e) in error field"
+      - "duration_s: round(time.time() elapsed, 3) — millisecond precision"
+    narration: >
+      Lesson 1 established the step result schema and the run_step function. Lesson 2
+      builds on this: chain_steps runs a list of (name, fn) pairs and implements the
+      stop-on-error behaviour — when a step fails, subsequent steps are skipped rather
+      than executed in an unknown state.

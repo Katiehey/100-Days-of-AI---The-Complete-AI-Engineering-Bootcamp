@@ -1,0 +1,154 @@
+day: "030"
+lesson: "05"
+title: "Pipeline Class — The Full Orchestrator"
+
+slides:
+
+  - type: title
+    heading: "Pipeline Class"
+    subheading: "add_step + run — composable, self-summarising orchestration"
+    narration: >
+      Lesson 5 assembles run_step, chain_steps, summarize_run, and ai_pipeline_summary
+      into a single Pipeline class. add_step(name, fn) registers a named step.
+      run() executes all steps in order and returns a complete run result dict with
+      the step records, the summary, and an AI-generated report. This is the
+      deliverable for Day 30: a reusable orchestrator you can compose with any
+      callable functions, from file processing to web scraping to report generation.
+
+  - type: concept
+    label: "Pipeline class"
+    heading: "Pipeline — Encapsulating Orchestration State"
+    body: >
+      A class encapsulates two things: the step registry (_steps list) and the
+      execution logic (run method). The constructor takes a pipeline name and
+      stop_on_error flag. add_step(name, fn) appends to _steps. run() calls
+      chain_steps, then summarize_run, then ai_pipeline_summary, and returns
+      a result dict with name, steps, summary, and report. The class holds no
+      mutable state after run() completes — each run() call is independent.
+    bullets:
+      - "__init__(name, stop_on_error): store name and flag; init _steps list"
+      - "add_step(name, fn): append (name, fn) to _steps; return self for chaining"
+      - "run() → dict: chain_steps + summarize_run + ai_pipeline_summary"
+      - "Result keys: name, steps (list), summary (dict), report (str)"
+      - "Each run() call is independent — no accumulated state between runs"
+    narration: >
+      Returning self from add_step enables method chaining:
+      Pipeline().add_step('a', fn_a).add_step('b', fn_b).run(). This is the fluent
+      interface pattern, common in builder APIs. The exercise check harness does not
+      require fluent chaining — it tests add_step and run independently — but returning
+      self is the correct design and costs nothing. 'Each run() is independent' means
+      you can call run() multiple times on the same Pipeline instance without the second
+      run seeing the first run's state. The only shared state is _steps, which run() reads
+      but does not modify.
+
+  - type: how_it_works
+    label: "Pipeline.run"
+    heading: "Pipeline.run — Orchestration in Four Lines"
+    body: >
+      run() calls chain_steps with _steps and stop_on_error to get step results.
+      Passes step_results to summarize_run to get the summary dict. Passes step_results
+      and model to ai_pipeline_summary to get the report string. Returns a dict with
+      all four outputs. The orchestration logic is four lines of delegation — the
+      complexity lives in the four building-block functions.
+    bullets:
+      - "step_results = chain_steps(self._steps, stop_on_error=self.stop_on_error)"
+      - "summary      = summarize_run(step_results)"
+      - "report       = ai_pipeline_summary(step_results, model=self.model)"
+      - "return {'name': self.name, 'steps': step_results, 'summary': summary, 'report': report}"
+    narration: >
+      This is the composition pattern at its clearest: four single-responsibility
+      functions composed by a thin orchestrating method. run() adds no new logic —
+      it delegates entirely. This makes run() easy to test (mock chain_steps or
+      summarize_run independently) and easy to read. If you need to add a new
+      capability to the pipeline — say, checkpoint saving — you add a fifth line
+      to run() that calls a new function, without touching any of the existing four.
+
+  - type: code
+    label: "Pipeline"
+    heading: "Pipeline — Full Implementation"
+    code: |
+      class Pipeline:
+          def __init__(
+              self,
+              name: str = "pipeline",
+              stop_on_error: bool = True,
+              model: str = "llama3.2",
+          ):
+              self.name           = name
+              self.stop_on_error  = stop_on_error
+              self.model          = model
+              self._steps: list   = []
+
+          def add_step(self, name: str, fn) -> "Pipeline":
+              self._steps.append((name, fn))
+              return self
+
+          def run(self) -> dict:
+              step_results = chain_steps(self._steps, stop_on_error=self.stop_on_error)
+              summary      = summarize_run(step_results)
+              report       = ai_pipeline_summary(step_results, model=self.model)
+              return {
+                  "name":    self.name,
+                  "steps":   step_results,
+                  "summary": summary,
+                  "report":  report,
+              }
+
+      # Example
+      p = Pipeline(name="daily_digest")
+      p.add_step("fetch",   lambda: {"articles": 12})
+      p.add_step("process", lambda: "processed")
+      p.add_step("notify",  lambda: "sent")
+      result = p.run()
+      print(result["summary"])
+      # {'total': 3, 'passed': 3, ..., 'all_ok': True}
+      print(result["report"][:80])
+      # "The pipeline completed successfully with all 3 steps passing..."
+    narration: >
+      The return "Pipeline" string annotation on add_step tells type checkers that
+      add_step returns a Pipeline instance even though the class is not yet defined
+      at that point (forward reference). This is a small typing detail — it has no
+      runtime effect. The _steps type annotation (list) stores (name, fn) tuples.
+      In Python, lists of tuples don't require a typed annotation to work correctly —
+      the annotation is for human readers and static analysis tools.
+
+  - type: exercise
+    heading: "Exercise 5: Pipeline class"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement the Pipeline class with:
+      __init__(name='pipeline', stop_on_error=True, model='llama3.2') that stores the
+      three parameters and initialises self._steps = [].
+      add_step(name, fn) that appends (name, fn) to self._steps and returns self.
+      run() that calls chain_steps(self._steps, stop_on_error=...), summarize_run(...),
+      ai_pipeline_summary(..., model=...), and returns a dict with keys: name, steps,
+      summary, report.
+    hint: >
+      __init__: self._steps = []. add_step: self._steps.append((name, fn)); return self.
+      run: results = chain_steps(self._steps, self.stop_on_error); summary = summarize_run(results);
+      report = ai_pipeline_summary(results, model=self.model);
+      return {'name': self.name, 'steps': results, 'summary': summary, 'report': report}.
+    narration: >
+      The check harness for Exercise 5 creates a Pipeline with two always-ok steps,
+      calls run(), and verifies the result has all four keys (name, steps, summary, report),
+      that summary['all_ok'] is True, that len(steps) equals 2, and that report is a
+      non-empty string. The add_step test is independent: it verifies that calling
+      add_step twice adds two records to _steps and that the return value is the Pipeline
+      instance (for fluent chaining). This is Day 30's final exercise — the full
+      orchestrator you'll use in the project notebook.
+
+  - type: summary
+    heading: "Day 30: Key Takeaways"
+    bullets:
+      - "Pipeline: __init__ stores name, stop_on_error, model; _steps starts empty"
+      - "add_step(name, fn): append tuple to _steps; return self (fluent API)"
+      - "run(): delegate to chain_steps → summarize_run → ai_pipeline_summary"
+      - "Result: {name, steps, summary, report} — complete run record"
+      - "All four functions stay single-responsibility; Pipeline.run composes them"
+    narration: >
+      Day 30 complete. You have a full workflow orchestration toolkit: run_step wraps
+      any callable safely, chain_steps sequences steps with stop-on-error control,
+      summarize_run aggregates the outcome, ai_pipeline_summary narrates it in natural
+      language, and Pipeline ties them into a reusable class. The project notebook uses
+      these to build a multi-step automation pipeline that fetches, processes, and reports
+      on data. Day 31 extends this with retries and exponential backoff for resilience
+      against transient failures.

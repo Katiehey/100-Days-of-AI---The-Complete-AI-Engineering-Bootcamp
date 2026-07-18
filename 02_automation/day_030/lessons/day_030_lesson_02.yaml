@@ -1,0 +1,140 @@
+day: "030"
+lesson: "02"
+title: "Chaining Steps — chain_steps"
+
+slides:
+
+  - type: title
+    heading: "Chaining Steps"
+    subheading: "Sequential execution with stop-on-error and skipped records"
+    narration: >
+      chain_steps is the pipeline runner. It takes a list of (name, fn) tuples,
+      calls run_step on each in order, and returns a list of step result dicts.
+      The key feature is stop-on-error: when a step's status is 'error' and
+      stop_on_error=True, the remaining steps are not executed — they get added
+      to the result list with status='skipped'. The full list always has exactly
+      len(steps) records, so the caller can always see what ran and what didn't.
+
+  - type: concept
+    label: "stop-on-error"
+    heading: "Stop-on-Error — Why Skipping Beats Continuing"
+    body: >
+      Automation pipelines often have data dependencies between steps. If 'fetch_data'
+      fails (no data), 'generate_report' would operate on None and produce garbage.
+      Worse, it might write a corrupt file that overwrites a good one. Stop-on-error
+      means that downstream steps see a clean 'skipped' record rather than a
+      corrupted result. The caller can examine the failed step and fix the root cause
+      without untangling corrupted downstream state.
+    bullets:
+      - "Data dependency: downstream steps assume earlier steps produced valid output"
+      - "Skipped is clean: status='skipped' is an explicit, expected state — not an error"
+      - "Full record: all len(steps) records are always present — easy to report on"
+      - "stop_on_error=False: run all steps regardless — useful for parallel-safe steps"
+      - "Pipeline resumes from scratch on re-run — idempotent by design (see Day 31)"
+    narration: >
+      stop_on_error=False is the right setting when steps are truly independent —
+      for example, sending a Slack notification AND writing a log file. If either
+      fails, the other is still useful to run. The default stop_on_error=True is
+      appropriate for linear data flows where each step consumes the output of the
+      previous one. Day 31 covers idempotency and resumable pipelines in detail.
+
+  - type: how_it_works
+    label: "chain_steps loop"
+    heading: "chain_steps — Loop and Skip Logic"
+    body: >
+      chain_steps iterates over the (name, fn) list with a failed flag. For each
+      step: if failed and stop_on_error, append a skipped record and continue. Otherwise
+      call run_step(name, fn) and append the result. After each run_step call, check
+      if it returned status='error' and set failed=True. The result is a list of
+      exactly len(steps) dicts.
+    bullets:
+      - "failed flag: starts False; set True when any step returns status='error'"
+      - "Skipped record: {name, status='skipped', result=None, error=None, duration_s=0.0}"
+      - "Iterate all tuples even when failed: skipped records fill the tail of the list"
+      - "stop_on_error=False: skip the failed-flag check — all steps run regardless"
+      - "Result length always equals len(steps) — predictable output size"
+    narration: >
+      The failed flag is set after checking the result of run_step, not before the
+      call. This means the step that fails gets status='error' in the result (not
+      'skipped') — the skipped records start from the NEXT step. The skipped record
+      preserves all five schema keys with sentinel values: result=None, error=None,
+      duration_s=0.0. This makes it safe to iterate the result list and sum duration_s
+      or check result keys without special-casing skipped records.
+
+  - type: code
+    label: "chain_steps"
+    heading: "chain_steps — Implementation"
+    code: |
+      def chain_steps(steps: list, stop_on_error: bool = True) -> list:
+          """Run a list of (name, fn) pairs; skip tail on error if stop_on_error."""
+          results = []
+          failed  = False
+          for name, fn in steps:
+              if failed and stop_on_error:
+                  results.append({
+                      "name":       name,
+                      "status":     "skipped",
+                      "result":     None,
+                      "error":      None,
+                      "duration_s": 0.0,
+                  })
+              else:
+                  step_result = run_step(name, fn)
+                  results.append(step_result)
+                  if step_result["status"] == "error":
+                      failed = True
+          return results
+
+      # Example
+      steps = [
+          ("load",    lambda: {"rows": 100}),
+          ("process", lambda: 1 / 0),      # raises
+          ("report",  lambda: "done"),      # skipped
+      ]
+      results = chain_steps(steps)
+      print(results[0]["status"])   # ok
+      print(results[1]["status"])   # error
+      print(results[2]["status"])   # skipped
+    narration: >
+      The loop structure is a classic flag-and-continue pattern. After processing
+      step 'process' (which raises ZeroDivisionError), failed is set to True. The
+      next iteration sees 'failed and stop_on_error' is True, so 'report' gets a
+      skipped record without fn() ever being called. The list has all three records.
+      chain_steps calls run_step, so it inherits run_step's no-raise guarantee —
+      chain_steps itself never raises either.
+
+  - type: exercise
+    heading: "Exercise 2: chain_steps"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement chain_steps(steps, stop_on_error=True)
+      that iterates a list of (name, fn) tuples, calls run_step on each, and collects
+      results. When a step returns status='error' and stop_on_error=True, all subsequent
+      steps must be added as skipped records ({name, status='skipped', result=None,
+      error=None, duration_s=0.0}) without calling their fn. The returned list must
+      always have exactly len(steps) records.
+    hint: >
+      failed = False. for name, fn in steps: if failed and stop_on_error: append skipped dict.
+      else: r = run_step(name, fn); append r; if r['status']=='error': failed=True.
+      Skipped record: {'name': name, 'status': 'skipped', 'result': None, 'error': None, 'duration_s': 0.0}
+    narration: >
+      The check harness for Exercise 2 tests three scenarios: all steps pass (three ok
+      records), one step fails with stop_on_error=True (one error record followed by
+      skipped records), and stop_on_error=False (all steps run regardless). The third
+      check is what validates that the failed flag is only consulted when stop_on_error=True —
+      not that stop_on_error being True automatically skips steps, but that stop_on_error
+      being False prevents the skip.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "chain_steps: iterate (name, fn) list; call run_step; collect dicts"
+      - "failed flag: set True after any run_step returns status='error'"
+      - "Skipped record: all five keys present; status='skipped', duration_s=0.0"
+      - "stop_on_error=True (default): skip tail on failure; False: run all steps"
+      - "Result always has len(steps) records — predictable, safe to summarise"
+    narration: >
+      Lesson 2 gave us chain_steps. Lesson 3 is summarize_run — a function that
+      aggregates the list of step results into a summary dict: how many passed,
+      failed, were skipped, total duration, and whether all steps succeeded. With
+      run_step and chain_steps producing consistent schemas, summarize_run is just
+      a comprehension over the 'status' field.

@@ -1,0 +1,151 @@
+day: "030"
+lesson: "04"
+title: "AI Pipeline Monitoring — ai_pipeline_summary"
+
+slides:
+
+  - type: title
+    heading: "AI Pipeline Monitoring"
+    subheading: "LLM-generated natural-language summary of a pipeline run"
+    narration: >
+      ai_pipeline_summary takes the step_results list and returns a 2–3 sentence
+      summary of the pipeline run in natural language. It formats step results as
+      a human-readable text block (tick for ok, cross for error, dash for skipped),
+      passes that to Ollama with a concise system prompt, and returns the model's
+      response. This is what you post to Slack or include in a report after a pipeline
+      finishes — a plain-English account of what happened.
+
+  - type: concept
+    label: "structured-to-text"
+    heading: "Structured Data → Text → LLM → Natural Language"
+    body: >
+      LLMs summarise natural language better than structured JSON. A list of step
+      result dicts is machine-readable but not human-friendly. Formatting it first
+      as indented text (checkmarks, error messages, timing) turns it into something
+      the model can read the same way a human would read a run log. The model then
+      produces a concise narrative that highlights what succeeded, what failed,
+      and what was skipped.
+    bullets:
+      - "Format first: convert dicts to text before passing to LLM"
+      - "Symbols: ✓ for ok, ✗ for error, - for skipped — visually scannable"
+      - "Include timing: (0.12s) — lets the LLM note slow or fast steps"
+      - "Include error messages: ✗ step_name: division by zero — actionable"
+      - "System prompt: 2–3 sentences, concise — no headers or bullet points"
+    narration: >
+      The formatting step is not just cosmetic — it directly affects summary quality.
+      Passing raw JSON to the LLM produces verbose, JSON-flavoured summaries. Passing
+      indented text with symbols produces natural prose. This is the same principle as
+      formatting emails naturally before asking the LLM to reply (Day 25): the shape
+      of the input determines the shape of the output. The 'no headers or bullet
+      points' instruction in the system prompt steers the model toward flowing prose
+      rather than mimicking the structure of the input.
+
+  - type: how_it_works
+    label: "ai_pipeline_summary"
+    heading: "Format and Prompt — Implementation Pattern"
+    body: >
+      Build a text block from step_results: one line per step with status symbol,
+      name, and duration (ok) or error message (error) or 'skipped'. Build a
+      summary dict with summarize_run for the header line. Pass both to ollama.chat
+      with a concise system prompt. Return response['message']['content'].
+    bullets:
+      - "lines list: one formatted string per step — join with newlines"
+      - "✓ for ok, ✗ for error (include error text), - for skipped"
+      - "Header: f'{passed}/{total} steps passed, {duration_s}s total'"
+      - "system: 'Summarise a workflow run in 2–3 sentences. Be concise.'"
+      - "user: header + step lines + 'Summarise the run:' prompt"
+    narration: >
+      Including the total pass/fail count in the header ('2/3 steps passed') tells
+      the LLM the outcome before it reads the step details. This frontloading produces
+      summaries that lead with the outcome ('The pipeline completed with one failure')
+      rather than narrating each step in order. The 'Summarise the run:' instruction
+      at the end of the user message is the active prompt — the step listing above it
+      is context. This two-part structure (context then instruction) consistently
+      produces more relevant summaries.
+
+  - type: code
+    label: "ai_pipeline_summary"
+    heading: "ai_pipeline_summary — Full Implementation"
+    code: |
+      import ollama
+
+      def ai_pipeline_summary(
+          step_results: list,
+          model: str = "llama3.2",
+      ) -> str:
+          """Return a 2–3 sentence natural-language summary of a pipeline run."""
+          summary = summarize_run(step_results)
+          lines = []
+          for s in step_results:
+              if s["status"] == "ok":
+                  lines.append(f"  ✓ {s['name']} ({s['duration_s']:.3f}s)")
+              elif s["status"] == "error":
+                  lines.append(f"  ✗ {s['name']}: {s['error']}")
+              else:
+                  lines.append(f"  - {s['name']}: skipped")
+          run_text = (
+              f"{summary['passed']}/{summary['total']} steps passed, "
+              f"{summary['total_duration_s']}s total\n"
+              + "\n".join(lines)
+          )
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a pipeline monitor. "
+                          "Summarise a workflow run in 2–3 sentences. Be concise."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": f"{run_text}\n\nSummarise the run:",
+                  },
+              ],
+          )
+          return response["message"]["content"]
+    narration: >
+      f'{s[duration_s]:.3f}s' formats duration to 3 decimal places (milliseconds).
+      This is enough precision for most automation steps — pipeline steps measured
+      in microseconds are unusual. The model is the standard 'llama3.2' default —
+      no external API, zero cost. The function is sync (no async def) — consistent
+      with all exercises through Day 32. The response format is the standard
+      ollama.chat dict: response['message']['content'] is the text.
+
+  - type: exercise
+    heading: "Exercise 4: ai_pipeline_summary"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement ai_pipeline_summary(step_results,
+      model='llama3.2') that formats step_results as a text block (✓/✗/- prefix per step,
+      ok shows duration in seconds, error shows the error message, skipped shows 'skipped'),
+      calls summarize_run for the pass/total header, then passes everything to ollama.chat
+      with a system prompt instructing a 2–3 sentence concise summary. Return the model's
+      response string.
+    hint: >
+      for s in step_results: if s['status']=='ok': '  ✓ {name} ({duration_s:.3f}s)'.
+      elif 'error': '  ✗ {name}: {s[error]}'. else: '  - {name}: skipped'.
+      Header: f'{passed}/{total} steps passed, {total_duration_s}s total'.
+      ollama.chat → response['message']['content'].
+    narration: >
+      The check harness for Exercise 4 verifies that the function returns a non-empty
+      string. It does not check the exact content — LLM output is non-deterministic.
+      The second check calls the function with a different step_results list and verifies
+      the return type is still str. The third check verifies the function calls ollama.chat
+      (not the raw requests approach) by checking that the result changes between calls
+      on different inputs — this is a softer check that tolerates model variance.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "Format step results as text (symbols + names + timing/errors) before LLM"
+      - "Header: '{passed}/{total} steps passed, {duration}s total' — outcome first"
+      - "System: 'Summarise in 2–3 sentences. Be concise.' — no headers/bullets"
+      - "Return response['message']['content'] — same ollama.chat pattern as always"
+      - "Check with isinstance(result, str) and len > 0 — content is non-deterministic"
+    narration: >
+      Lesson 4 gave us ai_pipeline_summary. Lesson 5 assembles all four functions
+      into a Pipeline class — the day's capstone. Pipeline.add_step registers named
+      steps, Pipeline.run executes chain_steps and summarize_run and returns a complete
+      run result dict. This is the pattern used by production orchestration frameworks
+      like Prefect, Dagster, and Airflow — though their APIs are more elaborate.
