@@ -1,0 +1,137 @@
+day: "033"
+lesson: "02"
+title: "Concurrent Calls — asyncio.gather"
+
+slides:
+
+  - type: title
+    heading: "asyncio.gather"
+    subheading: "Run many coroutines at once — results arrive in input order"
+    narration: >
+      async_chat lets you make one async LLM call. asyncio.gather lets you make
+      many at the same time. You pass it a list of coroutines and it starts all of
+      them concurrently, waits for all to finish, and returns their results in the
+      same order as the input. If you have ten prompts and each call takes one second,
+      gather finishes in roughly one second — not ten. This is the speedup that makes
+      batch processing practical.
+
+  - type: concept
+    label: "gather semantics"
+    heading: "asyncio.gather — Concurrent Execution with Ordered Results"
+    body: >
+      asyncio.gather(*coros) takes any number of coroutines (or other awaitables),
+      schedules them all to run, and returns a tuple of their results when every
+      one has finished. The order of results matches the order of input coroutines,
+      regardless of which finishes first. If any coroutine raises an exception,
+      gather re-raises it immediately and cancels the remaining coroutines. Passing
+      return_exceptions=True makes gather collect exceptions as result values instead
+      of re-raising, which is useful when you want to inspect failures without
+      aborting the batch.
+    bullets:
+      - "asyncio.gather(*coros) — start all coroutines concurrently"
+      - "Returns tuple in input order — not arrival order"
+      - "All coros must complete before gather returns"
+      - "Default: first exception re-raises; others may be cancelled"
+      - "return_exceptions=True — exceptions collected as result values (no abort)"
+    narration: >
+      The order guarantee is critical for usability: you built the coroutine list
+      from a list of items, and you need results to line up with those items. If
+      gather returned results in completion order, you would need separate bookkeeping
+      to match results to inputs. The input-order guarantee means you can zip(items,
+      results) directly. The exception behaviour is the main gotcha: one failed LLM
+      call can abort the whole batch by default. Day 33 Exercise 4 (process_batch)
+      addresses this by catching exceptions inside each coroutine before gather sees them.
+
+  - type: how_it_works
+    label: "gather_results"
+    heading: "gather_results — A List-Friendly gather Wrapper"
+    body: >
+      asyncio.gather(*coros) accepts positional arguments, not a list. The *coros
+      unpacking handles the conversion: asyncio.gather(*[c1, c2, c3]) is equivalent
+      to asyncio.gather(c1, c2, c3). gather returns a coroutine (it is async itself),
+      so it must be awaited. The result is a tuple; wrapping in list() gives a plain
+      list. gather_results(coros) packages these three steps — unpack, await, convert
+      to list — into a single reusable function.
+    bullets:
+      - "asyncio.gather(*coros) — * unpacks the list into positional args"
+      - "gather itself is a coroutine — it must be awaited: await asyncio.gather(...)"
+      - "Returns tuple → wrap with list() for a plain list"
+      - "gather_results(coros): list(await asyncio.gather(*coros)) — one line"
+      - "Empty list → gather returns empty tuple → gather_results returns []"
+    narration: >
+      The pattern list(await asyncio.gather(*coros)) is three operations in one line.
+      It reads left to right: asyncio.gather(*coros) unpacks and schedules all
+      coroutines; await waits for all to complete and returns a tuple; list() converts
+      the tuple to a list. This is the idiomatic asyncio pattern for collecting batch
+      results. Notice that the coroutines are created before gather is called — the
+      list comprehension [async_chat(p) for p in prompts] creates coroutine objects
+      without running any of them. Only when gather awaits them do they start executing.
+
+  - type: code
+    label: "gather_results"
+    heading: "gather_results — Full Implementation"
+    code: |
+      import asyncio
+
+      async def gather_results(coros: list) -> list:
+          """Run all coroutines concurrently; return results in input order."""
+          return list(await asyncio.gather(*coros))
+
+      # Demo — 3 concurrent LLM calls
+      async def demo():
+          prompts = [
+              "Name one colour.",
+              "Name one country.",
+              "Name one fruit.",
+          ]
+          coros   = [async_chat(p) for p in prompts]  # create, don't start
+          results = await gather_results(coros)         # all 3 run concurrently
+          for prompt, reply in zip(prompts, results):
+              print(f"{prompt!r:30} → {reply.strip()}")
+
+      # In Jupyter:
+      # await demo()
+      # In a script:
+      # asyncio.run(demo())
+    narration: >
+      Notice that the list comprehension [async_chat(p) for p in prompts] creates
+      three coroutine objects but executes nothing. The network calls only start when
+      gather schedules them. This is the creation-vs-execution distinction: building
+      a list of a thousand coroutines is instantaneous; awaiting gather is when the
+      I/O actually happens. If you accidentally await inside the list comprehension —
+      [await async_chat(p) for p in prompts] — you are back to serial execution:
+      each call completes before the next one starts, losing all the concurrency benefit.
+
+  - type: exercise
+    heading: "Exercise 2: gather_results"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement gather_results(coros) that runs all
+      coroutines concurrently using asyncio.gather and returns a list of results in
+      input order. The check harness uses local async functions (no LLM calls) to verify
+      correct behaviour: order preservation, empty list handling, and concurrent timing.
+    hint: >
+      return list(await asyncio.gather(*coros)).
+      The * unpacks the list into positional args. await is required — gather itself
+      is a coroutine. list() converts the result tuple to a list.
+      Do NOT await inside the list that you pass to gather — that would be serial.
+    narration: >
+      The check harness tests order preservation by passing slow coroutines that return
+      their index, and verifying that results match the input order even though later
+      coroutines might conceptually "finish" at the same time. The timing check confirms
+      that five 0.05-second tasks complete in under 0.2 seconds — demonstrating real
+      concurrency rather than accidental serial execution.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "asyncio.gather(*coros): start all concurrently, wait for all, return results in input order"
+      - "list(await asyncio.gather(*coros)) — the canonical one-liner"
+      - "Create coroutines first (no await), then pass to gather — gathering happens in gather"
+      - "One exception aborts the whole gather (default) — next lessons handle this"
+      - "gather_results(coros): list(await asyncio.gather(*coros)) — a reusable wrapper"
+    narration: >
+      Lesson 2 introduced asyncio.gather and the gather_results wrapper. gather gives
+      you full concurrency but no rate limiting — if you pass a thousand coroutines,
+      it launches a thousand concurrent requests. Lesson 3 adds asyncio.Semaphore to
+      cap the concurrency at a safe level, protecting the local Ollama server from
+      being overwhelmed.

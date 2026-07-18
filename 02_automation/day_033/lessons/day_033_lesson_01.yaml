@@ -1,0 +1,133 @@
+day: "033"
+lesson: "01"
+title: "Async Basics and async_chat"
+
+slides:
+
+  - type: title
+    heading: "Async/Await and ollama.AsyncClient"
+    subheading: "From sequential to concurrent — run many LLM calls at once"
+    narration: >
+      Until now every LLM call has been synchronous: your code waits for the model
+      to finish before moving to the next line. That is fine for one-off queries.
+      But if you need to process a hundred items and each call takes one second,
+      the total is a hundred seconds of waiting — almost all of it idle time while
+      the model generates tokens. Async lets you start all the calls at once and
+      collect results as they arrive. Day 33 introduces asyncio, the first day
+      where async def and await are allowed in exercises.
+
+  - type: concept
+    label: "event loop"
+    heading: "The Event Loop — Concurrency Without Threads"
+    body: >
+      An event loop is a scheduler that runs coroutines. When a coroutine hits
+      an await, it suspends and hands control back to the loop. The loop immediately
+      starts or resumes another coroutine. When the awaited work completes (network
+      reply, disk read, timer), the loop wakes the suspended coroutine and resumes
+      it from where it left off. No threads, no locks — only one coroutine runs at
+      a time, but many can be in-flight simultaneously. This is cooperative
+      multitasking: each coroutine yields voluntarily at await points.
+    bullets:
+      - "Coroutine: an async def function — a pauseable function"
+      - "await: suspends the current coroutine until the awaited expression completes"
+      - "Event loop: picks up the next ready coroutine while others wait"
+      - "Concurrency not parallelism: one coroutine runs at a time (no GIL needed)"
+      - "LLM calls are I/O-bound — perfect fit for async (most time is waiting)"
+    narration: >
+      The key mental model: async does not make CPU work faster. It makes
+      waiting time useful. An LLM call is almost entirely waiting — your Python
+      code sends a request and the model generates tokens on a GPU. During that
+      waiting time, with synchronous code, your program is blocked. With async,
+      the event loop switches to the next pending coroutine. For a batch of 100
+      one-second LLM calls, synchronous takes 100s; async with 10 concurrent
+      calls takes roughly 10s (10 batches of 10 concurrent calls).
+
+  - type: how_it_works
+    label: "async def / await"
+    heading: "async def and await — Syntax and Semantics"
+    body: >
+      async def defines a coroutine function. Calling it does not execute the body —
+      it returns a coroutine object. The body runs only when the coroutine is
+      awaited or driven by an event loop. await suspends the current coroutine until
+      the awaited expression is done, then resumes with the result. await can only
+      appear inside an async def function. In Jupyter and IPython (version 7+),
+      top-level await works directly in a cell without asyncio.run().
+    bullets:
+      - "async def fn() -> returns a coroutine object when called; body runs later"
+      - "await expr — suspends current coroutine; only valid inside async def"
+      - "asyncio.run(coro) — entry point from synchronous code (scripts, __main__)"
+      - "Top-level await in Jupyter: result = await async_fn() works in cells"
+      - "asyncio.run() fails in Jupyter — IPython already has a running event loop"
+    narration: >
+      The distinction between a coroutine function and a regular function trips up
+      most developers the first time. async_chat("hello") does not call the function
+      or send anything — it creates a coroutine object. await async_chat("hello")
+      actually runs it. This design is intentional: coroutine creation is cheap, so
+      you can build a list of a thousand coroutine objects before starting any of
+      them, then launch them all at once with asyncio.gather. In the exercises, all
+      check cells use top-level await (Jupyter style). If you run the same code in
+      a .py script, wrap with asyncio.run().
+
+  - type: code
+    label: "async_chat"
+    heading: "async_chat — Full Implementation"
+    code: |
+      import asyncio
+      import ollama
+
+      async def async_chat(prompt: str, model: str = "llama3.2") -> str:
+          """Call ollama asynchronously; return the reply string."""
+          client = ollama.AsyncClient()
+          response = await client.chat(
+              model=model,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          return response["message"]["content"]
+
+      # In a .py script — asyncio.run() starts and stops the event loop:
+      result = asyncio.run(async_chat("What is 2 + 2?"))
+      print(result)  # → "4" (or similar)
+
+      # In Jupyter/IPython — top-level await works directly:
+      # result = await async_chat("What is 2 + 2?")
+    narration: >
+      ollama.AsyncClient() creates an async-capable client. Its chat method is a
+      coroutine: await client.chat(...) suspends until the model finishes and returns
+      the same response dict as the synchronous ollama.chat. The response format is
+      unchanged: response["message"]["content"] is still the reply string. Wrapping
+      AsyncClient in a thin async_chat function keeps the rest of your code clean —
+      callers do not need to know anything about AsyncClient's internal structure,
+      just that await async_chat(prompt) returns a string.
+
+  - type: exercise
+    heading: "Exercise 1: async_chat"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement async_chat(prompt, model="llama3.2")
+      that creates an ollama.AsyncClient(), awaits client.chat() with a single user
+      message, and returns response["message"]["content"]. The function must be
+      async def. Run the check cell with 'await _run_checks()'.
+    hint: >
+      client = ollama.AsyncClient(). response = await client.chat(model=model,
+      messages=[{"role": "user", "content": prompt}]).
+      return response["message"]["content"].
+      The await keyword is essential — without it you get a coroutine object, not a string.
+    narration: >
+      The check harness verifies that async_chat is a coroutine function
+      (asyncio.iscoroutinefunction), that calling it returns a coroutine (not a string),
+      that awaiting it returns a non-empty string, and that the model kwarg is accepted
+      without error. The check cell uses top-level await — this is why all exercise
+      check cells in Day 33 end with 'await _run_checks()' rather than '_run_checks()'.
+
+  - type: summary
+    heading: "Lesson 1: Key Takeaways"
+    bullets:
+      - "async def: defines a coroutine function — calling it returns a coroutine object, not a result"
+      - "await: suspends current coroutine at an I/O point; only valid inside async def"
+      - "asyncio.run(coro): entry point from sync code (scripts); fails inside Jupyter"
+      - "Top-level await in Jupyter: result = await async_fn() works directly in cells"
+      - "ollama.AsyncClient().chat(): async version of ollama.chat — same response format"
+    narration: >
+      Lesson 1 introduced async def, await, and the ollama.AsyncClient. The async_chat
+      function is the atomic unit for the rest of Day 33 — all higher-level functions
+      build on it. Lesson 2 introduces asyncio.gather, the function that runs multiple
+      coroutines concurrently and collects their results in order.

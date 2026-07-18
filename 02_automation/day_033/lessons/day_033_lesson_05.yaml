@@ -1,0 +1,144 @@
+day: "033"
+lesson: "05"
+title: "BatchProcessor — The Full Async Pipeline"
+
+slides:
+
+  - type: title
+    heading: "BatchProcessor"
+    subheading: "process + run — one class for async batches in any context"
+    narration: >
+      process_batch is a powerful low-level primitive. BatchProcessor wraps it in a
+      class that bundles max_concurrent and model settings, introduces a prompt_fn
+      interface that converts each item to a prompt string, and provides both an
+      async process method and a sync run method. process is for Jupyter notebooks
+      and async code; run is for scripts that need a synchronous entry point.
+      Together they form the day's capstone — a reusable async batch processor
+      you can drop into any automation project.
+
+  - type: concept
+    label: "prompt_fn"
+    heading: "prompt_fn — Decoupling Item-to-Prompt Conversion from Batching"
+    body: >
+      BatchProcessor separates two concerns: (1) how to convert each item into a
+      prompt string, and (2) how to run many prompts concurrently. prompt_fn is a
+      callable that accepts one item and returns a prompt string. The caller provides
+      it; BatchProcessor calls it on each item before the LLM call. This decoupling
+      means BatchProcessor can batch any type of item — strings, dicts, file paths —
+      as long as the caller supplies a prompt_fn that maps that type to a string.
+    bullets:
+      - "prompt_fn: Callable[[item], str] — item to prompt, provided by caller"
+      - "BatchProcessor does not know item types — it delegates conversion to prompt_fn"
+      - "process calls prompt_fn(item) to get the prompt, then awaits async_chat"
+      - "Lambda works for simple cases: lambda x: f\"Classify: '{x}'\""
+      - "Named function for complex cases: multi-field items need rich prompts"
+    narration: >
+      The prompt_fn interface follows the same pattern as Python's sorted(key=...) or
+      map(fn, iterable): pass the transformation as a callable, not the already-transformed
+      data. This allows BatchProcessor to be reused across many batch tasks without
+      modification — only the prompt_fn changes. In practice, prompt_fn is often a
+      one-liner lambda for simple classification tasks, or a more complex function
+      for items that need context, examples, or structured prompts.
+
+  - type: how_it_works
+    label: "process vs run"
+    heading: "process (async) and run (sync) — Two Entry Points"
+    body: >
+      BatchProcessor.process is an async method — it must be awaited. Use it in Jupyter
+      notebooks (await bp.process(...)) and in async functions. BatchProcessor.run is
+      a sync method that calls asyncio.run(self.process(...)). Use it in .py scripts
+      where there is no running event loop. asyncio.run() fails if called from inside
+      a running event loop (such as an IPython kernel), which is why notebooks must
+      use process directly. The result is identical either way: a list of error-envelope
+      dicts from process_batch.
+    bullets:
+      - "process(items, prompt_fn): async def — use in notebooks and async code"
+      - "run(items, prompt_fn): sync def via asyncio.run() — use in .py scripts"
+      - "asyncio.run() fails in Jupyter (running loop) — always use await in notebooks"
+      - "Both return list[dict] with {item, status, result, error}"
+      - "run is a convenience wrapper — no new logic beyond calling asyncio.run"
+    narration: >
+      Providing both process and run follows a common Python convention for async
+      libraries that must also be usable from sync contexts. The requests library
+      does this differently (no async version at all); httpx does it with a
+      separate AsyncClient. For BatchProcessor, the sync run method is a thin
+      convenience: it adds one line of code but removes the need for every script
+      user to write their own asyncio.run() wrapper.
+
+  - type: code
+    label: "BatchProcessor"
+    heading: "BatchProcessor — Full Implementation"
+    code: |
+      import asyncio
+
+      class BatchProcessor:
+          def __init__(self, max_concurrent: int = 3, model: str = "llama3.2"):
+              self.max_concurrent = max_concurrent
+              self.model          = model
+
+          async def process(self, items: list, prompt_fn) -> list[dict]:
+              """Apply prompt_fn to each item, call async_chat, return envelopes."""
+              async def _call(item):
+                  return await async_chat(prompt_fn(item), self.model)
+              return await process_batch(items, _call, self.max_concurrent)
+
+          def run(self, items: list, prompt_fn) -> list[dict]:
+              """Sync entry point for scripts; do not call from Jupyter."""
+              return asyncio.run(self.process(items, prompt_fn))
+
+      # In a Jupyter notebook (top-level await):
+      bp = BatchProcessor(max_concurrent=3, model="llama3.2")
+      results = await bp.process(
+          ["apple", "Python", "democracy"],
+          lambda x: f"In one word, what category is '{x}'?",
+      )
+      for r in results:
+          label = r["result"].strip() if r["status"] == "ok" else f"ERROR: {r['error']}"
+          print(f"{r['item']:15} → {label}")
+
+      # In a .py script:
+      # results = bp.run(items, prompt_fn)
+    narration: >
+      The inner _call coroutine is defined inside process so it closes over self.model
+      via the outer method. This is the correct use of a closure here — self.model is
+      not a loop variable, it is an attribute that does not change during the batch.
+      If multiple concurrent calls to process ran simultaneously (unlikely in practice),
+      each would have its own _call definition and its own sem inside process_batch,
+      so there is no shared-state concern.
+
+  - type: exercise
+    heading: "Exercise 5: BatchProcessor"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement the BatchProcessor class with:
+      __init__(max_concurrent=3, model="llama3.2") storing both as attributes.
+      async def process(items, prompt_fn): defines inner _call that calls
+      async_chat(prompt_fn(item), self.model), then delegates to process_batch.
+      def run(items, prompt_fn): asyncio.run(self.process(items, prompt_fn)).
+      Run the check cell with 'await _run_checks()'.
+    hint: >
+      __init__: self.max_concurrent = max_concurrent; self.model = model.
+      process: async def _call(item): return await async_chat(prompt_fn(item), self.model).
+      return await process_batch(items, _call, self.max_concurrent).
+      run: return asyncio.run(self.process(items, prompt_fn)).
+      All helpers (async_chat, process_batch) are provided in the setup cell.
+    narration: >
+      The check harness verifies __init__ stores the attributes, process is an async
+      method (asyncio.iscoroutinefunction), awaiting process returns a list of dicts
+      with the correct structure, and run exists as a plain function. The LLM is called
+      with two short items to verify the end-to-end path. The check uses top-level
+      await for the async checks.
+
+  - type: summary
+    heading: "Day 33: Key Takeaways"
+    bullets:
+      - "async def / await: define and drive coroutines; await is valid only inside async def"
+      - "asyncio.gather(*coros): run all concurrently, return results in input order"
+      - "asyncio.Semaphore(n): cap concurrent coroutines with 'async with sem:'"
+      - "process_batch: semaphore throttling + per-item error envelopes in one function"
+      - "BatchProcessor: process (async, for notebooks) + run (sync, for scripts)"
+    narration: >
+      Day 33 complete. You now have a full async batch processing toolkit: async_chat
+      for async LLM calls, gather_results for concurrent execution, throttled_gather
+      for rate-limited concurrency, process_batch for fault-tolerant batching, and
+      BatchProcessor as the composable class interface. Day 34 shifts to building a
+      command-line interface that exposes automation functions as installable CLI tools.

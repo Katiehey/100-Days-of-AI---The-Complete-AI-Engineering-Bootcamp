@@ -1,0 +1,141 @@
+day: "033"
+lesson: "04"
+title: "Async Error Envelopes — process_batch"
+
+slides:
+
+  - type: title
+    heading: "process_batch"
+    subheading: "Catch failures per-item — the batch never stops"
+    narration: >
+      throttled_gather can fail entirely if one coroutine raises. For a hundred-item
+      batch, one bad request should not discard the 99 successful results. process_batch
+      wraps the semaphore pattern with per-item try/except, capturing each failure as
+      an error envelope dict. The batch always returns one result per input item —
+      some with status 'ok', some with status 'error' — and the caller decides what
+      to do with the failures.
+
+  - type: concept
+    label: "error envelopes in async"
+    heading: "Error Envelopes — Per-Item Failure Isolation"
+    body: >
+      The error envelope pattern from Day 030 and Day 031 applies directly to async
+      batches. Each item's processing is wrapped in try/except inside the semaphore-
+      guarded coroutine. On success, the envelope is {item, status:'ok', result, error:None}.
+      On any exception, the envelope is {item, status:'error', result:None, error:str(e)}.
+      gather sees only successfully-returning coroutines — the exceptions are caught
+      before they reach gather, so the batch never aborts. The result list always has
+      exactly len(items) records.
+    bullets:
+      - "try/except inside the semaphore guard — per-item isolation"
+      - "{item, status, result, error}: four-key envelope (same as Day 030 / 031)"
+      - "gather only sees wrapped dicts — no exception propagates to gather"
+      - "Result list length == len(items) — always"
+      - "Failures inspectable after the batch: filter by status=='error'"
+    narration: >
+      The key implementation detail is that try/except wraps the await async_fn(item)
+      call, not the asyncio.gather. If the except were around gather, the first
+      exception would still abort the remaining coroutines. By catching inside the
+      inner _run coroutine, every item gets its own independent try/except, and
+      gather collects only dicts — never raw exceptions. This is the same reasoning
+      behind the Day 031 process_batch_with_dlq pattern, now applied asynchronously.
+
+  - type: how_it_works
+    label: "process_batch internals"
+    heading: "process_batch — Semaphore + Error Envelope Combined"
+    body: >
+      process_batch takes a list of items and an async_fn (a coroutine function that
+      accepts one item). For each item it creates a coroutine: sem-acquire, try
+      await async_fn(item), return ok-envelope; except return error-envelope; sem-release.
+      All of these per-item coroutines are passed to asyncio.gather. The caller gets
+      back a list of envelope dicts, one per item, in input order.
+    bullets:
+      - "sem = asyncio.Semaphore(max_concurrent)"
+      - "async def _run(item): async with sem: try/except → return envelope"
+      - "await asyncio.gather(*[_run(i) for i in items])"
+      - "async_fn: Callable[[item], Awaitable[str]] — must be async"
+      - "str(e) captures any exception message as a string in the envelope"
+    narration: >
+      async_fn is a coroutine function, not a plain function. process_batch calls
+      await async_fn(item) — the await is required. If async_fn were a regular
+      function returning a string, the await would fail. This is a common mistake
+      when adapting sync batch code to async: every function that produces a value
+      asynchronously must be declared async def. For process_batch, the caller is
+      responsible for passing a proper async_fn; this is documented in the type hint.
+
+  - type: code
+    label: "process_batch"
+    heading: "process_batch — Full Implementation"
+    code: |
+      import asyncio
+
+      async def process_batch(
+          items: list, async_fn, max_concurrent: int = 3
+      ) -> list[dict]:
+          """Batch-process items; capture per-item failures as error envelopes."""
+          sem = asyncio.Semaphore(max_concurrent)
+
+          async def _run(item):
+              async with sem:
+                  try:
+                      result = await async_fn(item)
+                      return {"item": item, "status": "ok",
+                              "result": result, "error": None}
+                  except Exception as e:
+                      return {"item": item, "status": "error",
+                              "result": None, "error": str(e)}
+
+          return list(await asyncio.gather(*[_run(i) for i in items]))
+
+      # Example usage
+      async def classify(text):
+          return await async_chat(f"Positive or negative? '{text}'. One word.")
+
+      texts   = ["Great!", "Terrible.", "It's okay.", "Love it!", "Meh."]
+      results = await process_batch(texts, classify, max_concurrent=3)
+
+      ok  = [r for r in results if r["status"] == "ok"]
+      bad = [r for r in results if r["status"] == "error"]
+      print(f"{len(ok)}/{len(results)} succeeded, {len(bad)} failed")
+    narration: >
+      The design separates concerns cleanly: async_fn handles what to do with one
+      item; process_batch handles how to run many items concurrently with rate limiting
+      and failure isolation. If async_fn raises a network error on one item, that item
+      gets status='error' and the other 4 items proceed normally. After the batch,
+      the caller can log the failed items, retry them, or route them to a dead-letter
+      queue using the Day 031 DeadLetterQueue pattern.
+
+  - type: exercise
+    heading: "Exercise 4: process_batch"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement process_batch(items, async_fn,
+      max_concurrent=3) that applies async_fn to every item with semaphore-based
+      throttling and per-item error envelopes. Each result dict must have keys:
+      item, status ('ok' or 'error'), result (value or None), error (None or str).
+      The check harness uses local async functions — no LLM calls needed.
+    hint: >
+      sem = asyncio.Semaphore(max_concurrent).
+      async def _run(item): async with sem: try: result = await async_fn(item);
+      return {item, 'ok', result, None}. except Exception as e: return {item, 'error', None, str(e)}.
+      return list(await asyncio.gather(*[_run(i) for i in items])).
+    narration: >
+      The check harness verifies that: successful items have status='ok' and non-None
+      result; failing items have status='error', result=None, and a non-empty error
+      string; the result list length always equals len(items); and the keys item,
+      status, result, error are all present. It uses a mock async_fn that raises
+      for certain inputs to test the error path without network calls.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "process_batch: semaphore throttling + per-item try/except in one function"
+      - "{item, status, result, error}: four-key envelope — consistent with Day 030/031"
+      - "Catch inside _run, not around gather — isolates failures per item"
+      - "Result length == len(items) — always, even when some items fail"
+      - "async_fn must be async def — await async_fn(item) requires a coroutine function"
+    narration: >
+      Lesson 4 added per-item failure isolation to the async batch pattern. process_batch
+      is production-ready: it throttles to protect the server, captures failures without
+      aborting the batch, and returns a structured list the caller can analyse. Lesson 5
+      wraps process_batch in a BatchProcessor class that bundles settings and adds a
+      prompt_fn interface — decoupling item-to-prompt conversion from the batching logic.

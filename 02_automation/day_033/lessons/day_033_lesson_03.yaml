@@ -1,0 +1,133 @@
+day: "033"
+lesson: "03"
+title: "Rate Limiting — asyncio.Semaphore"
+
+slides:
+
+  - type: title
+    heading: "asyncio.Semaphore"
+    subheading: "Cap concurrent requests — protect the server without slowing down unnecessarily"
+    narration: >
+      asyncio.gather with 1000 coroutines starts 1000 concurrent requests. A local
+      Ollama server running one GPU can only handle one or a few requests at a time —
+      the rest pile up in a queue or time out. asyncio.Semaphore is the fix: it is a
+      counter that limits how many coroutines can be inside a critical section at once.
+      With Semaphore(5), at most 5 LLM calls are in flight simultaneously; the rest
+      wait. Total time is still much better than serial; the server stays stable.
+
+  - type: concept
+    label: "semaphore"
+    heading: "asyncio.Semaphore — A Concurrency Gate"
+    body: >
+      A semaphore is a counter initialised to N. Acquiring it decrements the counter;
+      releasing it increments it. If the counter is already zero, acquire waits until
+      another coroutine releases. This gives you an upper bound on simultaneous holders.
+      asyncio.Semaphore is async-safe: acquire and release are async operations,
+      so waiting does not block the event loop — other coroutines run while a coroutine
+      waits for the semaphore. The async with sem: pattern acquires on entry and
+      releases automatically on exit, even if an exception is raised inside.
+    bullets:
+      - "asyncio.Semaphore(n): allows at most n concurrent holders"
+      - "async with sem: — acquires before body, releases after (even on exception)"
+      - "Waiting for semaphore is non-blocking: event loop runs other coroutines"
+      - "Semaphore(1) is a mutex — serial execution"
+      - "Semaphore(len(coros)) is no limit — same as bare gather"
+    narration: >
+      The async with sem: pattern is the async equivalent of a lock context manager.
+      The key difference from a threading.Semaphore is that asyncio.Semaphore.acquire()
+      is a coroutine — it yields control to the event loop while waiting, instead of
+      blocking the OS thread. This means that when 10 coroutines are waiting for a
+      Semaphore(3), those 10 waits cost almost no CPU and do not prevent the 3
+      currently-running coroutines from making progress. The event loop efficiently
+      juggles all of them.
+
+  - type: how_it_works
+    label: "throttled_gather"
+    heading: "throttled_gather — Wrapping Each Coroutine with a Semaphore Guard"
+    body: >
+      The pattern is to define a nested async function that acquires the semaphore,
+      awaits the original coroutine, and returns the result. Then replace each coroutine
+      in the list with a call to this wrapper, and pass all the wrappers to gather.
+      gather starts all the wrapper coroutines immediately, but each wrapper blocks at
+      'async with sem:' until the semaphore has capacity. This staggers the actual
+      LLM calls across time while keeping all the wrapper coroutines alive and managed
+      by the event loop.
+    bullets:
+      - "sem = asyncio.Semaphore(max_concurrent)"
+      - "async def _run(coro): async with sem: return await coro"
+      - "Pass [_run(c) for c in coros] to asyncio.gather"
+      - "gather starts all _run wrappers immediately; semaphore staggers the awaits"
+      - "Order preservation: gather still returns results in input order"
+    narration: >
+      The nested function _run must receive the coroutine as an argument, not close
+      over a loop variable, because the coroutine objects are created outside the loop.
+      This is different from the Day 31 lambda closure bug: here, each call to _run(c)
+      captures a different coroutine object as its argument, so there is no shared
+      mutable reference. The semaphore itself is shared across all _run calls — that is
+      intentional, it is the shared counter that enforces the limit.
+
+  - type: code
+    label: "throttled_gather"
+    heading: "throttled_gather — Full Implementation"
+    code: |
+      import asyncio
+
+      async def throttled_gather(coros: list, max_concurrent: int) -> list:
+          """Run coros concurrently, at most max_concurrent at a time."""
+          sem = asyncio.Semaphore(max_concurrent)
+
+          async def _run(coro):
+              async with sem:
+                  return await coro
+
+          return list(await asyncio.gather(*[_run(c) for c in coros]))
+
+      # Demo: 10 items, only 3 at a time
+      # In Jupyter:
+      # items  = [f"Name animal #{i}" for i in range(10)]
+      # coros  = [async_chat(prompt) for prompt in items]
+      # results = await throttled_gather(coros, max_concurrent=3)
+      # → roughly 4 rounds of 3 concurrent calls each
+    narration: >
+      Choosing max_concurrent for local Ollama depends on the model and hardware.
+      A single GPU typically queues requests and processes them one at a time internally,
+      so very high concurrency (>10) mostly adds overhead without throughput benefit.
+      A value of 3 to 5 is a reasonable default for local development: enough to keep
+      the server busy, not so many that you overwhelm it. For cloud APIs with rate limits
+      expressed as requests-per-minute, match max_concurrent to the RPM / (expected
+      seconds per request) to stay just under the limit.
+
+  - type: exercise
+    heading: "Exercise 3: throttled_gather"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement throttled_gather(coros, max_concurrent)
+      that uses asyncio.Semaphore to limit concurrent execution to max_concurrent at a time.
+      Results must be returned in input order. The check harness uses local asyncio.sleep
+      coroutines to verify both the concurrency limit (serial at max_concurrent=1) and
+      the concurrency benefit (faster than serial at max_concurrent>=len(coros)).
+    hint: >
+      sem = asyncio.Semaphore(max_concurrent).
+      async def _run(coro): async with sem: return await coro.
+      return list(await asyncio.gather(*[_run(c) for c in coros])).
+      The _run wrapper is the key: it gates each coroutine behind the semaphore.
+    narration: >
+      The timing checks in the harness test both ends of the spectrum: max_concurrent=1
+      (serial — each task must wait for the previous to release the semaphore) and
+      max_concurrent equal to the number of tasks (all run at once, same as bare gather).
+      This confirms that the semaphore actually controls concurrency rather than being
+      a no-op.
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "asyncio.Semaphore(n): at most n coroutines inside 'async with sem:' at once"
+      - "async with sem: — acquire on entry, release on exit (exception-safe)"
+      - "Pattern: wrap each coro with _run(coro) that gates on the semaphore"
+      - "gather still provides order preservation; semaphore staggers the actual work"
+      - "max_concurrent=3–5 is a good default for local Ollama"
+    narration: >
+      Lesson 3 added rate limiting via asyncio.Semaphore. throttled_gather combines
+      gather's concurrency with semaphore's control. But we still have a problem:
+      if one LLM call raises an exception, gather re-raises it and the whole batch
+      fails. Lesson 4 addresses this with error envelopes — wrapping each call in
+      try/except so individual failures are captured without aborting the batch.
