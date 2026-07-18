@@ -1,0 +1,158 @@
+day: "029"
+lesson: "05"
+title: "NotificationBot — The Full Pipeline"
+
+slides:
+
+  - type: title
+    heading: "NotificationBot"
+    subheading: "Event-driven alerts: event → AI summary → Slack + Discord payloads"
+    narration: >
+      Lesson 5 assembles all four prior components into NotificationBot. The class
+      accepts webhook URLs for Slack and Discord, takes an event type and raw data
+      dict, generates an AI summary with ai_summarize_for_chat, formats payloads
+      for both platforms with format_slack_message and format_discord_embed, and
+      sends them via requests.post. The preview method returns the payloads without
+      sending — useful for testing and inspection without needing real webhook URLs.
+
+  - type: concept
+    label: "event-driven pattern"
+    heading: "Event-Driven Notifications — build_notification"
+    body: >
+      build_notification is the bridge between your automation events and chat
+      payloads. It takes an event_type (a string like 'report.generated' or
+      'scrape.failed') and a data dict (arbitrary key-value pairs about what happened),
+      formats them as a human-readable string, passes that to ai_summarize_for_chat,
+      then wraps the AI summary in Slack and Discord payload dicts. The return value
+      is a single dict with all the output: event_type, title, summary,
+      slack_payload, discord_payload.
+    bullets:
+      - "event_type: 'report.generated', 'scrape.failed', 'data.updated' — dot-notation convention"
+      - "data: dict of arbitrary event details — {rows: 500, output: '/tmp/report.xlsx'}"
+      - "title = f'[{event_type.upper()}] Notification' — consistent title pattern"
+      - "content = f'Event: {event_type}\\n\\nData:\\n' + key:value lines"
+      - "Return: {event_type, title, summary, slack_payload, discord_payload}"
+    narration: >
+      The dot-notation event_type convention ('report.generated', 'scrape.failed')
+      is borrowed from logging frameworks and event systems — it is readable and
+      easy to parse. event_type.upper() in the title ('REPORT.GENERATED') makes
+      the notification stand out in a busy channel. The data dict is serialised as
+      key: value lines in the content string because json.dumps is harder for the
+      LLM to summarise (JSON structure adds noise). A simple 'rows: 500' line is
+      more natural to summarise than '{"rows": 500}'.
+
+  - type: how_it_works
+    label: "NotificationBot"
+    heading: "NotificationBot — Class Design"
+    body: >
+      NotificationBot stores webhook URLs and model name. preview(event_type, data)
+      calls build_notification and returns the full payload dict without sending.
+      notify(event_type, data) calls preview then sends to both webhooks if URLs
+      are configured, returning the result dict with a 'sent' list. Both methods
+      share the same build_notification call — no code duplication between preview
+      and notify.
+    bullets:
+      - "__init__(slack_url, discord_url, model): store webhook URLs and model"
+      - "preview(event_type, data) → dict: build payloads without sending"
+      - "notify(event_type, data) → dict: preview + HTTP send + status in 'sent' list"
+      - "if self.slack_url: requests.post(self.slack_url, json=payload['slack_payload'])"
+      - "preview for testing; notify for production — same payload, different action"
+    narration: >
+      The preview/notify split is the standard pattern for testable notification
+      code. Tests call preview and assert on the payload dict. Production calls notify.
+      The split means exercises can verify payload structure without needing real
+      webhook URLs — exactly what the exercise check harnesses do. The 'sent' list
+      in the notify result tells the caller which platforms received the notification
+      and with what HTTP status code — useful for logging and alerting on send failures.
+
+  - type: code
+    label: "NotificationBot"
+    heading: "build_notification and NotificationBot"
+    code: |
+      import requests
+
+      def build_notification(
+          event_type: str,
+          data: dict,
+          model: str = "llama3.2",
+      ) -> dict:
+          content = (
+              f"Event: {event_type}\n\nData:\n"
+              + "\n".join(f"  {k}: {v}" for k, v in data.items())
+          )
+          summary = ai_summarize_for_chat(content, platform="slack", model=model)
+          title   = f"[{event_type.upper()}] Notification"
+          return {
+              "event_type":      event_type,
+              "title":           title,
+              "summary":         summary,
+              "slack_payload":   format_slack_message(title, summary),
+              "discord_payload": {
+                  "embeds": [format_discord_embed(title, truncate_for_chat(summary, 4096))]
+              },
+          }
+
+      class NotificationBot:
+          def __init__(self, slack_url=None, discord_url=None, model="llama3.2"):
+              self.slack_url   = slack_url
+              self.discord_url = discord_url
+              self.model       = model
+
+          def preview(self, event_type: str, data: dict) -> dict:
+              return build_notification(event_type, data, model=self.model)
+
+          def notify(self, event_type: str, data: dict) -> dict:
+              result = self.preview(event_type, data)
+              result["sent"] = []
+              if self.slack_url:
+                  r = requests.post(self.slack_url, json=result["slack_payload"], timeout=10)
+                  result["sent"].append(f"slack:{r.status_code}")
+              if self.discord_url:
+                  r = requests.post(self.discord_url, json=result["discord_payload"], timeout=10)
+                  result["sent"].append(f"discord:{r.status_code}")
+              return result
+    narration: >
+      build_notification uses ai_summarize_for_chat with platform='slack' for the
+      summary text, then reuses that summary in both the Slack attachment and the
+      Discord embed. The truncate_for_chat(summary, 4096) call on the Discord
+      description is a safety guard — Discord's embed description limit is 4096;
+      the summary is usually under 300 characters so truncation never fires.
+      The NotificationBot.notify method silently skips a platform if its URL is None —
+      useful for environments where only one platform is configured.
+
+  - type: exercise
+    heading: "Exercise 5: build_notification"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement build_notification(event_type, data,
+      model='llama3.2') that formats the event_type and data dict into a content string,
+      calls ai_summarize_for_chat to generate a summary, builds a title as
+      f'[{event_type.upper()}] Notification', and returns a dict with keys:
+      event_type, title, summary, slack_payload (from format_slack_message), and
+      discord_payload ({'embeds': [format_discord_embed(title, truncate_for_chat(summary, 4096))]}).
+    hint: >
+      content = f'Event: {event_type}\\n\\nData:\\n' + '\\n'.join(f'  {k}: {v}' for k,v in data.items()).
+      summary = ai_summarize_for_chat(content, platform='slack', model=model).
+      title = f'[{event_type.upper()}] Notification'.
+      Return dict with event_type, title, summary, slack_payload, discord_payload.
+    narration: >
+      Exercise 5 is the capstone of today's pipeline — it combines all four prior
+      functions into a single call. The check verifies all five return dict keys exist,
+      that slack_payload has the 'attachments' structure from Exercise 1, and that
+      discord_payload has the 'embeds' structure from Exercise 2. Constructing the
+      content string with key: value lines (not json.dumps) is the deliberate choice
+      — it is more natural language and summarises better.
+
+  - type: summary
+    heading: "Day 29: Key Takeaways"
+    bullets:
+      - "build_notification: event_type + data → AI summary → Slack + Discord payloads"
+      - "title = f'[{event_type.upper()}] Notification' — consistent, scannable format"
+      - "NotificationBot: preview() for testing, notify() for production — same payload"
+      - "if self.slack_url: requests.post(...) — skip silently if URL not configured"
+      - "Preview/notify split makes all exercises testable without real webhook URLs"
+    narration: >
+      Day 29 complete. You have a full notification bot pipeline: webhook payloads for
+      both platforms, character-limit truncation, AI summarisation tuned for chat, and
+      an event-driven NotificationBot that separates payload building from HTTP sending.
+      Day 30 is workflow orchestration — chaining multiple automation steps into a
+      reliable pipeline with retries and state management.

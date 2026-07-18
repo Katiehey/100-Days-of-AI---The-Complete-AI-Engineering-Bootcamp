@@ -1,0 +1,129 @@
+day: "029"
+lesson: "01"
+title: "Webhooks — The Push Pattern"
+
+slides:
+
+  - type: title
+    heading: "Webhooks & Chat Automation"
+    subheading: "HTTP push, incoming webhooks, and why polling is the wrong model"
+    narration: >
+      Day 29 is about chat bots — specifically about pushing AI-generated content
+      into Slack and Discord channels automatically. The mechanism is webhooks: an
+      HTTP endpoint that your script POSTs a JSON payload to, and the message appears
+      in a channel. Both Slack and Discord expose incoming webhook URLs that work
+      identically from the Python side — you send a POST request with a JSON body.
+      No bot server, no persistent connection, no event loop required.
+
+  - type: concept
+    label: "webhooks vs polling"
+    heading: "Push (Webhooks) vs Pull (Polling)"
+    body: >
+      Polling means your script repeatedly asks a server 'do you have anything new?'
+      on a fixed interval — most of the time the answer is no, wasting requests and
+      adding latency. A webhook inverts this: the server pushes data to your endpoint
+      the moment something happens. For outbound notifications (your script → Slack),
+      you are the one pushing — you POST to a URL Slack gave you whenever you have
+      something to say.
+    bullets:
+      - "Polling: script asks repeatedly — wasteful for infrequent events"
+      - "Incoming webhook: Slack/Discord gives you a URL; you POST JSON to it"
+      - "One POST = one message in the channel — no persistent connection"
+      - "Outbound = you push to Slack; inbound = Slack POSTs to your server (Day 29 is outbound)"
+      - "requests.post(webhook_url, json=payload) is the entire send interface"
+    narration: >
+      The direction distinction matters: an incoming webhook (from your perspective)
+      means you are sending outbound to Slack — Slack receives it and displays the
+      message. An outbound webhook or event subscription means Slack sends HTTP events
+      to your server when users interact. Today is outbound only — you send, Slack
+      displays. Receiving events requires a running HTTP server, which is a Day 29
+      bonus concept shown in lessons but not in exercises.
+
+  - type: how_it_works
+    label: "webhook setup"
+    heading: "Webhook URL Setup — Slack and Discord"
+    body: >
+      Both platforms generate a webhook URL in their settings. For Slack: create an
+      app at api.slack.com/apps, enable 'Incoming Webhooks', add one to a channel —
+      you get a URL like https://hooks.slack.com/services/T.../B.../xxx. For Discord:
+      in a server, open channel Settings → Integrations → Webhooks → New Webhook —
+      you get https://discord.com/api/webhooks/ID/TOKEN. Both accept the same
+      requests.post(url, json=payload) call.
+    bullets:
+      - "Slack: api.slack.com/apps → New App → Incoming Webhooks → Add to Workspace"
+      - "Discord: channel Settings → Integrations → Webhooks → New Webhook → Copy URL"
+      - "URL contains auth token — treat it like a password; store in env vars"
+      - "Slack URL: https://hooks.slack.com/services/T.../B.../xxx"
+      - "Discord URL: https://discord.com/api/webhooks/{id}/{token}"
+    narration: >
+      Both webhook URLs contain the authentication token in the URL itself — there
+      is no separate Authorization header. This means anyone with the URL can post
+      to your channel. Store it in an environment variable (os.environ['SLACK_WEBHOOK'])
+      and never commit it to git. If a URL is leaked, regenerate it in the platform
+      settings immediately. For today's exercises, you build and inspect the payload
+      without sending it — no real URL required.
+
+  - type: code
+    label: "send message"
+    heading: "Sending a Message — The Core Pattern"
+    code: |
+      import requests, os
+
+      SLACK_WEBHOOK  = os.environ.get("SLACK_WEBHOOK", "")
+      DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK", "")
+
+      # Slack: simple text message
+      def send_slack_text(webhook_url: str, text: str) -> int:
+          r = requests.post(webhook_url, json={"text": text}, timeout=10)
+          r.raise_for_status()
+          return r.status_code
+
+      # Discord: simple text message
+      def send_discord_text(webhook_url: str, content: str) -> int:
+          r = requests.post(webhook_url, json={"content": content}, timeout=10)
+          r.raise_for_status()
+          return r.status_code
+
+      # Example (requires real webhook URLs in environment variables)
+      # send_slack_text(SLACK_WEBHOOK, "Hello from Python!")
+      # send_discord_text(DISCORD_WEBHOOK, "Hello from Python!")
+      print("Webhook send functions defined (no live URL needed for exercises)")
+    narration: >
+      r.raise_for_status() is the same pattern as Day 22's requests work — it raises
+      HTTPError on 4xx/5xx status codes. Slack returns HTTP 200 with body 'ok' on
+      success; Discord returns 204 No Content on success. Both return 400 if the
+      payload is malformed. The timeout=10 parameter prevents the script from hanging
+      if Slack or Discord is slow to respond — always set a timeout for webhook calls.
+
+  - type: exercise
+    heading: "Exercise 1: format_slack_message"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement format_slack_message(title, body,
+      color='#36a64f') that returns a Slack-compatible webhook payload dict. The dict
+      should have an 'attachments' key containing a list with one attachment dict.
+      The attachment must have: fallback (= title), color, title, and text (= body).
+    hint: >
+      return {'attachments': [{'fallback': title, 'color': color, 'title': title,
+      'text': body}]}. The check verifies the 'attachments' key, the attachment
+      structure, and that color defaults to '#36a64f'. No HTTP call needed — just
+      build and return the dict.
+    narration: >
+      Exercise 1 focuses on the payload shape, not the HTTP call. This is the same
+      principle as Day 25's email exercises — build the message object, test the
+      structure, keep the send step separate. The colour sidebar is the most visible
+      feature of Slack attachments: green (#36a64f) for success, red (#e01e5a) for
+      errors, yellow (#daa520) for warnings — a traffic-light system that works
+      without reading the text.
+
+  - type: summary
+    heading: "Day 29 Lesson 1: Key Takeaways"
+    bullets:
+      - "Webhook = HTTP POST with JSON payload → message appears in channel"
+      - "Slack URL: hooks.slack.com/services/...; Discord URL: discord.com/api/webhooks/..."
+      - "Both URLs contain the auth token — store in env vars, never git"
+      - "requests.post(url, json=payload, timeout=10).raise_for_status() — the send pattern"
+      - "Build and test payload structure separately from the HTTP send"
+    narration: >
+      Lesson 1 covered the webhook concept and send pattern. Lesson 2 goes deep on
+      Slack's attachment format — the colour sidebar, title, body text, and footer
+      that make Slack notifications look professional rather than plain text blobs.

@@ -1,0 +1,146 @@
+day: "029"
+lesson: "04"
+title: "AI-Generated Chat Notifications"
+
+slides:
+
+  - type: title
+    heading: "AI for Chat"
+    subheading: "Prompting for chat-length summaries and platform-aware formatting"
+    narration: >
+      Lesson 4 is AI content generation for chat notifications. Chat is a different
+      medium from email, documents, or briefings: messages must be skimmable in seconds,
+      fit on a phone screen, and land in a busy channel without requiring context.
+      The system prompt must establish the length constraint, the persona, and the
+      platform — Slack uses *bold* while Discord uses **bold**, and both are different
+      from standard Markdown. Specifying the platform in the prompt lets the LLM use
+      the right syntax.
+
+  - type: concept
+    label: "chat constraints"
+    heading: "What Makes a Good Chat Notification"
+    body: >
+      A good chat notification has three properties. First, it is short — two to
+      five sentences, never a full paragraph. Second, it leads with the most important
+      information: what happened, whether it succeeded or failed, and one key metric.
+      Third, it is self-contained — a reader who missed the context can still understand
+      what action (if any) is required. The LLM system prompt enforces all three.
+    bullets:
+      - "Short: 2–5 sentences; never a paragraph; never bullet lists"
+      - "Front-loaded: most important fact first (what + outcome + metric)"
+      - "Self-contained: reader needs no prior context to act on the notification"
+      - "System prompt: 'chat notification writer; under 300 chars; no headers; platform markdown'"
+      - "Content[:3000] cap: prevent context overflow for long input documents"
+    narration: >
+      The 'no headers' constraint in the system prompt is important. LLMs default to
+      generating headers (## Section) when asked to summarise long content. Headers
+      look wrong in chat — they render as large bold text that wastes space. The
+      system prompt must explicitly forbid headers. The platform-specific markdown
+      instruction (Slack: *bold*; Discord: **bold**) is optional — for plain-text
+      summaries, you can skip it. But if the LLM is asked to highlight a metric,
+      specifying the correct bold syntax ensures it renders correctly.
+
+  - type: how_it_works
+    label: "ai_summarize_for_chat"
+    heading: "ai_summarize_for_chat — Platform-Aware Summarisation"
+    body: >
+      ai_summarize_for_chat takes content (the full text to summarise), platform
+      ('slack' or 'discord'), and model. The system prompt establishes: notification
+      writer persona, the platform name, the character limit (300 for safe chat size),
+      and the 'no headers' constraint. The user prompt presents the content and asks
+      for a notification. The return value is the raw LLM string — truncation happens
+      at send time, not here.
+    bullets:
+      - "System: 'notification writer for {platform}; under 300 chars; no headers or bullet lists'"
+      - "User: 'Summarise this for a {platform} notification:\\n\\n{content[:3000]}'"
+      - "No format='json' — free-form text is correct for chat"
+      - "Return response['message']['content'] directly"
+      - "300 chars is a conservative limit — most chat summaries should fit in one or two sentences"
+    narration: >
+      The 300-character constraint in the system prompt is much stricter than the
+      platform limits (2000–4096). This is intentional: a chat notification that
+      fills the entire 2000-character limit is not a notification, it is a wall of
+      text. The target is two to three sentences — enough to convey the outcome and
+      one key detail. If the AI routinely generates longer summaries, tighten the
+      system prompt: 'One sentence only. Under 150 characters.' Shorter prompts
+      get shorter summaries.
+
+  - type: code
+    label: "ai_summarize_for_chat"
+    heading: "ai_summarize_for_chat Implementation"
+    code: |
+      import ollama
+
+      def ai_summarize_for_chat(
+          content: str,
+          platform: str = "slack",
+          model: str = "llama3.2",
+      ) -> str:
+          """Summarise content into a short, platform-appropriate chat notification."""
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          f"You are a notification writer for {platform}. "
+                          "Write a concise notification summary: under 300 characters, "
+                          "no headers, no bullet points. Lead with the most important fact."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": (
+                          f"Summarise this for a {platform} notification:\n\n"
+                          f"{content[:3000]}"
+                      ),
+                  },
+              ],
+          )
+          return response["message"]["content"]
+
+      # Example
+      long_report = "..." * 500  # simulated long content
+      summary = ai_summarize_for_chat(long_report[:100], platform="slack")
+      print(f"Summary length: {len(summary)} chars")
+    narration: >
+      content[:3000] caps the input, not the output. The output is capped by the
+      system prompt ('under 300 characters') — a soft instruction rather than a hard
+      limit. The LLM may occasionally produce longer summaries; truncate_for_chat
+      is the hard backstop at send time. The platform parameter in both the system
+      and user prompts helps the LLM contextualise the task — 'for Slack' conveys
+      the expected voice (professional, brief) better than 'for chat'.
+
+  - type: exercise
+    heading: "Exercise 4: ai_summarize_for_chat"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement ai_summarize_for_chat(content,
+      platform='slack', model='llama3.2') that calls ollama.chat with a system prompt
+      establishing a notification writer persona for the given platform (under 300 chars,
+      no headers, no bullet points), a user prompt containing content[:3000], and returns
+      the response content string.
+    hint: >
+      System: f'notification writer for {platform}; under 300 characters; no headers or bullets'.
+      User: f'Summarise this for a {platform} notification:\\n\\n{content[:3000]}'.
+      return response['message']['content']. The check verifies it returns a non-empty
+      string and that the summary is shorter than the original content.
+    narration: >
+      Exercise 4 is the same pattern as ai_daily_briefing (Day 27) and ai_analyze_sheet
+      (Day 28) — system prompt establishes the persona, user prompt provides the data,
+      function returns content string. The difference is the 'under 300 characters, no
+      headers' constraints in the system prompt, which tune the output for a chat
+      notification rather than a document or spreadsheet analysis.
+
+  - type: summary
+    heading: "Day 29 Lesson 4: Key Takeaways"
+    bullets:
+      - "Chat notifications: 2–5 sentences, front-loaded, self-contained"
+      - "System prompt: 'notification writer for {platform}; under 300 chars; no headers'"
+      - "content[:3000] caps input; system prompt instruction caps output length"
+      - "truncate_for_chat is the hard backstop at send time (system prompt is soft)"
+      - "Platform parameter in prompt: 'for Slack' implies concise professional voice"
+    narration: >
+      Lesson 4 covered AI summarisation for chat. Lesson 5 assembles everything into
+      NotificationBot — the class that takes an event type and raw data, generates an
+      AI summary, formats Slack and Discord payloads, and (in production) sends them
+      to the webhook URLs.

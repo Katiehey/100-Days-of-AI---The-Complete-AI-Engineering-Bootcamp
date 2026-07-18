@@ -1,0 +1,138 @@
+day: "029"
+lesson: "02"
+title: "Slack Webhook Payloads"
+
+slides:
+
+  - type: title
+    heading: "Slack Payloads"
+    subheading: "Attachments, colour sidebars, Block Kit, and rich message formatting"
+    narration: >
+      Lesson 2 is Slack's message format in detail. Slack supports two payload
+      styles: the older attachments format (a list of attachment dicts with colour
+      sidebars) and the newer Block Kit (a composable layout system with sections,
+      dividers, buttons, and context blocks). Attachments are simpler to generate
+      programmatically and sufficient for notification bots. Block Kit is covered
+      as a bonus — it is more powerful but also more verbose.
+
+  - type: concept
+    label: "attachments"
+    heading: "Slack Attachments — The Notification Format"
+    body: >
+      A Slack webhook payload with attachments has one top-level key: 'attachments',
+      a list of attachment dicts. Each attachment has: fallback (plain-text summary
+      for clients that can't render rich content), color (hex string — the left
+      sidebar colour), title (bold headline), text (body), footer (small italic text
+      at the bottom), and ts (Unix timestamp shown as a time). All fields except
+      fallback and color are optional.
+    bullets:
+      - "{'attachments': [{ ...attachment dict... }]} — top-level wrapper"
+      - "fallback: plain text for notifications/accessibility — required"
+      - "color: '#36a64f' green (success), '#e01e5a' red (error), '#daa520' yellow (warn)"
+      - "title: bold headline; text: body markdown; footer: small italic"
+      - "ts: int(datetime.now().timestamp()) — shows relative time ('2 hours ago')"
+    narration: >
+      The colour sidebar is the fastest visual signal in a busy Slack channel. Green
+      means the automation succeeded; red means something needs attention. Adding a
+      colour to every notification removes the need to read the text to judge urgency.
+      The footer + ts combination shows 'NotificationBot | 2 hours ago' under the
+      message — this is the standard attribution pattern for bots. The fallback text
+      appears in desktop/mobile notifications when the rich content can't render.
+
+  - type: how_it_works
+    label: "block kit"
+    heading: "Block Kit — Richer Layouts"
+    body: >
+      Block Kit replaces attachments with a 'blocks' list. Each block has a 'type'
+      field. The most useful types: 'section' (text block with optional accessory
+      widget), 'divider' (horizontal rule), 'context' (small grey metadata line),
+      and 'header' (bold title). Blocks are composable: a typical notification uses
+      a header block, a section block for the body, a divider, and a context block
+      for metadata.
+    bullets:
+      - "{'blocks': [{'type': 'header', 'text': {'type': 'plain_text', 'text': title}}]}"
+      - "section block: {'type': 'section', 'text': {'type': 'mrkdwn', 'text': body}}"
+      - "divider block: {'type': 'divider'}"
+      - "context block: {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': footer}]}"
+      - "Slack markdown: *bold*, _italic_, `code`, >blockquote, :emoji:"
+    narration: >
+      Block Kit's mrkdwn type is Slack's own markdown variant — slightly different
+      from standard Markdown or Discord's format. Bold is *text* (single asterisk),
+      not **text**. Italic is _text_ (underscore). Code is `text`. These differences
+      matter when you are programmatically formatting AI output for Slack. For today's
+      exercises, attachments are the right choice — less verbose, fully functional,
+      and supported in all Slack clients.
+
+  - type: code
+    label: "slack payload"
+    heading: "Slack Attachment Payload"
+    code: |
+      from datetime import datetime
+
+      def format_slack_message(
+          title: str,
+          body: str,
+          color: str = "#36a64f",
+      ) -> dict:
+          """Build a Slack incoming-webhook payload with a colour attachment."""
+          return {
+              "attachments": [
+                  {
+                      "fallback": title,
+                      "color":    color,
+                      "title":    title,
+                      "text":     body,
+                      "footer":   "NotificationBot",
+                      "ts":       int(datetime.now().timestamp()),
+                  }
+              ]
+          }
+
+      # Example: success notification
+      payload = format_slack_message(
+          title="✅ Daily Report Generated",
+          body="5 products analysed. Epsilon X leads with $13,350 total sales.",
+          color="#36a64f",
+      )
+      print(payload["attachments"][0]["title"])
+      # ✅ Daily Report Generated
+      print(payload["attachments"][0]["color"])
+      # #36a64f
+    narration: >
+      format_slack_message is a pure function — same title and body always produce
+      the same attachment structure (except for ts which varies by time). This makes
+      it easy to unit test by checking the dict structure. The ts field records when
+      the notification was generated — useful in busy channels where messages scroll
+      past quickly. Slack renders ts as a human-readable relative time automatically.
+
+  - type: exercise
+    heading: "Exercise 2: format_discord_embed"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement format_discord_embed(title,
+      description, color=0x00b0f4) that returns a Discord embed dict with keys
+      'title', 'description', and 'color'. color is an integer (hex colour as int,
+      e.g. 0x00b0f4 = 45300 decimal). The Discord webhook payload wraps embeds in
+      {'embeds': [embed_dict]}.
+    hint: >
+      return {'title': title, 'description': description, 'color': color}.
+      The color parameter is an int (0x00b0f4 is light blue; 0x2ecc71 is green;
+      0xe74c3c is red). The check verifies title, description, and that color is an int.
+    narration: >
+      Discord and Slack use different colour formats: Slack uses hex strings like
+      '#36a64f'; Discord uses integers like 0x36a64f (which equals 3581007 decimal).
+      The int form is convenient in Python because 0x36a64f is a valid integer literal.
+      The embed dict from format_discord_embed is the inner object; to send it,
+      wrap it: requests.post(discord_url, json={'embeds': [embed_dict]}).
+
+  - type: summary
+    heading: "Day 29 Lesson 2: Key Takeaways"
+    bullets:
+      - "Slack attachment: {'attachments': [{fallback, color, title, text, footer, ts}]}"
+      - "color: '#36a64f' (green), '#e01e5a' (red), '#daa520' (yellow) — hex strings"
+      - "ts: int(datetime.now().timestamp()) — Slack renders as '2 hours ago'"
+      - "Block Kit: {'blocks': [header, section, divider, context]} — richer but verbose"
+      - "Slack mrkdwn: *bold*, _italic_, `code` — different from standard Markdown"
+    narration: >
+      Lesson 2 covered Slack attachment payloads. Lesson 3 covers Discord — the embed
+      format, integer colours, the fields array for structured data, and the wrapper
+      dict {'embeds': [embed]} that Discord's webhook endpoint expects.

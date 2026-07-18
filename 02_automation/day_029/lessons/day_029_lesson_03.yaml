@@ -1,0 +1,138 @@
+day: "029"
+lesson: "03"
+title: "Discord Embeds and Character Limits"
+
+slides:
+
+  - type: title
+    heading: "Discord Embeds"
+    subheading: "Embed structure, integer colours, and chat character limits"
+    narration: >
+      Lesson 3 covers Discord's embed format and a key practical constraint: chat
+      character limits. Discord embeds are richer than Slack attachments — they
+      support structured fields, thumbnails, images, author lines, and footers.
+      But both platforms cap message length: Discord limits embed descriptions to
+      4096 characters and message content to 2000. Slack limits block text to 3000
+      characters. Any AI-generated text that might exceed these limits needs to be
+      truncated before sending.
+
+  - type: concept
+    label: "discord embed"
+    heading: "Discord Embed — Structure and Fields"
+    body: >
+      A Discord embed dict has optional keys: title (bold headline), description
+      (body markdown), color (int), url (makes title a hyperlink), author (dict with
+      name, url, icon_url), fields (list of {name, value, inline} dicts for a grid
+      of key-value pairs), thumbnail (dict with url), image (dict with url), and
+      footer (dict with text and icon_url). The minimum useful embed is just title
+      and description.
+    bullets:
+      - "{'title': '...', 'description': '...', 'color': 0x00b0f4} — minimal embed"
+      - "color: int — 0x2ecc71 (green), 0xe74c3c (red), 0xf1c40f (yellow)"
+      - "fields: [{'name': 'Key', 'value': 'Value', 'inline': True}] — grid layout"
+      - "footer: {'text': 'NotificationBot'} — attribution at the bottom"
+      - "Wrap in {'embeds': [embed_dict]} for the webhook POST body"
+    narration: >
+      Discord's fields list is the most useful feature not in Slack's basic attachment
+      format. Each field has a name (bold label), value (text), and inline (True puts
+      up to 3 fields side by side in a row; False puts each field on its own line).
+      This makes structured data like 'Product: Alpha | Sales: 1200 | Status: OK'
+      render as a clean grid instead of a text dump. For today's exercises, you
+      focus on the minimal embed (title, description, color) — fields are the bonus.
+
+  - type: how_it_works
+    label: "character limits"
+    heading: "Chat Character Limits — Truncation Pattern"
+    body: >
+      Discord message content: 2000 characters. Discord embed description: 4096.
+      Discord embed field value: 1024. Slack block text: 3000. Slack attachment text:
+      no hard limit but very long messages are collapsed. AI-generated text can
+      easily exceed 2000 characters. The safe approach: truncate with an ellipsis
+      suffix so the reader knows content was cut.
+    bullets:
+      - "Discord content: 2000 chars; embed description: 4096; field value: 1024"
+      - "Slack block text: 3000; attachment text: no hard limit (long text collapsed)"
+      - "Truncate: text[:max_chars - 3] + '...' if len(text) > max_chars"
+      - "Apply before sending: truncated_body = truncate_for_chat(ai_output, 2000)"
+      - "Passing the limit causes a 400 error from both platforms"
+    narration: >
+      The max_chars - 3 formula reserves three characters for the ellipsis '...' so
+      the total length never exceeds max_chars. Without this, text[:2000] + '...' would
+      produce 2003 characters and still trigger the 400 error. Truncation should happen
+      just before the HTTP call — keep the full AI output in memory for logging, but
+      send only the truncated version. For most AI summaries under 300 words, truncation
+      is not needed; the guard exists for edge cases where the LLM is unusually verbose.
+
+  - type: code
+    label: "discord embed"
+    heading: "Discord Embed and Truncation"
+    code: |
+      def format_discord_embed(
+          title: str,
+          description: str,
+          color: int = 0x00b0f4,
+      ) -> dict:
+          """Build a Discord embed dict. Wrap in {'embeds': [embed]} to send."""
+          return {
+              "title":       title,
+              "description": description,
+              "color":       color,
+          }
+
+      def truncate_for_chat(text: str, max_chars: int = 2000) -> str:
+          """Truncate text to max_chars with an ellipsis if needed."""
+          if len(text) <= max_chars:
+              return text
+          return text[: max_chars - 3] + "..."
+
+      # Discord webhook payload
+      embed = format_discord_embed(
+          title="📊 Sales Report",
+          description="Epsilon X leads with $13,350 in total annual sales.",
+          color=0x2ecc71,  # green
+      )
+      discord_payload = {"embeds": [embed]}
+
+      # Truncation guard before sending
+      body = "A" * 3000
+      safe_body = truncate_for_chat(body, max_chars=2000)
+      print(f"Original: {len(body)} chars → Truncated: {len(safe_body)} chars")
+      # Original: 3000 chars → Truncated: 2000 chars
+    narration: >
+      0x2ecc71 is a hex integer literal in Python — it evaluates to 3066993 decimal.
+      Discord interprets this as a 24-bit RGB colour (0x2e = R:46, 0xcc = G:204, 0x71 = B:113)
+      which renders as a medium green. The truncation function is O(n) in string
+      length due to the len() call, but for chat payloads (always under 10K chars)
+      this is negligible. The function is pure — it never modifies the input string.
+
+  - type: exercise
+    heading: "Exercise 3: truncate_for_chat"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement truncate_for_chat(text, max_chars=2000)
+      that returns text unchanged if len(text) <= max_chars, otherwise returns
+      text[:max_chars - 3] + '...'. The returned string must be at most max_chars
+      characters long.
+    hint: >
+      if len(text) <= max_chars: return text. return text[:max_chars - 3] + '...'.
+      The check verifies: short text unchanged, truncated text ends with '...',
+      truncated text length == max_chars exactly, and custom max_chars values work.
+    narration: >
+      The key invariant to test is that the truncated result is exactly max_chars
+      characters long — not max_chars - 3 (the slice) and not max_chars + 3 (the
+      slice plus ellipsis uncapped). text[:max_chars - 3] + '...' gives max_chars - 3 + 3
+      = max_chars total characters. Exercise 3 is a short implementation — the value
+      is understanding exactly why the formula is max_chars - 3 and testing the boundary.
+
+  - type: summary
+    heading: "Day 29 Lesson 3: Key Takeaways"
+    bullets:
+      - "Discord embed: {'title', 'description', 'color'} — wrap in {'embeds': [embed]}"
+      - "color: int — 0x2ecc71 green, 0xe74c3c red, 0xf1c40f yellow"
+      - "Discord limits: content 2000, embed description 4096, field value 1024"
+      - "truncate_for_chat(text, max_chars=2000) → text[:max_chars-3] + '...' if long"
+      - "Truncate just before sending; keep full text in memory for logging"
+    narration: >
+      Lesson 3 covered Discord embeds and character limit truncation. Lesson 4
+      covers AI-friendly formatting — how to prompt the LLM to generate content
+      that fits chat constraints, and what makes a chat notification readable vs
+      overwhelming.
