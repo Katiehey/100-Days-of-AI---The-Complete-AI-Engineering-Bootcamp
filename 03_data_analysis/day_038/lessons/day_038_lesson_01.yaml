@@ -1,0 +1,132 @@
+day: "038"
+lesson: "01"
+title: "Distribution Profiling"
+slides:
+  - type: title
+    heading: "Distribution Profiling"
+    subheading: "quantile, nunique, value_counts — understanding one column at a time"
+    narration: >
+      Exploratory data analysis starts with the simplest question: what does each
+      column look like? Lesson 1 introduces the tools for answering that question —
+      quantile for percentiles, nunique for cardinality, and value_counts for
+      frequency distributions. These three methods are the first thing you reach
+      for on any new dataset.
+
+  - type: concept
+    label: "What is EDA?"
+    heading: "Exploratory Data Analysis: understand before you model"
+    body: >
+      EDA is the discipline of summarising a dataset to understand its structure
+      before writing business logic or training models. It catches data quality
+      issues, reveals distributional properties, and surfaces the questions worth
+      investigating further. Distribution profiling — looking at one column at a
+      time — is always the first step.
+    bullets:
+      - "What is the range and spread of numeric columns?"
+      - "Are there outliers or unexpected nulls?"
+      - "How many unique values does a categorical column have?"
+      - "Which values appear most frequently?"
+    narration: >
+      EDA is not optional. Engineers who skip it and jump straight to analysis or
+      modelling routinely miss obvious problems: a price column stored as a string,
+      a region column where 'North' and ' North' are treated as different values,
+      or a revenue column with a suspicious maximum that is 100 times the next
+      highest value. Distribution profiling is the fastest way to catch these issues
+      in seconds rather than hours.
+
+  - type: how_it_works
+    label: "quantile, nunique, unique"
+    heading: "Three methods for one-column analysis"
+    body: >
+      series.quantile(q) returns the value at the q-th percentile.
+      series.nunique() returns the count of distinct values.
+      series.unique() returns the array of distinct values.
+      Together these answer: where does the distribution sit, how spread is it,
+      and what values actually appear?
+    bullets:
+      - "s.quantile(0.25) — value at the 25th percentile (Q1)"
+      - "s.quantile(0.50) — median (same as s.median())"
+      - "s.quantile(0.75) — value at the 75th percentile (Q3)"
+      - "s.nunique() — count of distinct non-null values"
+      - "s.unique() — array of distinct values (not sorted)"
+    narration: >
+      quantile is the workhorse for numeric columns. You can call it with a single
+      float like 0.25 or a list like [0.25, 0.50, 0.75] to get multiple percentiles
+      at once. The 25th, 50th, and 75th percentiles — together with min and max —
+      form the five-number summary that gives you a compact picture of a numeric
+      distribution. nunique tells you the cardinality: a column with 3 unique values
+      is categorical; one with 10,000 is likely a high-cardinality identifier that
+      needs a different treatment. unique gives you the actual values, which is
+      useful for a column with low cardinality where you want to see all options
+      at once.
+
+  - type: code
+    label: "Profiling a column"
+    heading: "quantile, nunique, value_counts in practice"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product':  ['Widget', 'Gadget', 'Widget', 'Doohickey', 'Gadget'],
+          'revenue':  [250.0, 450.0, 125.0, 400.0, 1050.0],
+      })
+
+      # Numeric profile
+      s = df['revenue']
+      print(s.min(), s.max())          # 125.0 1050.0
+      print(s.quantile(0.25))          # 250.0
+      print(s.quantile(0.50))          # 400.0  (median)
+      print(s.quantile(0.75))          # 450.0
+      print(s.std().round(2))          # 324.04
+      print(s.isnull().sum())          # 0  (null count)
+
+      # Categorical profile
+      p = df['product']
+      print(p.nunique())               # 3
+      print(p.unique())                # ['Widget' 'Gadget' 'Doohickey']
+      print(p.value_counts())
+      # Widget      2
+      # Gadget      2
+      # Doohickey   1
+    narration: >
+      The numeric profile here gives a five-number summary: min 125, Q1 250,
+      median 400, Q3 450, max 1050. The IQR is 200 and the standard deviation is
+      324, suggesting a wide spread driven by that 1050 revenue outlier. The
+      categorical profile confirms 3 unique products; value_counts shows Widget and
+      Gadget each appear twice. This two-path pattern — numeric versus categorical
+      — is exactly what distribution_summary automates in the exercise.
+
+  - type: exercise
+    heading: "Exercise 1 — distribution_summary"
+    prompt: >
+      Implement `distribution_summary(df, col) -> dict` that returns a profile
+      dict for one column. For numeric columns: count, mean, std, min, q25,
+      median, q75, max, null_count. For string columns: count, unique, top,
+      top_freq, null_count. Use `pd.api.types.is_numeric_dtype(series)` to
+      branch on type.
+    hint: >
+      `s = df[col]`. For numeric: build the dict directly from `s.count()`,
+      `s.mean()`, `s.std()`, `s.min()`, `s.quantile(0.25)`, etc.
+      For categorical: `counts = s.value_counts()` then `counts.index[0]`
+      for top, `counts.iloc[0]` for top_freq.
+    narration: >
+      This function has two branches. The type-check at the top — is_numeric_dtype
+      — routes numeric columns to the percentile path and everything else to the
+      value_counts path. Round mean and std to 4 decimal places so the dict is
+      readable. Cast the count and null_count to int so the dict serialises cleanly
+      to JSON. All these small choices are about making a profile that is both
+      correct and usable downstream.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "s.quantile(q) — value at the q-th percentile"
+      - "s.nunique() — count of distinct non-null values"
+      - "s.unique() — array of distinct values"
+      - "pd.api.types.is_numeric_dtype(s) — type-check a Series"
+      - "distribution_summary: two-path profile for any column"
+    narration: >
+      You now have the building blocks for one-column profiling: quantile for
+      the numeric path, value_counts and nunique for the categorical path, and
+      is_numeric_dtype to route between them. In the next lesson you will aggregate
+      across groups to find which product or region drives the most revenue.

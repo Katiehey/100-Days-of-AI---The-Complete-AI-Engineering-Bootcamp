@@ -1,0 +1,131 @@
+day: "038"
+lesson: "05"
+title: "The EDA Report"
+slides:
+  - type: title
+    heading: "The EDA Report"
+    subheading: "Composing distribution, correlation, and pivots into one structured dict"
+    narration: >
+      Lesson 5 brings everything together into a single eda_report function that
+      returns a structured dict with shape, null counts, numeric statistics,
+      category frequencies, and a correlation matrix — everything you need to
+      understand a new dataset in one call.
+
+  - type: concept
+    label: "Why a report dict?"
+    heading: "Structured EDA: loggable, serialisable, diffable"
+    body: >
+      A report dict is better than a series of print statements because it is
+      programmable: you can log it, serialise it to JSON, store it in a database,
+      or compare two runs to detect data drift. When a new data export arrives,
+      run eda_report on the old and new versions and diff the dicts — any key
+      whose value changed is worth investigating.
+    bullets:
+      - "shape — rows × columns"
+      - "null_counts — {col: null_count} for every column"
+      - "numeric_summary — describe()-style stats for numeric columns"
+      - "category_counts — value_counts for every string column"
+      - "correlations — Pearson r matrix for numeric columns"
+    narration: >
+      Engineers who have been in production for a while stop using ad-hoc print
+      statements for EDA and start writing structured reports. The reason is simple:
+      you can build tooling around a dict. A dict can be saved to a file, compared
+      between runs, validated against a schema, and automatically flagged if a
+      column that should have no nulls suddenly has 500. Print statements disappear.
+      Reports accumulate.
+
+  - type: how_it_works
+    label: "describe() and value_counts()"
+    heading: "Two pandas methods that produce report-ready summaries"
+    body: >
+      `df[num_cols].describe()` returns a DataFrame of statistics — count, mean,
+      std, min, 25%, 50%, 75%, max — for every numeric column. `.to_dict()` converts
+      it to a nested dict keyed by column name then stat name. `series.value_counts()`
+      returns a Series of counts; `.to_dict()` converts it to a plain dict of
+      value → count pairs.
+    bullets:
+      - "df[num_cols].describe().round(2).to_dict() — numeric stats dict"
+      - "{col: df[col].value_counts().to_dict() for col in cat_cols} — category counts"
+      - "df.isnull().sum().to_dict() — null count per column"
+      - "df[num_cols].corr().round(4).to_dict() — correlation matrix dict"
+    narration: >
+      The pattern for numeric_summary uses describe to get the standard eight
+      statistics — count, mean, std, min, the three quartiles, and max — and
+      chains round then to_dict to produce a clean nested dict. The category_counts
+      pattern iterates over object columns and builds a dict of value_counts dicts.
+      The correlations entry uses the same corr call as Lesson 3 but keeps the
+      full matrix rather than slicing one column. These four patterns cover almost
+      every summary a stakeholder will ask for.
+
+  - type: code
+    label: "Building a report dict"
+    heading: "shape, nulls, describe, value_counts, corr — in one function"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product':  ['Widget', 'Gadget', 'Widget'],
+          'price':    [25.0, 150.0, 25.0],
+          'quantity': [10, 3, 5],
+          'revenue':  [250.0, 450.0, 125.0],
+      })
+
+      num_cols = df.select_dtypes(include='number').columns.tolist()
+      cat_cols = df.select_dtypes(include='object').columns.tolist()
+
+      report = {
+          'shape':           df.shape,
+          'null_counts':     df.isnull().sum().to_dict(),
+          'numeric_summary': df[num_cols].describe().round(2).to_dict(),
+          'category_counts': {col: df[col].value_counts().to_dict() for col in cat_cols},
+          'correlations':    df[num_cols].corr().round(4).to_dict(),
+      }
+
+      print(f"Shape: {report['shape']}")             # (3, 4)
+      print(f"Nulls: {report['null_counts']}")        # all 0
+      print(f"Revenue mean: {report['numeric_summary']['revenue']['mean']}")  # 275.0
+      print(f"Products: {report['category_counts']['product']}")  # Widget:2, Gadget:1
+    narration: >
+      The five keys in the report dict answer five fundamental questions: how big
+      is the dataset, are there any missing values, what do the numeric columns
+      look like, what values appear in the categorical columns, and which numeric
+      columns are linearly related? These are the questions every analyst asks when
+      they first open a dataset. Putting them in a dict makes the answers persistent
+      and composable.
+
+  - type: exercise
+    heading: "Exercise 5 — eda_report"
+    prompt: >
+      Implement `eda_report(df) -> dict` using the five-key structure above.
+      `num_cols` and `cat_cols` are given to you by select_dtypes.
+      Use `df[num_cols].describe().round(2).to_dict()` for numeric_summary,
+      `{col: df[col].value_counts().to_dict() for col in cat_cols}` for
+      category_counts, and `df[num_cols].corr().round(4).to_dict()` for
+      correlations. Guard the corr call with `if len(num_cols) > 1 else {}`.
+    hint: >
+      Build and return one dict literal with all five keys.
+      `df.shape` is already a tuple; no conversion needed.
+      `df.isnull().sum().to_dict()` gives null counts including 0s for clean columns.
+    narration: >
+      The guard on correlations — len(num_cols) > 1 — prevents a trivial
+      1×1 matrix from being returned when there is only one numeric column.
+      The checks verify all five keys, confirm shape matches df.shape, confirm
+      the presence of numeric columns in numeric_summary, and confirm the
+      category counts are correct. This is the function that forms the backbone
+      of Day 50's Insight Engine capstone.
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "distribution_summary: profile any single column"
+      - "top_groups: rank groups by a metric in one chain"
+      - "correlation_summary: find features that move with your target"
+      - "pivot_summary: two-dimensional breakdown via pd.pivot_table"
+      - "eda_report: full dataset profile in a structured dict"
+    narration: >
+      You have a complete EDA toolkit. Given any DataFrame you can now describe
+      every column, rank every group, correlate every feature with a target,
+      and produce a two-dimensional breakdown — all in under five function calls.
+      Tomorrow on Day 39 you will visualise these insights using matplotlib:
+      the same data you analysed today becomes charts that communicate to an
+      audience that cannot read a DataFrame.

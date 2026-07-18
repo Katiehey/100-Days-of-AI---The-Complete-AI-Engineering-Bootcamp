@@ -1,0 +1,127 @@
+day: "038"
+lesson: "04"
+title: "Pivot Tables"
+slides:
+  - type: title
+    heading: "Pivot Tables"
+    subheading: "pd.pivot_table and pd.crosstab — two-dimensional breakdowns"
+    narration: >
+      Lesson 4 covers two tools for cross-tabulation: pd.pivot_table for numeric
+      aggregations across two categorical dimensions, and pd.crosstab for quick
+      frequency counts. Pivot tables are the standard deliverable when a
+      stakeholder asks 'how does revenue break down by product and region?'
+
+  - type: concept
+    label: "What is a pivot table?"
+    heading: "Turn long-format rows into a matrix"
+    body: >
+      A long-format DataFrame has one row per observation and categorical values
+      stored as cell data. A pivot table rotates one categorical column into
+      column headers and aggregates a numeric column at each intersection.
+      The result is a matrix that is easier to read and compare than a long table.
+    bullets:
+      - "Long format: product, region, revenue — one row per transaction"
+      - "Pivot: rows=product, columns=region, values=sum(revenue)"
+      - "Each cell is the aggregate of matching rows"
+      - "fill_value=0 replaces NaN where no matching rows exist"
+    narration: >
+      The concept maps exactly to what you already know from spreadsheets. A pivot
+      table in pandas does the same thing: you choose which column becomes the
+      row index, which becomes the column headers, and which numeric column to
+      aggregate at each intersection. The key difference from a spreadsheet pivot
+      is that you do it in code, so it is reproducible, testable, and composable
+      with the rest of your pipeline.
+
+  - type: how_it_works
+    label: "pd.pivot_table"
+    heading: "Five parameters that control the pivot"
+    body: >
+      `pd.pivot_table(df, values, index, columns, aggfunc, fill_value)`:
+      values is the numeric column to aggregate; index becomes the row labels;
+      columns becomes the column headers; aggfunc is the aggregation function;
+      fill_value replaces NaN where no data exists for a combination.
+      After the pivot, clear the column axis name with `piv.columns.name = None`
+      before calling reset_index.
+    bullets:
+      - "values='revenue'  — what to aggregate"
+      - "index='product'   — what becomes row labels"
+      - "columns='region'  — what becomes column headers"
+      - "aggfunc='sum'     — sum, mean, count, or any numpy function"
+      - "fill_value=0      — replace NaN with 0"
+    narration: >
+      The fill_value parameter is easy to forget and causes subtle bugs downstream.
+      If a product has no sales in a region, the default pivot produces NaN for
+      that cell. Any arithmetic on that column — like summing a column to get
+      a total — will propagate NaN unless you either fill it or use fillna later.
+      Setting fill_value=0 at creation time is the safest default.
+      The columns.name artefact is a cosmetic issue: after the pivot, the
+      'columns' dimension has a name — the name of the column used as headers.
+      Setting piv.columns.name = None removes this so the column headers are
+      just plain region names when you print the DataFrame.
+
+  - type: code
+    label: "pivot_table and crosstab"
+    heading: "From long format to a readable matrix"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product': ['Widget', 'Widget', 'Gadget', 'Gadget'],
+          'region':  ['North',  'South',  'North',  'East'],
+          'revenue': [250.0,    125.0,    450.0,    1050.0],
+      })
+
+      # Pivot table: product × region, sum of revenue
+      piv = pd.pivot_table(
+          df, values='revenue', index='product',
+          columns='region', aggfunc='sum', fill_value=0,
+      )
+      piv.columns.name = None        # clear "region" label on column axis
+      piv = piv.reset_index()
+      print(piv)
+      #    product    East   North   South
+      # 0   Gadget  1050.0   450.0     0.0
+      # 1   Widget     0.0   250.0   125.0
+
+      # Cross-tabulation shortcut (counts)
+      print(pd.crosstab(df['product'], df['region']))
+      # region   East  North  South
+      # product
+      # Gadget      1      1      0
+      # Widget      0      1      1
+    narration: >
+      The pivot table shows that Gadget had 1050 revenue in East and 450 in North,
+      with 0 in South because there were no Gadget rows for South — fill_value=0
+      replaced the NaN. pd.crosstab is a shortcut for the count case: it produces
+      a frequency table of how many rows match each combination of two categorical
+      columns. crosstab always counts; for any other aggregation, use pivot_table.
+
+  - type: exercise
+    heading: "Exercise 4 — pivot_summary"
+    prompt: >
+      Implement `pivot_summary(df, index, columns, values, aggfunc='mean') -> pd.DataFrame`
+      using `pd.pivot_table` with `fill_value=0`. After creating the pivot, set
+      `piv.columns.name = None` and return `piv.reset_index()`.
+    hint: >
+      `piv = pd.pivot_table(df, values=values, index=index, columns=columns,
+      aggfunc=aggfunc, fill_value=0)`. Then `piv.columns.name = None` and
+      `return piv.reset_index()`.
+    narration: >
+      The checks verify the presence of all four region columns, that the index
+      column appears as a plain DataFrame column after reset_index, that specific
+      cell values match expected sums, that there are no NaN values in the result,
+      and that aggfunc='count' gives per-cell row counts. The fill_value check and
+      the aggfunc check together confirm you passed both optional parameters through.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "pd.pivot_table(df, values, index, columns, aggfunc, fill_value)"
+      - "piv.columns.name = None — clear the column axis name artefact"
+      - "pd.crosstab(col1, col2) — quick frequency count table"
+      - "fill_value=0 prevents NaN from propagating downstream"
+      - "reset_index() converts the row index back to a regular column"
+    narration: >
+      Pivot tables are the standard deliverable for two-dimensional breakdowns.
+      In the final lesson you will compose all four EDA functions into a single
+      eda_report that profiles an entire DataFrame in one call.

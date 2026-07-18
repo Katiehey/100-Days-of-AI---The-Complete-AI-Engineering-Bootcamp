@@ -1,0 +1,135 @@
+day: "038"
+lesson: "03"
+title: "Correlation"
+slides:
+  - type: title
+    heading: "Correlation"
+    subheading: "df.corr() — measuring linear relationships between numeric columns"
+    narration: >
+      Lesson 3 introduces df.corr, which computes the Pearson correlation
+      coefficient between every pair of numeric columns. Correlation reveals
+      which columns move together — a foundational step before feature selection
+      and before building predictive models.
+
+  - type: concept
+    label: "What is correlation?"
+    heading: "Pearson r: from -1 to +1"
+    body: >
+      The Pearson correlation coefficient r measures the strength and direction
+      of a linear relationship between two variables. r = 1 means they move
+      perfectly together; r = -1 means they move perfectly in opposite directions;
+      r = 0 means no linear relationship. df.corr() computes r for every pair
+      of numeric columns and returns a square matrix.
+    bullets:
+      - "+1.0  — perfect positive correlation"
+      - " 0.0  — no linear relationship"
+      - "-1.0  — perfect negative correlation"
+      - "The diagonal is always 1.0 (each column correlates perfectly with itself)"
+    narration: >
+      Correlation is one of the most misused statistics in data science. High
+      correlation means two variables move together; it says nothing about
+      causation. Still, for EDA purposes, a high |r| between a feature and your
+      target column is a strong signal that the feature is worth investigating.
+      A near-zero r suggests the feature adds little linear predictive power.
+      df.corr computes Pearson by default, which assumes linear relationships;
+      for non-linear relationships you would use Spearman or Kendall tau by
+      passing method='spearman'.
+
+  - type: how_it_works
+    label: "df.corr() and .drop()"
+    heading: "Extract one column from the correlation matrix"
+    body: >
+      df.corr() returns a DataFrame where row i, column j is the correlation
+      between column i and column j. To get the correlations of all features
+      with a target column, select that column from the matrix and drop the
+      self-correlation row (which is always 1.0 and uninformative).
+    bullets:
+      - "df.select_dtypes(include='number').corr() — numeric-only correlation matrix"
+      - "matrix[target_col] — Series of correlations with target"
+      - ".drop(target_col) — remove the self-correlation (r=1.0)"
+      - ".abs().sort_values(ascending=False) — sort by strongest relationship"
+    narration: >
+      The pattern is always the same: compute the full correlation matrix, pull out
+      the column for your target variable as a Series, drop the target row — because
+      a variable correlates perfectly with itself and that entry is noise — then sort
+      by absolute value so the strongest relationships appear first regardless of
+      direction. Wrapping the result in a DataFrame with columns 'feature' and
+      'correlation' makes it easy to print, log, or pass downstream.
+
+  - type: code
+    label: "Extracting correlations with a target"
+    heading: "corr() → select column → drop self → sort by |r|"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'price':    [25.0, 150.0, 8.0],
+          'quantity': [10,   3,     50],
+          'revenue':  [250.0, 450.0, 400.0],
+      })
+
+      # Full correlation matrix
+      matrix = df.corr()
+      print(matrix.round(3))
+      #           price  quantity  revenue
+      # price     1.000    -0.954   -0.108
+      # quantity -0.954     1.000    0.622
+      # revenue  -0.108     0.622    1.000
+
+      # Correlations with revenue
+      corr = matrix['revenue'].drop('revenue')
+      print(corr)
+      # price      -0.108
+      # quantity    0.622
+
+      # Sort by absolute value
+      result = pd.DataFrame({
+          'feature':     corr.index.tolist(),
+          'correlation': corr.values,
+      })
+      result['_abs'] = result['correlation'].abs()
+      result = result.sort_values('_abs', ascending=False).drop(columns='_abs')
+      print(result.reset_index(drop=True))
+      #    feature  correlation
+      # 0  quantity        0.622
+      # 1     price       -0.108
+    narration: >
+      In this example, quantity has a stronger linear relationship with revenue
+      than price does. That makes intuitive sense: a product sold in high quantity
+      drives more revenue regardless of unit price. Price is slightly negatively
+      correlated with revenue here because high-priced items have low quantities.
+      The absolute-sort puts the most predictive feature at the top, which is
+      exactly what a feature-selection step needs.
+
+  - type: exercise
+    heading: "Exercise 3 — correlation_summary"
+    prompt: >
+      Implement `correlation_summary(df, target_col) -> pd.DataFrame` that:
+      1. Calls `df.select_dtypes(include='number').corr()[target_col].drop(target_col)`
+      2. Wraps the result in a DataFrame with columns 'feature' and 'correlation'
+      3. Adds a temporary '_abs' column, sorts descending, drops '_abs'
+      4. Returns the result with a reset index.
+    hint: >
+      `corr.index.tolist()` gives feature names; `corr.values` gives the
+      correlation floats. Add `result['_abs'] = result['correlation'].abs()`,
+      sort, then `result.drop(columns='_abs')` before returning.
+    narration: >
+      The checks confirm the exact columns, verify that the target column does
+      not appear in the 'feature' column, confirm all values are in [-1, 1],
+      and verify that the list is sorted by absolute value descending. The last
+      check is the trickiest: you need to compare abs_vals to its own sorted
+      version to confirm the ordering.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "df.corr() — Pearson correlation matrix for all numeric columns"
+      - "matrix[col].drop(col) — correlations with a target, minus self"
+      - "Sort by .abs() to rank by strength of relationship"
+      - "Correlation measures linear co-movement, not causation"
+      - "select_dtypes(include='number') isolates numeric columns"
+    narration: >
+      Correlation is a one-call summary of how every numeric feature relates to
+      your target. Lesson 4 introduces pivot tables — the tool for turning a long
+      DataFrame into a readable matrix, which is the standard deliverable when a
+      stakeholder asks for a breakdown by two categorical dimensions.

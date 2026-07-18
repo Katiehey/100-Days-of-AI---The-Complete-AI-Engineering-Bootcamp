@@ -1,0 +1,121 @@
+day: "038"
+lesson: "02"
+title: "Top Groups"
+slides:
+  - type: title
+    heading: "Top Groups"
+    subheading: "groupby + multi-agg + nlargest — ranking groups by a metric"
+    narration: >
+      Lesson 2 extends the groupby aggregation you learned on Day 36 with two
+      new ideas: named aggregations that compute multiple statistics in one call,
+      and nlargest to rank groups without sorting and slicing. These two patterns
+      answer the most common EDA question — which group is at the top?
+
+  - type: concept
+    label: "Multi-aggregation"
+    heading: "One groupby, three stats: total, mean, count"
+    body: >
+      When you aggregate a grouped column, you often want more than one statistic.
+      Pandas lets you produce multiple aggregations in a single agg call using the
+      named-aggregation syntax: agg(total='sum', mean='mean', count='count').
+      Each keyword becomes a column in the output DataFrame.
+    bullets:
+      - "df.groupby('product')['revenue'].agg(total='sum', mean='mean', count='count')"
+      - "Returns one row per group, three columns: total, mean, count"
+      - "Equivalent to three separate agg calls merged together"
+    narration: >
+      Before named aggregation, getting three stats in one call meant using a dict
+      or calling agg three times and merging. The keyword syntax introduced in
+      pandas 0.25 is cleaner: you name the output column on the left and provide
+      the aggregation function name on the right. The result is a DataFrame with
+      exactly the columns you asked for, already reset from the groupby index by
+      chaining reset_index. This pattern is the foundation of the top_groups
+      function you will build in Exercise 2.
+
+  - type: how_it_works
+    label: "nlargest / nsmallest"
+    heading: "nlargest — top N rows by a column, without sort+head"
+    body: >
+      df.nlargest(n, col) returns the n rows with the largest values in col,
+      sorted descending. It is equivalent to df.sort_values(col, ascending=False).head(n)
+      but clearer and slightly faster on large DataFrames. nsmallest does the same
+      for the smallest values.
+    bullets:
+      - "df.nlargest(3, 'total') — top 3 rows by 'total'"
+      - "df.nsmallest(3, 'total') — bottom 3 rows by 'total'"
+      - "Chain .reset_index(drop=True) to renumber from 0"
+    narration: >
+      nlargest and nsmallest are convenience wrappers that make intent explicit.
+      When you see df.nlargest(5, 'revenue') in a notebook, it is immediately clear
+      you are finding the top 5 revenue rows — no need to parse sort_values plus
+      head. The drop=True on reset_index prevents the old row indices from being
+      added as a new column, which is almost always what you want after sorting
+      or filtering.
+
+  - type: code
+    label: "top_groups pattern"
+    heading: "groupby → multi-agg → reset → nlargest"
+    code: |
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product': ['Widget', 'Widget', 'Gadget', 'Gadget', 'Doohickey'],
+          'revenue': [250.0, 125.0, 450.0, 1050.0, 400.0],
+      })
+
+      # Named multi-aggregation
+      summary = (
+          df.groupby('product')['revenue']
+          .agg(total='sum', mean='mean', count='count')
+          .reset_index()
+      )
+      print(summary)
+      #    product  total    mean  count
+      # 0  Doohickey  400.0  400.0      1
+      # 1    Gadget  1500.0  750.0      2
+      # 2    Widget   375.0  187.5      2
+
+      # Top 2 by total
+      top2 = summary.nlargest(2, 'total').reset_index(drop=True)
+      print(top2)
+      #   product   total   mean  count
+      # 0  Gadget  1500.0  750.0      2
+      # 1  Widget   375.0  187.5      2
+    narration: >
+      The chain here is: groupby → agg with named output columns → reset_index to
+      flatten the group index back into a column → nlargest to take the top rows →
+      reset_index again to get a clean 0-based row index. This pattern, chained on
+      a single expression, is how professional data engineers write it: one
+      statement, four transformations, no intermediate variables.
+
+  - type: exercise
+    heading: "Exercise 2 — top_groups"
+    prompt: >
+      Implement `top_groups(df, group_col, value_col, n=5) -> pd.DataFrame`
+      that groups by group_col, aggregates value_col with
+      `agg(total='sum', mean='mean', count='count')`, resets the index,
+      takes the top n rows by 'total', and resets the index again.
+    hint: >
+      Chain all four steps on one expression:
+      `df.groupby(group_col)[value_col].agg(total='sum', mean='mean', count='count')
+      .reset_index().nlargest(n, 'total').reset_index(drop=True)`.
+    narration: >
+      The checks verify the exact column names — product, total, mean, count —
+      and confirm the first row is the product with the highest total. They also
+      test that passing n=1 gives exactly 1 row and n=2 gives exactly 2. Both
+      reset_index calls matter: the first turns the group key into a regular column;
+      the second ensures the final index is 0, 1, ..., n-1.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - ".agg(total='sum', mean='mean', count='count') — named multi-aggregation"
+      - "df.nlargest(n, col) — top N rows by a column"
+      - "df.nsmallest(n, col) — bottom N rows"
+      - "Double reset_index: first to flatten group key, second to renumber"
+      - "top_groups: the standard pattern for ranking groups"
+    narration: >
+      You can now rank any group by any metric in one chained expression.
+      Lesson 3 introduces correlation — measuring how two numeric columns
+      move together — which is the standard next step after you have found
+      which groups are large.
