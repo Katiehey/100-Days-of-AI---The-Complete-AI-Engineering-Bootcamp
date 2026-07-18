@@ -1,0 +1,152 @@
+day: "031"
+lesson: "05"
+title: "AI Resilience Reporting"
+
+slides:
+
+  - type: title
+    heading: "AI Resilience Reporting"
+    subheading: "LLM-generated incident report from batch results and DLQ contents"
+    narration: >
+      ai_resilience_report takes the batch results list and the DLQ items list and
+      returns a 2–3 sentence natural-language incident report with a recommended action.
+      It formats the run statistics — pass rate, average attempts, failed item details —
+      as a text block, passes it to Ollama with a reliability engineering system prompt,
+      and returns the model's response. This is the output you would post to a Slack
+      channel, email to the on-call engineer, or append to the pipeline run log.
+
+  - type: concept
+    label: "incident report"
+    heading: "Incident Report — Translate Metrics Into Recommended Action"
+    body: >
+      The difference between a monitoring dashboard and an incident report is the
+      recommended action. A dashboard shows '20% failure rate'. An incident report
+      says '20% of items failed with a ConnectionTimeout, suggesting a transient
+      network issue; re-queue the 12 DLQ items when the service stabilises'. The
+      LLM is well-suited for this translation because it can pattern-match error
+      messages to known failure classes and suggest appropriate responses without
+      the engineer having to memorise every error type.
+    bullets:
+      - "Pass rate: {passed}/{total} — the primary health signal"
+      - "Average attempts: signals whether failures were transient or immediate"
+      - "DLQ preview: first 3 failed items with error messages"
+      - "System prompt: 'reliability engineer; 2-3 sentences; focus on failure and action'"
+      - "Output: concise narrative + recommended next step"
+    narration: >
+      Average attempts is a particularly useful signal. If average attempts is close
+      to max_attempts, most failures hit the retry ceiling — the target is consistently
+      unavailable. If average attempts is close to 1, failures are immediate and
+      deterministic — the error is in the data or the function, not the target. The
+      LLM can distinguish these patterns from the text description and recommend
+      different actions: 'retry later' vs 'inspect and fix the input data'.
+
+  - type: how_it_works
+    label: "ai_resilience_report"
+    heading: "ai_resilience_report — Format, Prompt, Return"
+    body: >
+      Compute statistics from batch_results: total, passed, failed (len(dlq_items)),
+      avg_attempts (mean of r.get('attempts', 1) across all results). Build a
+      text block with the stats and first 3 DLQ entries. Pass to ollama.chat with
+      a reliability-engineer system prompt. Return the content string.
+    bullets:
+      - "total = len(batch_results); passed = count status=='ok'"
+      - "avg_attempts = round(sum attempts / total, 2) — careful: guard total == 0"
+      - "First 3 DLQ items in the text: 'DLQ: {item} — {error}'"
+      - "System: reliability engineer; 2–3 sentences; failure and recommended action"
+      - "Return response['message']['content']"
+    narration: >
+      The guard 'if total else 0.0' prevents ZeroDivisionError when batch_results
+      is empty. avg_attempts uses r.get('attempts', 1) to default to 1 for records
+      from plain run_step (Day 30) that don't have the 'attempts' key. This makes
+      ai_resilience_report compatible with both Day 30's run_step output and Day 31's
+      resilient_step output — you can pass mixed result lists without error.
+
+  - type: code
+    label: "ai_resilience_report"
+    heading: "ai_resilience_report — Full Implementation"
+    code: |
+      import ollama
+
+
+      def ai_resilience_report(
+          batch_results: list,
+          dlq_items: list,
+          model: str = "llama3.2",
+      ) -> str:
+          """Return a 2–3 sentence incident report with recommended action."""
+          total = len(batch_results)
+          passed = sum(1 for r in batch_results if r["status"] == "ok")
+          avg_attempts = (
+              round(sum(r.get("attempts", 1) for r in batch_results) / total, 2)
+              if total else 0.0
+          )
+          lines = [
+              f"Batch run: {passed}/{total} items succeeded, "
+              f"{len(dlq_items)} failed to DLQ.",
+              f"Average attempts per item: {avg_attempts}.",
+          ]
+          for entry in dlq_items[:3]:
+              lines.append(f"  DLQ: {entry['item']} — {entry['error']}")
+
+          response = ollama.chat(
+              model=model,
+              messages=[
+                  {
+                      "role": "system",
+                      "content": (
+                          "You are a reliability engineer. "
+                          "Summarise a batch processing run in 2\\u20133 sentences. "
+                          "Focus on the failure rate and recommend one concrete action."
+                      ),
+                  },
+                  {
+                      "role": "user",
+                      "content": "\\n".join(lines) + "\\n\\nSummarise and recommend:",
+                  },
+              ],
+          )
+          return response["message"]["content"]
+    narration: >
+      len(dlq_items) in the first line gives the accurate failure count — it counts
+      items in the DLQ, not items with status='error' in batch_results. These should
+      be the same, but using dlq_items means the report reflects what was actually
+      routed to the DLQ, which could differ if the caller added extra items. The
+      first 3 DLQ entries are included in the prompt text to give the model concrete
+      examples of what failed — 'ConnectionTimeout' vs 'ValueError: invalid schema'
+      lead to very different recommendations.
+
+  - type: exercise
+    heading: "Exercise 5: ai_resilience_report"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement ai_resilience_report(batch_results,
+      dlq_items, model='llama3.2') that computes total, passed, and avg_attempts from
+      batch_results, builds a text block with those stats and up to 3 DLQ entries
+      (format: 'DLQ: {item} — {error}'), then calls ollama.chat with a reliability-
+      engineer system prompt asking for a 2–3 sentence report and recommended action.
+      Return response['message']['content'].
+    hint: >
+      total=len(batch_results); passed=sum(status ok). avg_attempts=sum(r.get('attempts',1))/total.
+      lines=['Batch: {passed}/{total}...', 'Avg attempts: {avg_attempts}'].
+      for entry in dlq_items[:3]: lines.append(f'  DLQ: {entry["item"]} — {entry["error"]}').
+      ollama.chat → response['message']['content'].
+    narration: >
+      The check harness for Exercise 5 verifies that the function returns a non-empty
+      string for three inputs: all-ok batch (no DLQ items), all-fail batch (full DLQ),
+      and empty batch. The report content is not checked for exact wording — LLM output
+      is non-deterministic. The check verifies type (str) and length (> 10 chars).
+
+  - type: summary
+    heading: "Day 31: Key Takeaways"
+    bullets:
+      - "ai_resilience_report: stats + DLQ preview → LLM → 2-3 sentence incident report"
+      - "avg_attempts: near max_attempts → transient failure; near 1 → permanent failure"
+      - "System prompt: reliability engineer; focus failure + concrete action recommendation"
+      - "r.get('attempts', 1): compatible with Day 30's run_step (no attempts key)"
+      - "Total, passed, avg_attempts in prompt text — not JSON — for best LLM output"
+    narration: >
+      Day 31 complete. You have a resilience toolkit: retry with exponential backoff,
+      DeadLetterQueue for permanent failures, resilient_step for hardened pipeline steps,
+      process_batch_with_dlq for resilient batch processing, and ai_resilience_report
+      for incident reporting. The project notebook uses all five to build a hardened
+      batch processor that can survive transient failures without losing items.
+      Day 32 is secrets and environments — handling API keys and configuration safely.

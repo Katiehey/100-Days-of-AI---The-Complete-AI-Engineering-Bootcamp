@@ -1,0 +1,147 @@
+day: "031"
+lesson: "02"
+title: "Dead-Letter Queue"
+
+slides:
+
+  - type: title
+    heading: "Dead-Letter Queue"
+    subheading: "Never lose a failed item — route it to the DLQ for later"
+    narration: >
+      When retry exhausts all attempts, the item has failed permanently — for now.
+      The worst response is to silently discard it (data loss) or crash the batch
+      (fail-fast is wrong here). The right response is to route it to a dead-letter
+      queue: a collection that holds failed items with their error messages and
+      metadata, available for later inspection, replay, or manual intervention.
+      The DLQ pattern is ubiquitous in production message queues (SQS, Kafka, RabbitMQ)
+      but the concept is a simple Python class.
+
+  - type: concept
+    label: "DLQ pattern"
+    heading: "Dead-Letter Queue — Separate Failure Handling from Processing"
+    body: >
+      A dead-letter queue separates the question 'did this item fail?' from the
+      question 'what do we do about it?'. Processing code routes failures to the DLQ
+      and moves on. Operations code — a human, a scheduled re-processor, an alert —
+      drains the DLQ and decides what to do. This separation keeps batch processing
+      fast and clean while preserving all failure information. The DLQ is the failure
+      audit trail.
+    bullets:
+      - "add(item, error): store failed item with error string and timestamp"
+      - "drain() -> list: return all items and empty the queue atomically"
+      - "peek() -> list: inspect without draining (non-destructive)"
+      - "size() -> int: how many items are waiting"
+      - "Each DLQ record: {item, error, context, added_at}"
+    narration: >
+      The drain() method is atomic in the sense that it swaps the internal list
+      for an empty list and returns the old one in a single assignment:
+      'items, self._items = self._items, []'. Python tuple unpacking makes this
+      atomic from the interpreter's perspective (no interleaving between the read
+      and the reset). This matters in multi-threaded code; for Day 31's single-
+      threaded pipelines it is simply a clean pattern. peek() is the read-only
+      counterpart: it returns a copy of the list without modifying the queue.
+
+  - type: how_it_works
+    label: "DeadLetterQueue"
+    heading: "DeadLetterQueue — Class Design"
+    body: >
+      DeadLetterQueue stores records in a private _items list. Each record is a dict
+      with four keys: item (the original value that failed), error (str of the exception),
+      context (optional metadata dict), and added_at (ISO timestamp). The drain method
+      atomically empties the queue and returns the items. peek returns a shallow copy.
+    bullets:
+      - "__init__: self._items = []"
+      - "add(item, error, context=None): append {item, error, context, added_at}"
+      - "drain() -> list: items, self._items = self._items, []; return items"
+      - "peek() -> list: return list(self._items) — copy, not reference"
+      - "size() -> int: return len(self._items)"
+    narration: >
+      The context parameter holds optional metadata about where and why the failure
+      occurred: {'pipeline': 'daily_digest', 'step': 'fetch_remote', 'attempt': 3}.
+      This context is not used in Day 31's exercises — they pass context=None —
+      but it is the correct API for a production DLQ where you need to know which
+      pipeline and step produced the failure. context or {} ensures the stored dict
+      always has a dict value, never None.
+
+  - type: code
+    label: "DeadLetterQueue"
+    heading: "DeadLetterQueue — Full Implementation"
+    code: |
+      from datetime import datetime
+
+
+      class DeadLetterQueue:
+          def __init__(self):
+              self._items: list = []
+
+          def add(self, item, error: str, context: dict | None = None) -> None:
+              self._items.append({
+                  "item":     item,
+                  "error":    error,
+                  "context":  context or {},
+                  "added_at": datetime.now().isoformat(),
+              })
+
+          def drain(self) -> list:
+              items, self._items = self._items, []
+              return items
+
+          def peek(self) -> list:
+              return list(self._items)
+
+          def size(self) -> int:
+              return len(self._items)
+
+      # Example
+      dlq = DeadLetterQueue()
+      dlq.add("https://api.example.com/data", "ConnectionTimeout after 3 retries")
+      dlq.add(42, "ValueError: negative record id")
+
+      print(f"DLQ size: {dlq.size()}")   # 2
+      for entry in dlq.peek():
+          print(f"  {entry['item']} — {entry['error']}")
+      items = dlq.drain()
+      print(f"Drained {len(items)} items; size now: {dlq.size()}")  # 0
+    narration: >
+      Storing item as-is (any Python type) means the DLQ works for any batch:
+      a list of URLs, a list of row dicts, a list of integers, a list of file paths.
+      The item value is preserved exactly as received — the DLQ never transforms it.
+      This is intentional: a re-processor needs the original item to replay the failed
+      operation. error is str(e) from the exception — matching the step result schema
+      from Day 30. added_at is an ISO timestamp so you can sort failures chronologically
+      and report 'all failures in the last hour'.
+
+  - type: exercise
+    heading: "Exercise 2: DeadLetterQueue"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement the DeadLetterQueue class with:
+      __init__ that initialises self._items = [].
+      add(item, error, context=None) that appends a dict with keys item, error,
+      context (context or {}), and added_at (datetime.now().isoformat()) to _items.
+      drain() that atomically returns all items and resets _items to [].
+      peek() that returns a copy of _items without modifying it.
+      size() that returns len(_items).
+    hint: >
+      add: self._items.append({'item': item, 'error': error, 'context': context or {},
+      'added_at': datetime.now().isoformat()}).
+      drain: items, self._items = self._items, []; return items.
+      peek: return list(self._items). size: return len(self._items).
+    narration: >
+      The check harness verifies the drain/peek distinction: peek returns items without
+      emptying the queue (size remains unchanged after peek), while drain returns items
+      AND resets size to 0. The check also verifies the added_at field is a non-empty
+      string — not an exact timestamp match, since the exact value is non-deterministic.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "DLQ: separates failure detection (in processing) from failure handling (later)"
+      - "add(item, error, context): store item with error string and ISO timestamp"
+      - "drain(): atomic swap — returns items and resets queue to empty"
+      - "peek(): read-only copy — does not modify queue"
+      - "Each record: {item, error, context, added_at} — full audit trail"
+    narration: >
+      Lesson 2 gave us the DeadLetterQueue. Lesson 3 combines retry (Lesson 1)
+      with the step result schema from Day 30 into resilient_step — a drop-in
+      replacement for run_step that retries before recording failure, and adds an
+      'attempts' field to the result dict so you can see how many tries it took.

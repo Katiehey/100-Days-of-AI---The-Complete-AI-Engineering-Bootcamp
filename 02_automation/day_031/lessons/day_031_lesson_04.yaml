@@ -1,0 +1,147 @@
+day: "031"
+lesson: "04"
+title: "Batch Processing with DLQ"
+
+slides:
+
+  - type: title
+    heading: "Batch Processing with DLQ"
+    subheading: "Process every item; route permanent failures to the dead-letter queue"
+    narration: >
+      process_batch_with_dlq applies resilient_step to a list of items. For each item
+      it calls a user-provided process_fn, retries on failure, and routes permanently
+      failed items to the dead-letter queue. The result is a list of step result dicts —
+      one per item — with all the information needed to report on the run. The batch
+      never crashes on a single failure; it processes all items and delivers a complete
+      audit trail.
+
+  - type: concept
+    label: "batch DLQ pattern"
+    heading: "Process Every Item — Route, Don't Stop"
+    body: >
+      The wrong behaviour for a batch processor: stop on the first failure. If item 3
+      of 100 fails, items 4–100 are never processed. The right behaviour: process all
+      items, collect failures in the DLQ, report at the end. This mirrors the design
+      of production batch systems: SQS FIFO queues, Spark jobs, ETL pipelines — they
+      process all messages and move failed ones to a dead-letter queue rather than
+      halting the whole job.
+    bullets:
+      - "Stop-on-error is correct for pipelines (Day 30); wrong for batch items"
+      - "Process every item regardless of other items' outcomes"
+      - "Failed item → DLQ: dlq.add(item, step_result['error'])"
+      - "Successful item → step_result in results list"
+      - "Return: list of step result dicts — one per input item"
+    narration: >
+      The critical Python subtlety in process_batch_with_dlq is the lambda capture.
+      In a for loop with 'for item in items', a simple 'lambda: process_fn(item)'
+      would capture item by reference, not by value — by the time the lambda runs,
+      item has advanced to the last element in the loop. The fix is the default-
+      argument capture idiom: 'lambda i=item: process_fn(i)'. This binds the current
+      value of item to the parameter i at the time the lambda is created, not when
+      it is called. This is one of Python's most common closure bugs.
+
+  - type: how_it_works
+    label: "process_batch_with_dlq loop"
+    heading: "process_batch_with_dlq — Loop and DLQ Routing"
+    body: >
+      Iterate over items. For each item: call resilient_step with a lambda that calls
+      process_fn(item). Use i=item default-argument capture to fix the closure bug.
+      If the step result status is 'error', call dlq.add(item, result['error']).
+      Append the step result to the results list. Return the results list.
+    bullets:
+      - "lambda i=item: process_fn(i) — default-arg capture for correct closure"
+      - "str(item) as the step name — gives each step a readable label"
+      - "if r['status'] == 'error': dlq.add(item, r['error']) — route failures"
+      - "results.append(r) — always, regardless of status"
+      - "len(results) == len(items) always — predictable output"
+    narration: >
+      str(item) as the step name is a practical choice: if items are URLs, you get
+      the URL as the step name in the result and in the DLQ entry. If items are
+      integers or row dicts, str() gives a readable label. You could also pass a
+      name_fn parameter for more control, but str(item) is the right default for
+      80% of use cases. The results list is built in item order, same as the input —
+      callers can zip items and results if they need to correlate them.
+
+  - type: code
+    label: "process_batch_with_dlq"
+    heading: "process_batch_with_dlq — Full Implementation"
+    code: |
+      def process_batch_with_dlq(
+          items: list,
+          process_fn,
+          dlq: DeadLetterQueue,
+          max_attempts: int = 3,
+          base_delay: float = 1.0,
+          backoff: float = 2.0,
+      ) -> list:
+          """Process every item; route permanent failures to DLQ."""
+          results = []
+          for item in items:
+              r = resilient_step(
+                  str(item),
+                  lambda i=item: process_fn(i),   # default-arg capture
+                  max_attempts=max_attempts,
+                  base_delay=base_delay,
+                  backoff=backoff,
+              )
+              if r["status"] == "error":
+                  dlq.add(item, r["error"])
+              results.append(r)
+          return results
+
+      # Example
+      dlq = DeadLetterQueue()
+      items = [1, 2, 3, 4, 5]
+
+      def process(n):
+          if n % 2 == 0:
+              raise ValueError(f"even numbers not allowed: {n}")
+          return n * 10
+
+      results = process_batch_with_dlq(items, process, dlq, base_delay=0.0)
+      ok   = [r["result"] for r in results if r["status"] == "ok"]
+      fail = dlq.drain()
+      print(f"Processed {len(ok)} ok, {len(fail)} failed to DLQ")
+      print(f"OK results: {ok}")
+      print(f"DLQ items:  {[f['item'] for f in fail]}")
+    narration: >
+      The example shows items=[1,2,3,4,5] where even numbers fail. Items 2 and 4
+      go to the DLQ; items 1, 3, 5 succeed. The results list has 5 records — one per
+      input item — with the correct status. The DLQ has 2 records. Calling dlq.drain()
+      empties the DLQ so it is ready for the next batch. In production you would drain
+      the DLQ after each batch run and either log the failures, store them, or re-queue
+      them for a repair pipeline.
+
+  - type: exercise
+    heading: "Exercise 4: process_batch_with_dlq"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement process_batch_with_dlq(items,
+      process_fn, dlq, max_attempts=3, base_delay=1.0, backoff=2.0) that iterates
+      over items and calls resilient_step(str(item), lambda i=item: process_fn(i), ...)
+      for each. Route items whose step result has status='error' to the DLQ with
+      dlq.add(item, r['error']). Collect all step results (regardless of status) in
+      a list and return it. The returned list must always have len(items) records.
+    hint: >
+      results = []. for item in items: r = resilient_step(str(item), lambda i=item: process_fn(i), ...).
+      if r['status']=='error': dlq.add(item, r['error']). results.append(r). return results.
+      Critical: use lambda i=item (not lambda: process_fn(item)) to capture current item value.
+    narration: >
+      The check harness tests the lambda capture bug explicitly: it verifies that
+      each result's step name matches the correct item (not the last item in the loop).
+      It also verifies that failed items appear in the DLQ with correct item values
+      and non-empty error strings. Use base_delay=0.0 in checks to avoid test delays.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "Batch: process all items, never stop on one failure — inverse of pipeline"
+      - "lambda i=item: process_fn(i) — default-arg capture to fix Python closure bug"
+      - "Route failures: if status=='error': dlq.add(item, r['error'])"
+      - "Results list always has len(items) records — predictable, safe to zip"
+      - "Drain DLQ after batch run — ready for inspection, logging, or replay"
+    narration: >
+      Lesson 4 gave us process_batch_with_dlq. Lesson 5 is ai_resilience_report —
+      an LLM call that summarises the batch run: how many items succeeded, how many
+      went to the DLQ, what errors appeared, and what the recommended action is.
+      This is the final AI integration that turns raw batch results into an actionable
+      incident report.

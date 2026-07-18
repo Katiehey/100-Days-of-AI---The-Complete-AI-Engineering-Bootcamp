@@ -1,0 +1,143 @@
+day: "031"
+lesson: "01"
+title: "Retry Fundamentals"
+
+slides:
+
+  - type: title
+    heading: "Resilience & Error Handling"
+    subheading: "Retries, backoff, dead-letter queues — surviving transient failures"
+    narration: >
+      Day 31 is about making automation pipelines survive failures. Day 30 gave us
+      a pipeline that stops cleanly when a step fails. But not all failures are fatal —
+      a network blip, a rate-limit response, or a temporarily overloaded API might
+      succeed if you simply try again. Day 31 adds four tools: retry with exponential
+      backoff, a dead-letter queue for items that exhaust all retries, resilient steps
+      that combine retry with the Day 30 step schema, and batch processing that routes
+      failures automatically. Together they harden any automation pipeline against the
+      transient failures that are inevitable in production.
+
+  - type: concept
+    label: "transient vs permanent"
+    heading: "Transient vs Permanent Failures"
+    body: >
+      Not all failures deserve a retry. Transient failures are temporary — a 503
+      Service Unavailable, a connection timeout, a rate-limit 429. They usually
+      resolve on their own within seconds. Permanent failures are deterministic —
+      a 404 Not Found, a schema validation error, a division by zero on clean data.
+      Retrying a permanent failure wastes time and sometimes makes things worse
+      (hammering a server with bad requests). The retry function does not distinguish
+      — it retries all exceptions. In production, you would wrap the fn to only retry
+      on specific exception types. For Day 31, the general-purpose retry pattern is
+      the right starting point.
+    bullets:
+      - "Transient: 503 overloaded, 429 rate limit, ConnectionTimeout — retry"
+      - "Permanent: 404 not found, ValidationError, ZeroDivisionError — do not retry"
+      - "Day 31: retry all exceptions (simple, general); specialise later"
+      - "Retry budget: max_attempts caps the total number of tries"
+      - "Exponential backoff: delays grow exponentially to avoid hammering the target"
+    narration: >
+      The distinction between transient and permanent failures is one of the most
+      important design decisions in resilient systems. The HTTP standard provides
+      hints: 4xx are client errors (usually permanent — fix the request), 5xx are
+      server errors (often transient — try again). For the exercises, all exception
+      types are retried to keep the implementation simple and testable without
+      needing to simulate specific HTTP status codes.
+
+  - type: how_it_works
+    label: "exponential backoff"
+    heading: "Exponential Backoff — Growing Delays Between Retries"
+    body: >
+      Exponential backoff multiplies the wait time by a factor (backoff) after each
+      failed attempt. With base_delay=1.0 and backoff=2.0: first retry waits 1s,
+      second retry waits 2s, third retry waits 4s. This is important for rate-limited
+      APIs — retrying immediately after a 429 usually gets another 429. Exponential
+      backoff gives the server time to recover and prevents thundering-herd effects
+      when many clients retry simultaneously.
+    bullets:
+      - "First retry delay: base_delay * backoff^0 = base_delay"
+      - "Second retry delay: base_delay * backoff^1 = base_delay * backoff"
+      - "Nth retry delay: base_delay * backoff^(N-1)"
+      - "After final failed attempt: no sleep, just raise the last exception"
+      - "base_delay=0.0 in tests: removes delays while keeping retry logic testable"
+    narration: >
+      The key formula is `base_delay * (backoff ** attempt)` where attempt starts at 0
+      after the first failure. With base_delay=1.0 and backoff=2.0, the delays are
+      1, 2, 4, 8 seconds for up to 4 retries. For a rate-limited API that resets
+      every minute, max_attempts=4 with this pattern would span about 15 seconds
+      of total wait — likely enough for the rate limit to reset. Production systems
+      often add jitter (a random offset) to prevent synchronized retries from multiple
+      clients. Day 31 omits jitter for simplicity.
+
+  - type: code
+    label: "retry"
+    heading: "retry — Exponential Backoff Retry"
+    code: |
+      import time
+
+
+      def retry(fn, max_attempts: int = 3, base_delay: float = 1.0, backoff: float = 2.0):
+          """Call fn() up to max_attempts times; raise last exception if all fail."""
+          last_error = None
+          for attempt in range(max_attempts):
+              try:
+                  return fn()
+              except Exception as e:
+                  last_error = e
+                  if attempt < max_attempts - 1:
+                      time.sleep(base_delay * (backoff ** attempt))
+          raise last_error
+
+      # Example — succeeds on 3rd try
+      _calls = [0]
+      def flaky():
+          _calls[0] += 1
+          if _calls[0] < 3:
+              raise ConnectionError(f"timeout #{_calls[0]}")
+          return "data loaded"
+
+      result = retry(flaky, max_attempts=3, base_delay=0.0)
+      print(result)     # data loaded
+      print(_calls[0])  # 3
+    narration: >
+      The `raise last_error` at the end is only reached if every attempt raised.
+      Since we stored each exception in `last_error` inside the except block, the
+      final `raise last_error` re-raises the exception from the LAST attempt —
+      not the first. This is the correct behaviour for debugging: the last error
+      is the most recent state of the problem. The `attempt < max_attempts - 1`
+      guard prevents sleeping after the final failed attempt — there is nothing to
+      wait for if there are no more retries. base_delay=0.0 in the example removes
+      the delays so the code is testable without waiting.
+
+  - type: exercise
+    heading: "Exercise 1: retry"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement retry(fn, max_attempts=3,
+      base_delay=1.0, backoff=2.0) that calls fn() up to max_attempts times.
+      On each failure, if there are retries remaining, sleep base_delay * (backoff ** attempt)
+      seconds before the next try. If all attempts fail, raise the LAST exception
+      (not the first). If fn() succeeds on any attempt, return its result immediately.
+    hint: >
+      last_error = None. for attempt in range(max_attempts): try: return fn().
+      except Exception as e: last_error = e; if attempt < max_attempts - 1: time.sleep(...).
+      After loop: raise last_error. base_delay=0.0 in tests to skip waiting.
+    narration: >
+      The check harness verifies three things independently: that retry returns the
+      correct result when fn succeeds immediately, that it re-raises the LAST exception
+      (not the first — verified by checking the error message contains the final attempt
+      number), and that fn is called exactly max_attempts times when it always fails.
+      Using base_delay=0.0 in all checks keeps the harness fast.
+
+  - type: summary
+    heading: "Day 31 Lesson 1: Key Takeaways"
+    bullets:
+      - "Transient failures (network, rate limits) warrant retry; permanent ones do not"
+      - "retry(fn, max_attempts, base_delay, backoff): call fn up to N times"
+      - "Exponential backoff: sleep base_delay * (backoff^attempt) between retries"
+      - "No sleep after final failed attempt — just raise last_error"
+      - "base_delay=0.0 removes delays in tests while keeping retry logic intact"
+    narration: >
+      Lesson 1 gave us the retry primitive. Lesson 2 introduces the dead-letter queue —
+      a container for items that exhausted all their retries. Rather than losing failed
+      items or crashing the whole batch, we route them to a DLQ for later review, replay,
+      or manual intervention.

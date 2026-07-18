@@ -1,0 +1,159 @@
+day: "031"
+lesson: "03"
+title: "Resilient Steps — resilient_step"
+
+slides:
+
+  - type: title
+    heading: "Resilient Steps"
+    subheading: "Retry + step result schema — hardening Day 30's pipeline foundation"
+    narration: >
+      resilient_step extends Day 30's run_step with retry logic. It tries fn() up to
+      max_attempts times with exponential backoff before recording a failure. The return
+      value uses the same five-key schema as run_step — name, status, result, error,
+      duration_s — plus one new field: attempts, which records how many tries were needed.
+      This makes resilient_step a drop-in upgrade: anywhere you used run_step, you can
+      use resilient_step instead and get automatic retry without changing anything else.
+
+  - type: concept
+    label: "resilient vs run_step"
+    heading: "resilient_step vs run_step — What Changes"
+    body: >
+      run_step (Day 30): one try, immediate result or error. resilient_step: up to N
+      tries with backoff between each; only records failure after all tries are exhausted.
+      The step result schema gains one field: attempts (int). The caller sees the final
+      outcome — not the intermediate failures. This is the right abstraction for a
+      pipeline: the pipeline runner should know a step succeeded or failed, not that
+      it succeeded on the third try (that detail lives in monitoring, not in pipeline
+      control flow).
+    bullets:
+      - "run_step: try once → ok or error immediately"
+      - "resilient_step: try up to N times with backoff → ok or final error"
+      - "Same 5-key schema + 'attempts' (int) — compatible with summarize_run"
+      - "Duration covers all attempts including wait time"
+      - "Callers see the final outcome; intermediate retries are invisible"
+    narration: >
+      The 'attempts' field is useful for monitoring: if most steps succeed on the
+      first attempt but some consistently take 2–3 tries, that signals an unstable
+      dependency. A pipeline dashboard that shows average attempts per step per day
+      can catch degradation before it becomes outright failure. Day 31's
+      ai_resilience_report will surface this by computing average attempts across
+      the batch.
+
+  - type: how_it_works
+    label: "resilient_step loop"
+    heading: "resilient_step — Implementation Pattern"
+    body: >
+      resilient_step is a retry loop that returns a step result dict on success or
+      on total failure. On success (any attempt): return ok dict with status='ok',
+      result=fn_return, error=None, attempts=attempt+1. On total failure (all
+      attempts exhausted): return error dict with status='error', result=None,
+      error=str(last_error), attempts=max_attempts. Duration covers all attempts.
+    bullets:
+      - "start = time.time() — before the retry loop (measures total duration)"
+      - "last_error = None — holds most recent exception"
+      - "for attempt in range(max_attempts): try: return ok dict; except: last_error=e; sleep"
+      - "No sleep after final attempt (attempt < max_attempts - 1 guard)"
+      - "After loop: return error dict with str(last_error) and attempts=max_attempts"
+    narration: >
+      There is a subtle difference between resilient_step and retry + run_step.
+      If you composed them as retry(lambda: run_step(name, fn)), run_step would
+      never raise (it catches everything), so retry would never trigger. That's
+      why resilient_step is implemented as a standalone loop rather than calling
+      retry — the retry logic needs to see the raw fn() exceptions, not the
+      caught-and-wrapped result that run_step returns.
+
+  - type: code
+    label: "resilient_step"
+    heading: "resilient_step — Full Implementation"
+    code: |
+      import time
+
+
+      def resilient_step(
+          name: str,
+          fn,
+          max_attempts: int = 3,
+          base_delay: float = 1.0,
+          backoff: float = 2.0,
+      ) -> dict:
+          """run_step with retry: up to max_attempts tries with exponential backoff."""
+          start      = time.time()
+          last_error = None
+          for attempt in range(max_attempts):
+              try:
+                  result = fn()
+                  return {
+                      "name":       name,
+                      "status":     "ok",
+                      "result":     result,
+                      "error":      None,
+                      "duration_s": round(time.time() - start, 3),
+                      "attempts":   attempt + 1,
+                  }
+              except Exception as e:
+                  last_error = e
+                  if attempt < max_attempts - 1:
+                      time.sleep(base_delay * (backoff ** attempt))
+          return {
+              "name":       name,
+              "status":     "error",
+              "result":     None,
+              "error":      str(last_error),
+              "duration_s": round(time.time() - start, 3),
+              "attempts":   max_attempts,
+          }
+
+      # Example — flaky fn that succeeds on 2nd try
+      _n = [0]
+      def flaky_fetch():
+          _n[0] += 1
+          if _n[0] < 2:
+              raise ConnectionError("timeout")
+          return {"rows": 50}
+
+      r = resilient_step("fetch_data", flaky_fetch, max_attempts=3, base_delay=0.0)
+      print(r["status"],   r["attempts"])  # ok  2
+      print(r["result"])                   # {'rows': 50}
+    narration: >
+      attempt + 1 in the ok-path return is the correct count: if fn() succeeds on
+      the first try (attempt=0), attempts=1. If it succeeds on the second try
+      (attempt=1), attempts=2. This matches the intuitive meaning of 'how many
+      attempts were made'. max_attempts in the error-path return is the total
+      count when all tries were exhausted. The duration_s in both paths covers
+      the full wall-clock time including all retry delays — this is what you
+      want to log as the step's contribution to the total pipeline duration.
+
+  - type: exercise
+    heading: "Exercise 3: resilient_step"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement resilient_step(name, fn,
+      max_attempts=3, base_delay=1.0, backoff=2.0) that tries fn() up to
+      max_attempts times with exponential backoff between retries.
+      On success: return {name, status='ok', result, error=None, duration_s, attempts=attempt+1}.
+      On total failure: return {name, status='error', result=None, error=str(last_error),
+      duration_s, attempts=max_attempts}. Never raises.
+    hint: >
+      start = time.time(); last_error = None.
+      for attempt in range(max_attempts): try: result=fn(); return ok-dict (attempts=attempt+1).
+      except Exception as e: last_error=e; if attempt<max_attempts-1: time.sleep(base_delay*(backoff**attempt)).
+      After loop: return error-dict (attempts=max_attempts).
+    narration: >
+      The check harness verifies that attempts=1 when fn succeeds immediately, and
+      attempts=max_attempts when fn always fails. It also verifies that resilient_step
+      never raises — the error is captured in the returned dict. Use base_delay=0.0
+      in all checks to avoid actual sleeps.
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "resilient_step: run_step + retry = ok on any attempt or error after all fail"
+      - "Return schema: same 5 keys as run_step + 'attempts' (int)"
+      - "Duration covers all attempts including backoff sleep"
+      - "Cannot compose as retry(lambda: run_step(...)) — run_step never raises"
+      - "base_delay=0.0 in tests keeps harness fast without changing retry logic"
+    narration: >
+      Lesson 3 gave us resilient_step. Lesson 4 is process_batch_with_dlq —
+      applying resilient_step to a list of items and routing permanent failures to
+      the dead-letter queue. This is the core of a production batch processor:
+      try each item, retry on transient failures, and never lose a failed item.
