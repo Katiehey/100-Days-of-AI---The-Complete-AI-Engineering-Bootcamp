@@ -1,0 +1,155 @@
+day: "035"
+lesson: "05"
+title: "DigestPipeline — Section 2 Capstone Class"
+
+slides:
+
+  - type: title
+    heading: "DigestPipeline — The Full Pipeline Class"
+    subheading: "add_source → process → digest: the four pipeline layers in one class"
+    narration: >
+      DigestPipeline is the assembled capstone class. It wraps fetch_text, batch_extract,
+      and generate_digest behind a fluent add_source interface. add_source returns self
+      for chaining. The async process() method runs the full pipeline — fetch all sources,
+      batch extract, generate digest — and returns a result dict. The sync run() method
+      calls asyncio.run(self.process()) for use in scripts. In Jupyter notebooks, always
+      use await pipeline.process() instead of pipeline.run() because asyncio.run() cannot
+      be called from inside a running event loop.
+
+  - type: concept
+    label: "DigestPipeline interface"
+    heading: "DigestPipeline Interface — Fluent Builder + process/run"
+    body: >
+      DigestPipeline stores model, max_concurrent, and a _sources list in __init__.
+      add_source appends one source and returns self for chaining. process() is async:
+      it calls fetch_text for each source synchronously (fetching is a one-time cost
+      per source), then awaits batch_extract for the concurrent LLM extractions,
+      then calls generate_digest synchronously for the final synthesis. run() wraps
+      process with asyncio.run() for script contexts. The result dict has four keys:
+      source_count, ok_count, results, and digest.
+    bullets:
+      - "__init__(model='llama3.2', max_concurrent=3): stores config, _sources=[]"
+      - "add_source(source) -> DigestPipeline: append source, return self"
+      - "async process() -> dict: fetch → batch_extract → generate_digest"
+      - "Result: {source_count, ok_count, results, digest}"
+      - "run() -> dict: asyncio.run(self.process()) — for scripts only"
+    narration: >
+      The pattern of async process() plus sync run() is the same as BatchProcessor
+      from Day 33 and AICli from Day 34. It is the standard way to write a class
+      that wraps async operations: use await inside process() for Jupyter compatibility,
+      and provide run() as a convenience for scripts that do not have an event loop.
+      DigestPipeline.run() and DigestPipeline.process() are otherwise identical in
+      behaviour — the only difference is who creates and manages the event loop.
+
+  - type: how_it_works
+    label: "process method"
+    heading: "process() — Orchestrating the Four Pipeline Stages"
+    body: >
+      process() runs four stages in sequence. Stage 1: list comprehension over
+      _sources calling fetch_text — all fetches happen synchronously before any LLM
+      work starts. Stage 2: await batch_extract(docs, self.max_concurrent, self.model)
+      — all LLM extractions happen concurrently. Stage 3: generate_digest(results,
+      self.model) — one synthesis call. Stage 4: build and return the result dict.
+      The sequential stages are intentional: you cannot batch-extract before you
+      have the documents, and you cannot generate a digest before you have the
+      extractions. Only stage 2 benefits from concurrency.
+    bullets:
+      - "Stage 1: docs = [fetch_text(s) for s in self._sources] — sync list comp"
+      - "Stage 2: results = await batch_extract(docs, ...) — async concurrent"
+      - "Stage 3: digest = generate_digest(results, ...) — sync synthesis"
+      - "Stage 4: return {source_count, ok_count, results, digest}"
+      - "ok_count = sum(1 for r in results if r.get('status') == 'ok')"
+    narration: >
+      The separation of fetch_text (sync) and batch_extract (async) is a design
+      choice. fetch_text could be made async with aiohttp for truly concurrent
+      HTTP fetching, but for the capstone the simpler approach is to fetch
+      sequentially and batch only the LLM calls, which are the dominant cost.
+      If a student wanted to optimise, they could replace the list comprehension
+      with an async gather over an async version of fetch_text. The pipeline
+      structure would not change — only stage 1 would become async.
+
+  - type: code
+    label: "DigestPipeline"
+    heading: "DigestPipeline — Full Implementation"
+    code: |
+      import asyncio
+
+      class DigestPipeline:
+          def __init__(self, model: str = 'llama3.2', max_concurrent: int = 3):
+              self.model          = model
+              self.max_concurrent = max_concurrent
+              self._sources: list = []
+
+          def add_source(self, source) -> 'DigestPipeline':
+              self._sources.append(source)
+              return self
+
+          async def process(self) -> dict:
+              docs    = [fetch_text(s) for s in self._sources]
+              results = await batch_extract(docs, self.max_concurrent, self.model)
+              digest  = generate_digest(results, self.model)
+              ok_count = sum(1 for r in results if r.get('status') == 'ok')
+              return {
+                  'source_count': len(docs),
+                  'ok_count':     ok_count,
+                  'results':      results,
+                  'digest':       digest,
+              }
+
+          def run(self) -> dict:
+              return asyncio.run(self.process())
+
+      # Notebook usage (await process, not run):
+      pipeline = (
+          DigestPipeline(model='llama3.2', max_concurrent=3)
+          .add_source('Python is a high-level language popular in AI.')
+          .add_source('Machine learning enables computers to learn from data.')
+      )
+      output = await pipeline.process()
+      print(output['digest'])
+    narration: >
+      In a script, replace await pipeline.process() with pipeline.run(). In Jupyter,
+      always use await pipeline.process() because asyncio.run() raises RuntimeError
+      when called from inside the already-running IPython event loop. The fluent chain
+      DigestPipeline().add_source('...').add_source('...') creates a pipeline, registers
+      two sources, and returns the same pipeline object. output['digest'] is the
+      final human-readable editorial summary. output['results'] is the full list of
+      per-document extraction dicts for downstream inspection or storage.
+
+  - type: exercise
+    heading: "Exercise 5: DigestPipeline"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement DigestPipeline with:
+      __init__(model='llama3.2', max_concurrent=3): stores model, max_concurrent,
+      and _sources=[]. add_source(source) -> DigestPipeline: appends source, returns self.
+      async process() -> dict: fetch → await batch_extract → generate_digest → return
+      {source_count, ok_count, results, digest}. run() -> dict: asyncio.run(self.process()).
+      All four pipeline functions are provided in the setup cell. Check cells use top-level await.
+    hint: >
+      process(): docs = [fetch_text(s) for s in self._sources].
+      results = await batch_extract(docs, self.max_concurrent, self.model).
+      digest  = generate_digest(results, self.model).
+      ok_count = sum(1 for r in results if r.get('status') == 'ok').
+      return {'source_count': len(docs), 'ok_count': ok_count, 'results': results, 'digest': digest}.
+      run(): return asyncio.run(self.process()).
+    narration: >
+      The check harness verifies: DigestPipeline has add_source, process, run; __init__
+      stores model and max_concurrent; add_source returns self and appends source; a 2-source
+      process() returns a dict with all four keys; source_count==2; digest is a non-empty
+      string; fluent chaining works. Two LLM calls are made during the process() check.
+
+  - type: summary
+    heading: "Day 35 and Section 2: Key Takeaways"
+    bullets:
+      - "DigestPipeline: __init__ (config + _sources), add_source (fluent), process (async), run (sync)"
+      - "Four pipeline stages: fetch_text → batch_extract → generate_digest → result dict"
+      - "await process() in notebooks; run() in scripts — same pattern as BatchProcessor (Day 33)"
+      - "Section 2 toolkit assembled: requests + Pydantic + asyncio + argparse + Pipeline + config"
+      - "Section 3 begins with data engineering: pandas, SQL, visualization, and AI-assisted analysis"
+    narration: >
+      Section 2 complete. Over Days 21-35 you built the full automation stack: file
+      processing, API consumption, web scraping, email, documents, scheduling, spreadsheets,
+      bots, workflow orchestration, resilience, secrets, batch processing, CLI tools, and
+      today the capstone Auto-Analyst pipeline. Section 3 moves to data engineering and
+      AI-assisted analysis: pandas, SQL, visualization, and using LLMs to narrate and
+      interpret data at scale.

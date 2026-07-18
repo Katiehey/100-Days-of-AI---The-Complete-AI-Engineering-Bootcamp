@@ -1,0 +1,148 @@
+day: "035"
+lesson: "03"
+title: "Async Batch Extraction — batch_extract"
+
+slides:
+
+  - type: title
+    heading: "Async Batch Extraction"
+    subheading: "async_extract + Semaphore + gather — Day 33 throttled batch applied to extraction"
+    narration: >
+      batch_extract is the concurrency layer of the Auto-Analyst pipeline. It is
+      a direct application of the throttled gather pattern from Day 33: async_extract
+      is the async version of extract_info, and batch_extract runs many async_extract
+      calls concurrently under a semaphore. The only difference from Day 33's
+      process_batch is that async_extract already returns error envelopes, so
+      batch_extract does not need its own try/except — it just maps and gathers.
+
+  - type: concept
+    label: "async_extract"
+    heading: "async_extract — The Async Unit"
+    body: >
+      async_extract is an async def function that does exactly what extract_info does
+      but using ollama.AsyncClient() and await client.chat() instead of the sync
+      ollama.chat(). It builds the same prompt, calls the same model, validates with
+      the same ArticleInfo.model_validate_json(), and returns the same error envelope
+      shape. The only reason to have a separate async version is that await can only
+      appear inside async def — you cannot add await to an existing sync function.
+      async_extract is provided to students as a setup cell; they implement batch_extract.
+    bullets:
+      - "async def async_extract(doc, model) -> dict: same logic as extract_info"
+      - "ollama.AsyncClient() + await client.chat(): async LLM call"
+      - "Same error envelope: status='ok'/'error', info=dict/None"
+      - "Provided as setup in Exercise 3 — students implement batch_extract"
+      - "batch_extract calls async_extract, not extract_info (sync won't work with await)"
+    narration: >
+      It is tempting to write async def async_extract by simply putting await in
+      front of ollama.chat. But ollama.chat is a synchronous function — you cannot
+      await it. You need ollama.AsyncClient() which returns an async-capable client,
+      and then await client.chat(). The async client and the sync client have identical
+      response formats, so the rest of the function body is unchanged.
+
+  - type: how_it_works
+    label: "batch_extract"
+    heading: "batch_extract — Semaphore + gather over async_extract"
+    body: >
+      batch_extract creates a semaphore with max_concurrent slots. An inner
+      async function _run(doc) acquires the semaphore with async with sem:,
+      then awaits async_extract. asyncio.gather runs all _run coroutines
+      concurrently, respecting the semaphore limit. Because async_extract already
+      returns error envelopes, _run does not need its own try/except —
+      failures are captured by async_extract and returned as status='error' dicts.
+      The result is always a list of the same length as docs.
+    bullets:
+      - "sem = asyncio.Semaphore(max_concurrent): at most N concurrent extractions"
+      - "async def _run(doc): async with sem: return await async_extract(doc, model)"
+      - "asyncio.gather(*[_run(d) for d in docs]): start all, collect in input order"
+      - "No try/except in _run: async_extract handles its own errors"
+      - "if not docs: return [] — empty input guard prevents gather over empty list"
+    narration: >
+      The semaphore limit protects local Ollama from being overwhelmed with
+      concurrent requests. With max_concurrent=3, at most 3 extractions run
+      simultaneously — if 10 documents are queued, the 4th starts only when one
+      of the first 3 finishes. The asyncio.gather call still starts 10 coroutines
+      simultaneously, but each one immediately waits at async with sem until a
+      slot opens. This is the throttled gather pattern from Day 33, applied
+      directly to a production pipeline stage.
+
+  - type: code
+    label: "batch_extract"
+    heading: "batch_extract — Full Implementation"
+    code: |
+      import asyncio
+      import json
+      import ollama
+
+      async def async_extract(doc: dict, model: str = 'llama3.2') -> dict:
+          """Async version of extract_info — error envelope, never raises."""
+          client = ollama.AsyncClient()
+          schema = ArticleInfo.model_json_schema()
+          prompt = (
+              'Extract information from the document below. '
+              'Return valid JSON matching this schema:\n'
+              + json.dumps(schema, indent=2)
+              + '\n\nDocument:\n' + doc['content'][:1500]
+          )
+          try:
+              response = await client.chat(
+                  model=model,
+                  messages=[{'role': 'user', 'content': prompt}],
+                  format='json',
+              )
+              info = ArticleInfo.model_validate_json(response['message']['content'])
+              return {**doc, 'info': info.model_dump(), 'status': 'ok',   'error': None}
+          except Exception as e:
+              return {**doc, 'info': None,              'status': 'error', 'error': str(e)}
+
+      async def batch_extract(docs: list, max_concurrent: int = 3,
+                              model: str = 'llama3.2') -> list[dict]:
+          if not docs:
+              return []
+          sem = asyncio.Semaphore(max_concurrent)
+          async def _run(doc):
+              async with sem:
+                  return await async_extract(doc, model)
+          return list(await asyncio.gather(*[_run(d) for d in docs]))
+    narration: >
+      async_extract uses ArticleInfo from the module namespace — it is defined
+      in a setup cell before async_extract is defined. json.dumps is from the
+      import json at the top. The structure mirrors extract_info exactly, with
+      the only difference being async def, ollama.AsyncClient(), and await client.chat().
+      batch_extract is notably shorter than Day 33's throttled_gather because
+      async_extract already handles errors internally — the _run wrapper is
+      just semaphore acquisition plus the await.
+
+  - type: exercise
+    heading: "Exercise 3: batch_extract"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement async def batch_extract(docs, max_concurrent=3,
+      model='llama3.2') -> list[dict]: guard for empty input (return []);
+      create asyncio.Semaphore(max_concurrent); define inner async def _run(doc)
+      that acquires the semaphore with async with sem: and awaits async_extract;
+      return list(await asyncio.gather(*[_run(d) for d in docs])). async_extract
+      is provided in the setup cell. Check cells use top-level await.
+    hint: >
+      if not docs: return [].
+      sem = asyncio.Semaphore(max_concurrent).
+      async def _run(doc): async with sem: return await async_extract(doc, model).
+      return list(await asyncio.gather(*[_run(d) for d in docs])).
+      No try/except needed in _run — async_extract returns error envelopes.
+    narration: >
+      The check harness verifies: batch_extract is async; batch_extract([]) returns [];
+      a 2-doc batch returns a list of 2 dicts; each result has a status key; ok
+      results have an info dict with title, summary, sentiment. Two LLM calls are
+      made concurrently. Check cells use await at the top level — not asyncio.run().
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "async_extract: ollama.AsyncClient() + await client.chat() — async version of extract_info"
+      - "batch_extract: semaphore + gather over async_extract — same throttled pattern as Day 33"
+      - "No try/except in _run: async_extract handles errors → returns status='error' dict"
+      - "Empty guard: if not docs: return [] — prevents gather([]) edge case"
+      - "Top-level await in notebooks: await batch_extract(docs) — not asyncio.run()"
+    narration: >
+      Lesson 3 added the concurrency layer. With batch_extract, 50 documents can
+      be extracted in the time it takes to process 3 serially. Lesson 4 adds the
+      synthesis layer: generate_digest reads the batch results and asks the LLM
+      to write a concise editorial summary of the key themes across all documents.

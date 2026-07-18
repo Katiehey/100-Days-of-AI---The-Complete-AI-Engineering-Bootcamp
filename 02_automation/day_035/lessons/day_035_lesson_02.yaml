@@ -1,0 +1,150 @@
+day: "035"
+lesson: "02"
+title: "Structured Extraction — extract_info"
+
+slides:
+
+  - type: title
+    heading: "Structured Extraction from Documents"
+    subheading: "Pydantic + JSON mode + error envelope — the Day 4/9 pattern applied to a pipeline stage"
+    narration: >
+      extract_info is the extraction stage of the Auto-Analyst pipeline. It applies
+      the schema-guided extraction pattern from Day 4 and Day 9: define a Pydantic
+      model, inject its JSON schema into the prompt, call ollama.chat with format='json',
+      and validate the response with model_validate_json. The difference from earlier
+      days is that extract_info never raises — it returns an error envelope dict so
+      the batch layer can collect failures without stopping the pipeline.
+
+  - type: concept
+    label: "ArticleInfo model"
+    heading: "ArticleInfo — The Extraction Schema"
+    body: >
+      ArticleInfo is a Pydantic BaseModel with four fields: title (topic in 3-6 words),
+      summary (one sentence), sentiment (positive/negative/neutral), and key_points
+      (up to 3 short phrases, default_factory=list). The model_json_schema() method
+      generates the JSON Schema dict that is injected into the system prompt, telling
+      the LLM exactly what structure to produce. model_validate_json() parses and
+      validates the response. If validation fails, the except block catches the
+      ValidationError and returns an error envelope instead of raising.
+    bullets:
+      - "title: str — topic or headline in 3-6 words"
+      - "summary: str — one sentence capturing the main point"
+      - "sentiment: str — positive, negative, or neutral"
+      - "key_points: list[str] = Field(default_factory=list) — up to 3 phrases"
+      - "field(default_factory=list): prevents shared-mutable-default bug (Day 9 rule)"
+    narration: >
+      The default_factory=list rule from Day 9 is critical: if you write
+      key_points: list[str] = [] as a class-level default, all instances
+      share the same list object. Field(default_factory=list) creates a fresh
+      empty list for each instance. sentiment is a str rather than a Literal
+      or Enum to keep the schema simple — the LLM is instructed by the description
+      field to choose from three values, but the Pydantic model accepts any string
+      to avoid validation failures on borderline cases.
+
+  - type: how_it_works
+    label: "error envelope"
+    heading: "Error Envelope — Never Raise from a Pipeline Stage"
+    body: >
+      A pipeline stage that raises on error forces every caller to wrap it in
+      try/except. Instead, extract_info always returns a dict with a status
+      key: 'ok' if extraction succeeded, 'error' if it failed. On success,
+      the dict has info containing the ArticleInfo fields as a plain dict
+      (model_dump()). On failure, info is None and error contains the exception
+      message. This pattern makes batch_extract trivial — it maps extract_info
+      over all documents and gets back a uniform list of dicts regardless of
+      which individual extractions failed.
+    bullets:
+      - "status='ok': info = ArticleInfo.model_dump(), error = None"
+      - "status='error': info = None, error = str(exception)"
+      - "try/except Exception: catches ValidationError, network errors, any failure"
+      - "Caller never needs try/except — status key is the signal"
+      - "batch can count ok/error without re-catching exceptions"
+    narration: >
+      The error envelope pattern is pervasive in production pipelines. It separates
+      the concern of whether an operation succeeded from the concern of what to do
+      about failures. A batch that processes 1000 documents should never stop
+      because document 500 returned malformed JSON. With error envelopes, all 1000
+      results arrive, and a second pass can inspect and retry only the failed ones.
+      This is the same logic behind Day 31's DeadLetterQueue — but without the extra
+      queue infrastructure.
+
+  - type: code
+    label: "extract_info"
+    heading: "extract_info — Full Implementation"
+    code: |
+      import json
+      import ollama
+      from pydantic import BaseModel, Field
+
+      class ArticleInfo(BaseModel):
+          title:      str       = Field(description='Topic or title in 3-6 words')
+          summary:    str       = Field(description='One sentence summary')
+          sentiment:  str       = Field(description='positive, negative, or neutral')
+          key_points: list[str] = Field(default_factory=list,
+                                        description='Up to 3 key points as short phrases')
+
+      def extract_info(doc: dict, model: str = 'llama3.2') -> dict:
+          """Extract structured info from a doc dict. Returns error envelope, never raises."""
+          schema = ArticleInfo.model_json_schema()
+          prompt = (
+              'Extract information from the document below. '
+              'Return valid JSON matching this schema:\n'
+              + json.dumps(schema, indent=2)
+              + '\n\nDocument:\n' + doc['content'][:1500]
+          )
+          try:
+              response = ollama.chat(
+                  model=model,
+                  messages=[{'role': 'user', 'content': prompt}],
+                  format='json',
+              )
+              info = ArticleInfo.model_validate_json(response['message']['content'])
+              return {**doc, 'info': info.model_dump(), 'status': 'ok',   'error': None}
+          except Exception as e:
+              return {**doc, 'info': None,              'status': 'error', 'error': str(e)}
+    narration: >
+      The prompt includes json.dumps(schema, indent=2) — the full JSON Schema
+      generated by Pydantic. The LLM reads the schema and produces a JSON string
+      matching it. format='json' in ollama.chat enables grammar-constrained sampling,
+      which dramatically increases the chance the response parses as valid JSON.
+      model_validate_json validates the parsed JSON against the ArticleInfo model —
+      if any required field is missing or has the wrong type, it raises a ValidationError
+      which the except block catches. The {**doc, ...} spread preserves all original
+      doc fields (source, kind, content, char_count) in the result.
+
+  - type: exercise
+    heading: "Exercise 2: extract_info"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement extract_info(doc, model='llama3.2') -> dict
+      that: (1) builds a prompt injecting ArticleInfo.model_json_schema() as JSON;
+      (2) calls ollama.chat with format='json'; (3) validates with
+      ArticleInfo.model_validate_json(); (4) returns {**doc, 'info': info.model_dump(),
+      'status': 'ok', 'error': None} on success; (5) returns {**doc, 'info': None,
+      'status': 'error', 'error': str(e)} on any exception. ArticleInfo is provided
+      in the setup cell.
+    hint: >
+      schema = ArticleInfo.model_json_schema().
+      prompt = 'Extract information ... schema:\n' + json.dumps(schema, indent=2) + '\n\nDocument:\n' + doc['content'][:1500].
+      response = ollama.chat(model=model, messages=[...], format='json').
+      info = ArticleInfo.model_validate_json(response['message']['content']).
+      Wrap the ollama.chat + model_validate_json block in try/except Exception as e.
+    narration: >
+      The check harness calls extract_info with a short text doc and verifies:
+      result is a dict with all original doc keys plus info, status, error;
+      status is 'ok'; info is a dict with title, summary, sentiment, key_points;
+      all original doc fields are preserved unchanged. The function is tested
+      once per check run because each call makes one LLM request.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "ArticleInfo: title, summary, sentiment, key_points (default_factory=list)"
+      - "model_json_schema(): inject schema into prompt; format='json': constrain LLM output"
+      - "model_validate_json(): parse + validate response; raises on bad JSON or wrong structure"
+      - "Error envelope: status='ok'/'error', info=dict/None, error=None/str — never raises"
+      - "{**doc, 'info': ..., 'status': ..., 'error': ...} — preserve original keys, add new ones"
+    narration: >
+      Lesson 2 completed the extraction layer with extract_info. Lesson 3 adds
+      the concurrency layer: async_extract is the async version, and batch_extract
+      runs many async_extract calls concurrently with a semaphore — the same
+      throttled gather pattern from Day 33.

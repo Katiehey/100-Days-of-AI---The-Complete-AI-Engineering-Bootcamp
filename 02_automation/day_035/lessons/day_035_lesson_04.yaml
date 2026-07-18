@@ -1,0 +1,156 @@
+day: "035"
+lesson: "04"
+title: "Digest Synthesis — generate_digest"
+
+slides:
+
+  - type: title
+    heading: "Digest Synthesis"
+    subheading: "Filter → format → synthesise: one LLM call turns batch results into a readable digest"
+    narration: >
+      generate_digest is the delivery layer of the Auto-Analyst pipeline. It takes
+      the list of batch_extract results, filters to the successful ones, formats
+      their extracted fields into a structured context block, and sends that context
+      to the LLM with an editorial prompt. The output is a ready-to-read digest that
+      a human could receive as a daily briefing. This is the same Map-Reduce pattern
+      from Day 7 — individual summaries are the map step; generate_digest is the reduce.
+
+  - type: concept
+    label: "ok filtering"
+    heading: "Filtering and Formatting Batch Results"
+    body: >
+      generate_digest first separates ok results from error results. Only ok results
+      contribute to the digest context — errors are counted and reported in the header
+      but their partial content is not sent to the LLM. For each ok result, three fields
+      are extracted from info: title, summary, and sentiment. key_points is optional —
+      if the list is non-empty, the points are joined and added as a bullet. The result
+      is a numbered list of formatted document summaries. This structured context is
+      appended to an editorial prompt before the ollama.chat call.
+    bullets:
+      - "ok = [r for r in results if r.get('status') == 'ok']"
+      - "Header line: '{N} sources processed, {ok} successful, {err} failed'"
+      - "Each ok result: [i] title [sentiment] / summary / key points"
+      - "info.get('key_points', []): list from ArticleInfo; join with '; ' if non-empty"
+      - "One ollama.chat call for the entire batch — not one per document"
+    narration: >
+      The use of .get() with fallback defaults throughout generate_digest is deliberate.
+      Even though ok results should always have info populated, defensive .get() calls
+      prevent crashes if the pipeline is called with manually constructed dicts that
+      are missing keys. The header line tells the LLM how many documents were processed
+      and how many failed — this context helps the model qualify its report appropriately
+      rather than writing a digest as if all sources were successful.
+
+  - type: how_it_works
+    label: "editorial prompt"
+    heading: "Editorial Prompt — Instructing the Synthesiser"
+    body: >
+      The synthesis prompt tells the LLM its role (editorial summariser), the task
+      (identify themes, patterns, key insights), and the length (3-4 sentences).
+      The full context block is prepended: header + numbered article summaries.
+      This gives the LLM structured input to reason over rather than raw text.
+      The LLM's output is returned directly — no further validation or parsing.
+      For delivery, this string can be printed to stdout, written to a file,
+      sent as a Slack message, or emailed using the patterns from Days 25 and 29.
+    bullets:
+      - "Context: header + numbered [i] title / summary / key_points for each ok result"
+      - "Prompt suffix: 'Write a 3-4 sentence editorial digest...'"
+      - "No format='json' — the output is a natural language paragraph"
+      - "Return response['message']['content'] directly — no parsing"
+      - "Delivery: print, file write, Slack webhook, email — any Day 25/29 channel"
+    narration: >
+      The choice not to validate the synthesis output is intentional. Unlike extraction,
+      where a wrong type breaks downstream processing, the digest is the terminal output
+      consumed by a human. If the LLM writes five sentences instead of four, that is
+      acceptable. Strict validation belongs at structured extraction stages, not at
+      the final human-readable output stage. Keeping the synthesis call simple also
+      makes it easy to swap in a different prompt for a different tone or format.
+
+  - type: code
+    label: "generate_digest"
+    heading: "generate_digest — Full Implementation"
+    code: |
+      import ollama
+
+      def generate_digest(results: list, model: str = 'llama3.2') -> str:
+          """Synthesise a digest from batch_extract results. Returns markdown string."""
+          ok     = [r for r in results if r.get('status') == 'ok']
+          errors = [r for r in results if r.get('status') == 'error']
+
+          if not ok:
+              return (
+                  'No articles extracted successfully '
+                  f'({len(errors)} errors).'
+              )
+
+          lines = [
+              f'=== Auto-Analyst Digest ===',
+              f'{len(results)} sources processed: {len(ok)} ok, {len(errors)} failed.\n',
+          ]
+          for i, r in enumerate(ok, 1):
+              info      = r.get('info') or {}
+              title     = info.get('title',     'Untitled')
+              summary   = info.get('summary',   '')
+              sentiment = info.get('sentiment', 'unknown')
+              kp        = info.get('key_points', [])
+              kp_text   = '; '.join(kp[:3]) if kp else ''
+              lines.append(f'[{i}] {title}  [{sentiment}]')
+              lines.append(f'    {summary}')
+              if kp_text:
+                  lines.append(f'    Key points: {kp_text}')
+              lines.append('')
+
+          context  = '\n'.join(lines)
+          prompt   = (
+              context + '\n\n'
+              'Write a 3-4 sentence editorial digest identifying '
+              'the main themes, patterns, and key insights across all articles.'
+          )
+          response = ollama.chat(
+              model=model,
+              messages=[{'role': 'user', 'content': prompt}],
+          )
+          return response['message']['content']
+    narration: >
+      info.get('info') or {} guards against the case where info is None, which
+      happens for error results. But because generate_digest already filters to
+      ok results, info will always be a dict for items in the ok list — the fallback
+      is belt-and-suspenders safety. kp[:3] limits key points to three even if the
+      LLM returned more. The empty string appended to lines after each article
+      adds a blank line separator in the context, making the structure more readable
+      to the synthesis LLM.
+
+  - type: exercise
+    heading: "Exercise 4: generate_digest"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement generate_digest(results, model='llama3.2') -> str
+      that: (1) separates ok and error results using r.get('status') == 'ok';
+      (2) returns an early string if ok is empty; (3) builds a formatted context
+      block (header + numbered entries with title, summary, sentiment, key_points);
+      (4) calls ollama.chat with the context + editorial prompt; (5) returns
+      response['message']['content']. A set of sample results is provided in the setup cell.
+    hint: >
+      ok = [r for r in results if r.get('status') == 'ok'].
+      if not ok: return 'No articles extracted...'.
+      For each ok result: info = r.get('info') or {}; then info.get('title', ...) etc.
+      Build context as '\n'.join(lines).
+      prompt = context + '\n\nWrite a 3-4 sentence editorial digest...'.
+      return ollama.chat(...)['message']['content'].
+    narration: >
+      The check harness provides sample results (2 ok, 1 error) and verifies:
+      generate_digest returns a non-empty str; generate_digest([]) returns a str;
+      the function handles mixed ok/error gracefully; the result has at least 50
+      characters. One LLM call is made during the check run.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "Filter: ok = [r for r in results if r.get('status') == 'ok']"
+      - "Format: numbered [i] title [sentiment] / summary / key_points context block"
+      - "Early return: if not ok: return error message string (no LLM call needed)"
+      - "Synthesis: one ollama.chat call for the whole batch — no per-document LLM call"
+      - "Delivery channel is separate: print / file / Slack / email after generate_digest"
+    narration: >
+      Lesson 4 completed the synthesis layer. Lesson 5 assembles all four layers —
+      fetch, extract, batch, digest — into the DigestPipeline class. A fluent
+      add_source interface, an async process() method for notebooks, and a sync
+      run() method for scripts make the pipeline easy to use in any context.

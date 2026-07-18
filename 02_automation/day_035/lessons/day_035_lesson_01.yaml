@@ -1,0 +1,159 @@
+day: "035"
+lesson: "01"
+title: "Source Loading — fetch_text"
+
+slides:
+
+  - type: title
+    heading: "Auto-Analyst — Section 2 Capstone"
+    subheading: "Assemble scrape + extract + summarize + deliver into one pipeline"
+    narration: >
+      Day 35 is the Section 2 capstone. Instead of teaching new concepts, it
+      assembles the automation toolkit — requests, Pydantic, asyncio, argparse,
+      and pipelines — into one end-to-end system called Auto-Analyst. A DigestPipeline
+      fetches text from any source, extracts structured information with an LLM, and
+      synthesizes a daily digest. Today's first step is fetch_text: a single function
+      that accepts a URL, a file path, or a raw text string and returns a normalized
+      document dict.
+
+  - type: concept
+    label: "source polymorphism"
+    heading: "Source Polymorphism — One Function, Three Input Types"
+    body: >
+      A robust pipeline must accept content from different sources without
+      requiring the caller to pre-process it. fetch_text handles three cases in
+      order: if the source string starts with http:// or https://, it performs
+      an HTTP GET; if the string is a path to an existing file, it reads it from
+      disk; otherwise it treats the string itself as raw text. Every case returns
+      the same dict shape: source, kind, content, char_count. Callers never need
+      to know which branch ran.
+    bullets:
+      - "URL (http:// or https://) → requests.get → content = response.text"
+      - "Existing file path → Path.read_text → content = file contents"
+      - "Anything else → content = the source string itself"
+      - "kind field records which branch ran: 'url', 'file', or 'text'"
+      - "url_error: if the HTTP request fails, kind='url_error' and content is the error message"
+    narration: >
+      The order of the checks matters. URL detection comes first because a URL
+      string would not match a local file path check anyway, but being explicit
+      about order makes the logic readable. File path comes second because most
+      non-URL strings that look like paths should be read from disk. Raw text
+      is the catch-all fallback — it never raises, which keeps the pipeline
+      resilient even when a source turns out to be an inline paragraph rather
+      than a real file path.
+
+  - type: how_it_works
+    label: "normalized dict"
+    heading: "The Document Dict — Uniform Shape for the Pipeline"
+    body: >
+      Every function downstream of fetch_text expects the same four keys.
+      source is the original input string (useful for citation and debugging).
+      kind records how the content was obtained. content is the raw text string.
+      char_count is len(content), a quick size signal for truncation decisions.
+      The dict is extended in-place as it passes through the pipeline: extract_info
+      adds an info key; batch_extract adds status and error. Each stage enriches
+      the same dict without losing earlier fields.
+    bullets:
+      - "source: the original input string (URL, path, or text)"
+      - "kind: 'url' | 'file' | 'text' | 'url_error'"
+      - "content: the raw text string (what LLMs will read)"
+      - "char_count: len(content) — used for truncation budget decisions"
+      - "downstream stages add keys: info, status, error"
+    narration: >
+      Propagating the original source string all the way to the final report is
+      important for attribution. When a digest says 'Source: https://news.example.com/article'
+      the user knows where the information came from. The char_count field
+      is a quick proxy for content length — downstream functions use it to decide
+      whether to truncate before sending to the LLM. The kind field is useful for
+      debugging: if extraction fails, knowing the content came from a url_error
+      immediately explains why.
+
+  - type: code
+    label: "fetch_text"
+    heading: "fetch_text — Full Implementation"
+    code: |
+      import requests
+      from pathlib import Path
+
+      def fetch_text(source: str) -> dict:
+          """Fetch text from a URL, file path, or raw string."""
+          src  = str(source)
+          text = None
+          kind = 'text'
+
+          if src.startswith('http://') or src.startswith('https://'):
+              try:
+                  response = requests.get(src, timeout=10)
+                  response.raise_for_status()
+                  text = response.text
+                  kind = 'url'
+              except Exception as e:
+                  text = f'[fetch error: {e}]'
+                  kind = 'url_error'
+          else:
+              try:
+                  p = Path(src)
+                  if p.exists() and p.is_file():
+                      text = p.read_text(encoding='utf-8')
+                      kind = 'file'
+              except Exception:
+                  pass
+
+          if text is None:
+              text = src
+              kind = 'text'
+
+          return {
+              'source':     src,
+              'kind':       kind,
+              'content':    text,
+              'char_count': len(text),
+          }
+
+      # Usage:
+      doc = fetch_text('Python is a high-level language.')
+      print(doc['kind'])       # text
+      print(doc['char_count']) # 33
+    narration: >
+      The guard `if text is None` at the bottom is the fallback that makes the
+      function total — it always returns a valid dict. The exception handler
+      around the Path check is a safety net for unusual inputs like integers or
+      dicts converted to str. requests.get uses timeout=10 to avoid hanging
+      indefinitely on slow servers. response.raise_for_status() converts HTTP
+      4xx/5xx status codes into exceptions, so they are caught by the except
+      block and recorded as url_error rather than returning empty content silently.
+
+  - type: exercise
+    heading: "Exercise 1: fetch_text"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement fetch_text(source: str) -> dict
+      that returns a dict with keys source, kind, content, char_count.
+      Handle three cases in order: URL (starts with http:// or https://) →
+      requests.get with timeout=10; existing file path → Path.read_text;
+      anything else → treat the source string itself as the content.
+      Set kind to 'url', 'url_error', 'file', or 'text' accordingly.
+    hint: >
+      Check src.startswith('http://') or src.startswith('https://') first.
+      Use a try/except around requests.get — on failure, set text to a
+      '[fetch error: ...]' string and kind to 'url_error'.
+      For the file branch: Path(src).exists() and Path(src).is_file() —
+      wrap in try/except for non-path strings.
+      Final guard: if text is None: text = src; kind = 'text'.
+    narration: >
+      The check harness tests: raw text is returned as-is with kind='text';
+      char_count equals len(content); a non-existent path falls back to text;
+      the return dict has all four required keys. No actual HTTP calls are
+      made in the checks — URL behavior is verified structurally.
+
+  - type: summary
+    heading: "Lesson 1: Key Takeaways"
+    bullets:
+      - "fetch_text: URL → requests.get; file → Path.read_text; else → raw string"
+      - "kind records the source type: 'url' | 'file' | 'text' | 'url_error'"
+      - "Uniform dict shape: {source, kind, content, char_count} — same for all input types"
+      - "Fallback: if text is None → treat source as content (never raises)"
+      - "Downstream stages enrich the same dict — info, status, error added later"
+    narration: >
+      Lesson 1 introduced fetch_text — the ingestion layer of the Auto-Analyst pipeline.
+      Lesson 2 adds the extraction layer: extract_info uses a Pydantic schema and
+      LLM JSON mode to pull structured facts from each document's content.
