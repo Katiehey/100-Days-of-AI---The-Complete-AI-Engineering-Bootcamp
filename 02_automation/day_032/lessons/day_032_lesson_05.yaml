@@ -1,0 +1,156 @@
+day: "032"
+lesson: "05"
+title: "SecureConfig — The Full Config Module"
+
+slides:
+
+  - type: title
+    heading: "SecureConfig"
+    subheading: "load_dict, get, require, validate, masked_dict — a safe config API"
+    narration: >
+      SecureConfig is the day's capstone class. It wraps the four building-block
+      functions into a clean API: load_dict to load configuration from any dict
+      (parsed .env, os.environ, or a test fixture), get for optional keys with
+      defaults, require for mandatory keys that raise on absence, validate for
+      startup checking, and masked_dict for safe logging. The class enforces
+      the separation between loading secrets (once, at startup) and using them
+      (throughout the run) without re-exposing them.
+
+  - type: concept
+    label: "SecureConfig design"
+    heading: "SecureConfig — Class Design and Layering"
+    body: >
+      SecureConfig stores config in a private _config dict. It provides a restricted
+      access API: get (with default), require (mandatory), validate, and masked_dict.
+      Direct dict access is not provided — callers cannot do config['KEY'] to bypass
+      safety checks. load_dict returns self for fluent chaining. The class delegates
+      validate and masked_dict to the four standalone functions, which remain
+      independently testable and usable outside the class.
+    bullets:
+      - "__init__(defaults): self._config = dict(defaults or {})"
+      - "load_dict(mapping) -> SecureConfig: self._config.update(mapping); return self"
+      - "get(key, default=None): self._config.get(key, default)"
+      - "require(key) -> str: get or raise KeyError with helpful message"
+      - "validate(required_keys): delegates to validate_config"
+      - "masked_dict(secret_keys): delegates to safe_log_config"
+    narration: >
+      Returning self from load_dict enables fluent chaining:
+      SecureConfig({'MODEL': 'llama3.2'}).load_dict(parse_dotenv(text)).load_dict(os.environ).
+      This reads as 'start with defaults, then layer .env values, then layer real
+      environment variables'. Later layers win — os.environ overrides .env, which
+      overrides defaults. This layering order means production secrets in the real
+      environment always take precedence over .env values.
+
+  - type: how_it_works
+    label: "require and python-dotenv"
+    heading: "require — Fail Fast; python-dotenv — Production Integration"
+    body: >
+      require(key) calls self._config.get(key). If the value is None, raise KeyError
+      with a message naming the missing key. Otherwise return str(val). The str()
+      cast ensures the caller always gets a string — even if the config value was
+      loaded as an int or bool. For production use, python-dotenv.load_dotenv()
+      loads a .env file into os.environ; then SecureConfig.load_dict(os.environ)
+      ingests all environment variables.
+    bullets:
+      - "require(key): val = get(key); if val is None: raise KeyError(f\"'{key}' missing\")"
+      - "str(val) in require: callers always receive a string — consistent type"
+      - "python-dotenv: pip install python-dotenv; from dotenv import load_dotenv"
+      - "load_dotenv() — reads .env file and populates os.environ"
+      - "load_dict(os.environ) — loads ALL env vars; get(k) then returns individual values"
+    narration: >
+      python-dotenv.load_dotenv() modifies os.environ in place — after calling it,
+      all .env values are available via os.environ.get('KEY'). SecureConfig.load_dict(os.environ)
+      then copies all of them into the internal _config dict. This means load_dotenv()
+      needs to be called BEFORE load_dict(os.environ). The pattern is: load_dotenv() first,
+      then build SecureConfig and load from os.environ. In the exercises, parse_dotenv()
+      is used directly (no pip install needed), which is equivalent to what load_dotenv
+      + os.environ does under the hood.
+
+  - type: code
+    label: "SecureConfig"
+    heading: "SecureConfig — Full Implementation"
+    code: |
+      import os
+
+      class SecureConfig:
+          def __init__(self, defaults: dict | None = None):
+              self._config: dict = dict(defaults or {})
+
+          def load_dict(self, mapping: dict) -> "SecureConfig":
+              self._config.update(mapping)
+              return self
+
+          def get(self, key: str, default=None):
+              return self._config.get(key, default)
+
+          def require(self, key: str) -> str:
+              val = self._config.get(key)
+              if val is None:
+                  raise KeyError(f"Required config key not found: '{key}'")
+              return str(val)
+
+          def validate(self, required_keys: list) -> list:
+              return validate_config(self._config, required_keys)
+
+          def masked_dict(self, secret_keys: list) -> dict:
+              return safe_log_config(self._config, secret_keys)
+
+      # Example usage — parse .env and load into SecureConfig
+      env_text = """
+      API_KEY="sk-demo-key-12345"
+      DB_HOST=localhost
+      MODEL=llama3.2
+      """
+      cfg = SecureConfig(defaults={"MODEL": "llama3.2", "DEBUG": "false"})
+      cfg.load_dict(parse_dotenv(env_text))
+
+      print(cfg.require("API_KEY"))          # sk-demo-key-12345
+      print(cfg.get("MISSING", "fallback"))  # fallback
+      print(cfg.validate(["API_KEY", "DB_HOST", "WEBHOOK_URL"]))
+      # ['WEBHOOK_URL']
+      print(cfg.masked_dict(["API_KEY"]))
+      # {'API_KEY': 'sk-d***', 'DB_HOST': 'localhost', 'MODEL': 'llama3.2', ...}
+    narration: >
+      The defaults dict in __init__ is the lowest-priority layer. load_dict(os.environ)
+      is typically the highest-priority layer. Values loaded later with load_dict win
+      over earlier ones — this is the standard layered config pattern. In production
+      you would also add a secrets manager layer (AWS Secrets Manager, HashiCorp Vault)
+      between .env and os.environ; SecureConfig.load_dict() accepts any dict, including
+      the response from a secrets manager SDK.
+
+  - type: exercise
+    heading: "Exercise 5: SecureConfig"
+    prompt: >
+      Open exercises/exercise_05.ipynb. Implement the SecureConfig class with:
+      __init__(defaults=None) → self._config = dict(defaults or {}).
+      load_dict(mapping) → self._config.update(mapping); return self.
+      get(key, default=None) → self._config.get(key, default).
+      require(key) → str(val) or raise KeyError if val is None.
+      validate(required_keys) → delegates to validate_config.
+      masked_dict(secret_keys) → delegates to safe_log_config.
+    hint: >
+      require: val = self._config.get(key); if val is None: raise KeyError(f"'{key}' missing").
+      return str(val). validate: return validate_config(self._config, required_keys).
+      masked_dict: return safe_log_config(self._config, secret_keys).
+      load_dict: self._config.update(mapping); return self.
+    narration: >
+      The check harness tests each method independently: load_dict overwrites existing
+      keys and returns self; get returns values and defaults; require raises on absent
+      or None keys; validate returns the correct missing keys list; masked_dict returns
+      a new dict with secrets masked and non-secrets unchanged.
+
+  - type: summary
+    heading: "Day 32: Key Takeaways"
+    bullets:
+      - "SecureConfig: load_dict (layers), get (optional), require (mandatory), validate, masked_dict"
+      - "load_dict returns self — fluent chaining: SecureConfig().load_dict(env).load_dict(os.environ)"
+      - "require raises KeyError with key name — fail fast, clear error"
+      - "python-dotenv: load_dotenv() populates os.environ; then load_dict(os.environ)"
+      - "Never commit .env files — add to .gitignore; never log raw secrets"
+    narration: >
+      Day 32 complete. You have a complete secure config toolkit: parse_dotenv for
+      .env files, mask_secret for logging safety, validate_config for startup checks,
+      safe_log_config for log-safe representations, and SecureConfig tying it all
+      together. Day 33 introduces async/concurrency — the first day where async def
+      and await are allowed, unlocking concurrent API calls and batch processing
+      that would otherwise be bottlenecked by serial execution.

@@ -1,0 +1,134 @@
+day: "032"
+lesson: "04"
+title: "Safe Logging — safe_log_config"
+
+slides:
+
+  - type: title
+    heading: "Safe Logging"
+    subheading: "A logging-safe copy of config — secrets masked, rest unchanged"
+    narration: >
+      validate_config tells you what is missing. safe_log_config gives you a safe
+      version of the config to pass to a logger. It returns a new dict where keys
+      in the secret_keys list have their values masked with mask_secret, while all
+      other keys pass through unchanged. The original config dict is never modified —
+      safe_log_config is a pure function that returns a copy. This is the dict you
+      log, print, or include in a diagnostic report without worrying about exposing
+      credentials.
+
+  - type: concept
+    label: "safe logging"
+    heading: "What to Mask — Explicit Secret Key List"
+    body: >
+      The caller explicitly specifies which keys are secrets. This is better than
+      auto-detecting secrets by name pattern ('anything with KEY or TOKEN in the name')
+      because auto-detection is fragile: a key like 'FUNCTION_KEY' would be masked
+      even if it is a non-secret identifier, and a custom secret key like 'PROVIDER_CREDS'
+      would not. Explicit is better than implicit — the list of secret keys is part
+      of the application's security specification, not a heuristic.
+    bullets:
+      - "secret_keys: list of key names whose values must be masked in logs"
+      - "Non-secret keys: values passed through unchanged"
+      - "Returns a new dict — never modifies the original config"
+      - "Explicit list: better than auto-detecting by name pattern"
+      - "Apply before: any logging, print, diagnostic output, or monitoring push"
+    narration: >
+      In practice, the secret_keys list lives near the config schema definition:
+      API_SECRET_KEYS = ['API_KEY', 'SLACK_WEBHOOK', 'DB_PASSWORD', 'JWT_SECRET'].
+      Any time you add a new secret to the config schema, you add it to this list.
+      The list is configuration about the configuration — it tells the logging
+      subsystem what to hide. Because it is explicit, a code review can verify that
+      every secret key appears in the list before the PR merges.
+
+  - type: how_it_works
+    label: "safe_log_config"
+    heading: "safe_log_config — Dict Comprehension with Mask"
+    body: >
+      Build a new dict with a comprehension over config.items(). For each key-value
+      pair: if the key is in secret_keys, apply mask_secret(str(v)); otherwise pass
+      the value through unchanged. The result has the same keys as config but with
+      secrets replaced by masked strings.
+    bullets:
+      - "{k: mask_secret(str(v)) if k in secret_keys else v for k, v in config.items()}"
+      - "str(v) cast before mask_secret — handles non-string values"
+      - "k in secret_keys: O(n) for list, O(1) for set — either works for small lists"
+      - "Non-secret values: passed as-is, including int, bool, None"
+      - "Empty secret_keys list: all values pass through unchanged (no masking)"
+    narration: >
+      The dict comprehension is a single expression that replaces all masking logic.
+      Converting secret_keys to a set before the comprehension would make the 'k in
+      secret_keys' lookup O(1) instead of O(n), but for config dicts with tens of
+      keys and secret lists with fewer than 20 entries, the difference is immeasurable.
+      The str(v) cast only applies to secret values — non-secret values pass through
+      as their original type. If the config has DB_PORT=5432 (int) and it is not in
+      secret_keys, it remains an int in the safe dict. If API_KEY=42 somehow appears
+      and it IS in secret_keys, str(42) is passed to mask_secret.
+
+  - type: code
+    label: "safe_log_config"
+    heading: "safe_log_config — Full Implementation"
+    code: |
+      def safe_log_config(config: dict, secret_keys: list) -> dict:
+          """Return a copy of config with secret values masked for logging."""
+          return {
+              k: mask_secret(str(v)) if k in secret_keys else v
+              for k, v in config.items()
+          }
+
+      # Example
+      config = {
+          "API_KEY":      "sk-abc123def456",
+          "DB_HOST":      "localhost",
+          "DB_PORT":      5432,
+          "SLACK_WEBHOOK": "https://hooks.slack.com/services/T123/B456/secret",
+          "MODEL_NAME":   "llama3.2",
+      }
+      SECRET_KEYS = ["API_KEY", "SLACK_WEBHOOK"]
+
+      safe = safe_log_config(config, SECRET_KEYS)
+      print(safe)
+      # {'API_KEY': 'sk-a***', 'DB_HOST': 'localhost', 'DB_PORT': 5432,
+      #  'SLACK_WEBHOOK': 'http***', 'MODEL_NAME': 'llama3.2'}
+
+      # Safe to log
+      for k, v in safe.items():
+          print(f"  {k} = {v}")
+    narration: >
+      DB_PORT=5432 remains an integer because it is not in SECRET_KEYS. SLACK_WEBHOOK
+      is masked to 'http***' because the first 4 characters of the URL are 'http'.
+      This is not ideal for identifying a webhook URL — a show_chars=20 might be
+      better in practice — but the default show_chars=4 is conservative. The original
+      config dict is unchanged: safe_log_config returns a new dict and never modifies
+      the input. The caller can use both the original (for actual operations) and the
+      safe copy (for logging) without any synchronisation concerns.
+
+  - type: exercise
+    heading: "Exercise 4: safe_log_config"
+    prompt: >
+      Open exercises/exercise_04.ipynb. Implement safe_log_config(config, secret_keys)
+      that returns a new dict where: values for keys in secret_keys are replaced by
+      mask_secret(str(value)); values for all other keys are passed through unchanged.
+      The original config dict must not be modified.
+    hint: >
+      return {k: mask_secret(str(v)) if k in secret_keys else v for k, v in config.items()}.
+      One dict comprehension. mask_secret is provided. secret_keys is a list — 'k in secret_keys'
+      works. The result is a new dict — the original config is untouched.
+    narration: >
+      The check harness verifies that secret keys are masked (value contains '***'),
+      that non-secret keys pass through unchanged (including non-string types like int),
+      that the original config dict is not modified, and that an empty secret_keys list
+      returns a copy with all values unchanged.
+
+  - type: summary
+    heading: "Lesson 4: Key Takeaways"
+    bullets:
+      - "safe_log_config: {k: mask_secret(str(v)) if k in secrets else v for k, v in config}"
+      - "Returns a new dict — original config untouched"
+      - "Explicit secret_keys list — better than auto-detection by name pattern"
+      - "Non-secret values pass through as original type (int, bool, None)"
+      - "Use before any logging, print, diagnostic output, or monitoring push"
+    narration: >
+      Lesson 4 gave us safe_log_config. Lesson 5 assembles all four functions into
+      a SecureConfig class — the day's capstone. It also shows how to integrate
+      python-dotenv for production use, and how to load from os.environ for values
+      that should come from the deployment environment rather than a .env file.

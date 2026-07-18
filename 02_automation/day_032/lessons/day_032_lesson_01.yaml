@@ -1,0 +1,142 @@
+day: "032"
+lesson: "01"
+title: "The .env Format — parse_dotenv"
+
+slides:
+
+  - type: title
+    heading: "Environments & Secrets"
+    subheading: "Handle keys and config safely — .env, masking, validation"
+    narration: >
+      Day 32 is about configuration safety. Every automation you have built so far
+      has a potential problem: where do API keys, database passwords, and webhook URLs
+      live? If they are hardcoded in notebooks or scripts, they will eventually be
+      committed to git and leaked. The solution is environment variables — values that
+      live outside the code and are injected at runtime. Day 32 builds a secure config
+      module: parse .env files, mask secrets in logs, validate required keys at startup,
+      and expose config through a safe API. These are not advanced skills — they are
+      baseline hygiene that every production automation must have.
+
+  - type: concept
+    label: ".env format"
+    heading: ".env Files — Configuration Outside the Code"
+    body: >
+      A .env file is a plain text file containing KEY=VALUE pairs, one per line.
+      It lives in the project root and is listed in .gitignore — never committed.
+      At runtime, the application reads this file and loads the values as environment
+      variables. This separates secrets from code: the same script runs in development
+      (loading from .env), staging, and production (loading from the deployment
+      environment), without any code changes.
+    bullets:
+      - "One KEY=VALUE pair per line — keys are UPPER_SNAKE_CASE by convention"
+      - "Lines starting with # are comments — ignored by the parser"
+      - "Values may be quoted: KEY=\"value with spaces\" or KEY='value'"
+      - "Empty values are valid: KEY= (value is empty string, not None)"
+      - ".gitignore must include .env — never commit secrets"
+    narration: >
+      The .env format was popularised by the Twelve-Factor App methodology, which
+      recommends storing all configuration in environment variables. The python-dotenv
+      package reads .env files and loads them into os.environ. In Day 32 you will
+      implement your own parser to understand the format precisely, then Lesson 5 will
+      show how to integrate python-dotenv for production use. Understanding the format
+      means you can debug it when python-dotenv behaves unexpectedly.
+
+  - type: how_it_works
+    label: "parse_dotenv"
+    heading: "parse_dotenv — Parsing .env Text"
+    body: >
+      Parse line by line: strip each line, skip blank lines and lines starting with
+      '#'. Partition on the first '=' to split key and value (partition handles values
+      that contain '='). Strip whitespace from key and value. Strip matching surrounding
+      quotes from value (both double and single). Return a dict of all key-value pairs.
+    bullets:
+      - "line.strip() — remove leading/trailing whitespace before any checks"
+      - "Skip if not line (blank) or line.startswith('#') (comment)"
+      - "Skip if '=' not in line — malformed line"
+      - "key, _, value = line.partition('=') — splits on FIRST '=' only"
+      - "Strip matching quotes: starts and ends with same quote char → remove both"
+    narration: >
+      partition('=') is the right tool here, not split('=', 1). Both split on the
+      first '=' only, but partition always returns a 3-tuple (before, sep, after)
+      even if sep is not found — split('=', 1) would return a 1-element list if
+      there is no '='. Since we guard with 'if = not in line' before the partition
+      call, the result is always a 3-tuple with a non-empty separator. The value
+      after the '=' may itself contain '=' (common in Base64-encoded values like
+      JWT tokens) — partition correctly captures everything after the first '='.
+
+  - type: code
+    label: "parse_dotenv"
+    heading: "parse_dotenv — Full Implementation"
+    code: |
+      def parse_dotenv(text: str) -> dict:
+          """Parse .env file text into a {key: value} dict."""
+          result = {}
+          for line in text.splitlines():
+              line = line.strip()
+              if not line or line.startswith("#"):
+                  continue
+              if "=" not in line:
+                  continue
+              key, _, value = line.partition("=")
+              key   = key.strip()
+              value = value.strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                  value = value[1:-1]
+              result[key] = value
+          return result
+
+      # Example .env text
+      ENV_TEXT = """
+      # API credentials
+      API_KEY="sk-demo-key-12345"
+      DB_HOST=localhost
+      DB_PORT=5432
+      EMPTY_KEY=
+      """
+
+      config = parse_dotenv(ENV_TEXT)
+      print(config["API_KEY"])   # sk-demo-key-12345  (quotes stripped)
+      print(config["DB_HOST"])   # localhost
+      print(config["EMPTY_KEY"]) # (empty string)
+    narration: >
+      The quote-stripping condition checks that value has at least 2 characters,
+      that the first and last characters are the same, and that they are a quote
+      character. This handles 'value' and "value" but not a single unmatched quote
+      like '"value' or 'val"ue'. Unmatched quotes are left as-is — the parser does
+      not raise on malformed input, it does its best. EMPTY_KEY= produces key='EMPTY_KEY'
+      and value='' (empty string) — the key is present in the result dict with an
+      empty string value, which is different from being absent.
+
+  - type: exercise
+    heading: "Exercise 1: parse_dotenv"
+    prompt: >
+      Open exercises/exercise_01.ipynb. Implement parse_dotenv(text) that parses
+      .env file text into a dict. Rules: skip blank lines and lines starting with '#';
+      skip lines without '='; split on first '=' with partition; strip whitespace from
+      key and value; strip matching surrounding quotes (" or ') from value; return a
+      dict mapping keys to string values.
+    hint: >
+      for line in text.splitlines(): line = line.strip(). Skip if not line or '#'.
+      Skip if '=' not in line. key, _, value = line.partition('='). key=key.strip(), value=value.strip().
+      Check if value[0]==value[-1] and in ('"', "'") and len>=2 → value=value[1:-1].
+      result[key] = value.
+    narration: >
+      The check harness provides known .env text strings and verifies the parsed dict
+      against expected values. It tests basic KEY=VALUE, double-quoted values, single-
+      quoted values, empty values (KEY=), comment lines (skipped), blank lines (skipped),
+      and values containing '=' (partition splits on the first '=' only, leaving the
+      rest in the value).
+
+  - type: summary
+    heading: "Lesson 1: Key Takeaways"
+    bullets:
+      - ".env: KEY=VALUE file outside the code, never committed to git"
+      - "line.partition('='): splits on first '=' — handles values containing '='"
+      - "Skip blank lines, comments (#), and lines without '='"
+      - "Strip matching quotes: value[1:-1] if value[0]==value[-1] in quotes"
+      - "Empty value (KEY=) → empty string in dict — distinct from absent key"
+    narration: >
+      Lesson 1 gave us parse_dotenv. Lesson 2 is mask_secret — the function that
+      lets you log config values without exposing secrets. Instead of logging
+      'API_KEY=sk-1234567890abcdef', you log 'API_KEY=sk-1***'. The first 4
+      characters identify which key it is; the rest is hidden.

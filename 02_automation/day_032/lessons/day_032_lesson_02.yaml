@@ -1,0 +1,123 @@
+day: "032"
+lesson: "02"
+title: "Secret Masking — mask_secret"
+
+slides:
+
+  - type: title
+    heading: "Secret Masking"
+    subheading: "Log config safely — show enough to identify, hide enough to protect"
+    narration: >
+      Once you have loaded secrets into your application, the next risk is logging
+      them by accident. print(config) or logger.info(config) will expose every API
+      key to anyone who can read the log file. mask_secret is the function that
+      converts a secret string into a safe representation for logging: it shows just
+      enough characters to identify which key it is, then replaces the rest with
+      three asterisks. This is the same pattern used by cloud consoles — AWS shows
+      'AKIA...ABCD' for IAM keys, Stripe shows 'sk-...1234' for API keys.
+
+  - type: concept
+    label: "masking rules"
+    heading: "Masking Rules — Show the Beginning, Hide the Rest"
+    body: >
+      The first few characters of a secret are usually safe to show: they identify
+      the service ('sk-' for Stripe, 'ghp_' for GitHub, 'Bearer ' for OAuth) without
+      revealing enough to be usable. show_chars=4 means 'sk-1' is visible, giving
+      the operator enough context to identify which key is configured, while hiding
+      the 32+ characters that make it a valid credential. Short secrets (≤ show_chars)
+      are replaced entirely with '***' — never show the full value even if it is only
+      a few characters long.
+    bullets:
+      - "If len(value) > show_chars: value[:show_chars] + '***'"
+      - "If len(value) <= show_chars: '***' (never reveal full short secret)"
+      - "Empty string: '***' (no information to show)"
+      - "Default show_chars=4 — identifies service prefix, hides credential"
+      - "str(value) cast — handles non-string config values (ints, bools)"
+    narration: >
+      The strict ≤ condition (show_chars or fewer chars → always '***') might seem
+      overly conservative for values like 'abc' when show_chars=4. But short secrets
+      are usually more sensitive, not less: a 3-character password is worse than a
+      30-character one. The mask function applies the strictest rule when in doubt.
+      This means mask_secret('abc', show_chars=4) returns '***' rather than 'abc***',
+      which would reveal the full value. The principle is: prefer safety over usability
+      in logging.
+
+  - type: how_it_works
+    label: "mask_secret logic"
+    heading: "mask_secret — Two-Branch Logic"
+    body: >
+      Convert value to string with str(). If the resulting string is shorter than or
+      equal to show_chars, return '***'. Otherwise return the first show_chars characters
+      concatenated with '***'. The total length of the masked string is either 3
+      (for short secrets) or show_chars + 3 (for long secrets).
+    bullets:
+      - "s = str(value) — handle int, bool, float config values"
+      - "if len(s) <= show_chars: return '***'"
+      - "else: return s[:show_chars] + '***'"
+      - "Result length: 3 (short) or show_chars + 3 (long)"
+      - "Never raises — always returns a string"
+    narration: >
+      The str() cast at the start handles non-string values that might appear in a
+      config dict: a port number stored as an integer, a debug flag stored as a boolean,
+      or an integer retry count. In practice you would not mask numeric config values
+      (they are not secrets), but safe_log_config (Lesson 4) applies masking only to
+      keys in a specified list of secret keys, so non-secret ints are never passed
+      to mask_secret. The cast is there as a defensive measure.
+
+  - type: code
+    label: "mask_secret"
+    heading: "mask_secret — Full Implementation"
+    code: |
+      def mask_secret(value, show_chars: int = 4) -> str:
+          """Mask a secret for safe logging; show first show_chars, hide the rest."""
+          s = str(value)
+          if len(s) <= show_chars:
+              return "***"
+          return s[:show_chars] + "***"
+
+      # Examples
+      print(mask_secret("sk-abc123def456"))   # sk-a***
+      print(mask_secret("abc"))               # ***  (short → fully masked)
+      print(mask_secret("ghp_LONGTOKEN123"))  # ghp_***
+      print(mask_secret("sk-1234", show_chars=6))  # sk-123***
+      print(mask_secret(42))                  # ***  (int, len("42")=2 ≤ 4)
+      print(mask_secret(""))                  # ***  (empty → fully masked)
+    narration: >
+      mask_secret("abc") returns '***' because len("abc") is 3, which is ≤ show_chars=4.
+      This is the correct behaviour: revealing 3 of 3 characters is the same as revealing
+      the full secret. mask_secret("sk-1234", show_chars=6) returns 'sk-123***' because
+      len("sk-1234") is 7, which is > 6, so the first 6 characters are shown. The '***'
+      suffix is always exactly 3 characters — long enough to signal redaction without
+      implying anything about the secret's actual length.
+
+  - type: exercise
+    heading: "Exercise 2: mask_secret"
+    prompt: >
+      Open exercises/exercise_02.ipynb. Implement mask_secret(value, show_chars=4)
+      that converts value to a string with str(), then: if the string is shorter than
+      or equal to show_chars, return '***'; otherwise return the first show_chars
+      characters concatenated with '***'. The function must never raise.
+    hint: >
+      s = str(value). if len(s) <= show_chars: return '***'.
+      return s[:show_chars] + '***'. That's it — two branches.
+      Edge cases: empty string, value shorter than show_chars, show_chars=0.
+    narration: >
+      The check harness verifies both branches: a long secret shows the prefix and '***',
+      and a short secret (including empty string) always returns exactly '***'. It also
+      verifies that the show_chars parameter is respected and that non-string inputs
+      (integers) are handled without raising.
+
+  - type: summary
+    heading: "Lesson 2: Key Takeaways"
+    bullets:
+      - "mask_secret: show first show_chars chars + '***'; or '***' if value too short"
+      - "show_chars=4 default — enough to identify the key type, not enough to use it"
+      - "str(value) cast — handles int, bool, float config values safely"
+      - "Always returns a string — never raises"
+      - "Short secrets (≤ show_chars) fully masked — prefer safety over usability"
+    narration: >
+      Lesson 2 gave us mask_secret. Lesson 3 is validate_config — the startup guard.
+      After loading config, before doing any work, validate that all required keys
+      are present. Return a list of missing keys so the caller can fail fast with
+      a clear error message rather than cryptic AttributeError or KeyError deep
+      inside the automation logic.

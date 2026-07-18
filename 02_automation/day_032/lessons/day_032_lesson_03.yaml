@@ -1,0 +1,136 @@
+day: "032"
+lesson: "03"
+title: "Config Validation — validate_config"
+
+slides:
+
+  - type: title
+    heading: "Config Validation"
+    subheading: "Fail fast at startup — detect missing keys before they cause cryptic errors"
+    narration: >
+      Fail fast is one of the most valuable principles in production systems. If a
+      required API key is missing, it is far better to raise a clear error at startup
+      than to discover the problem three steps into a pipeline run with a cryptic
+      KeyError or AttributeError. validate_config takes a config dict and a list of
+      required keys, returns the list of missing keys, and lets the caller decide how
+      to handle the failure. An empty return list means the config is valid; a non-empty
+      list tells you exactly what to set.
+
+  - type: concept
+    label: "fail-fast pattern"
+    heading: "Fail Fast — Validate at the System Boundary"
+    body: >
+      The system boundary principle (from Day 5) says: validate external inputs at
+      the point they enter your system, not deep inside the logic. Config is an
+      external input — it comes from the environment, not from your code. Validating
+      it as soon as it is loaded means every function inside your application can
+      trust that required config values exist. The alternative — checking for missing
+      keys inside each function — scatters validation throughout the code and makes
+      errors harder to trace.
+    bullets:
+      - "Validate immediately after loading config — before any business logic runs"
+      - "Return list of missing keys — caller decides whether to raise or log"
+      - "config.get(k) is None catches both 'key absent' and 'key set to None'"
+      - "Empty string is valid — a key set to '' was intentionally configured"
+      - "Return empty list [] for 'all required keys present' — falsy check is clean"
+    narration: >
+      Returning a list of missing keys rather than raising immediately gives the caller
+      flexibility: you might want to log all missing keys in one message (better than
+      one error per missing key), raise a specific exception class, or in tests, assert
+      on the exact list. If the function raised on the first missing key, the caller
+      would not know about subsequent missing keys without multiple runs. The falsy
+      check 'if missing:' is clean: [] is falsy, a non-empty list is truthy.
+
+  - type: how_it_works
+    label: "validate_config"
+    heading: "validate_config — Missing Key Detection"
+    body: >
+      Return a list comprehension over required_keys that includes any key where
+      config.get(key) is None. config.get(k) returns None for two cases: the key
+      is absent (KeyError-equivalent), or the key is present but its value was set
+      to None. Empty string is NOT None and is therefore considered valid — if you
+      set DB_HOST='' you probably have a reason.
+    bullets:
+      - "[k for k in required_keys if config.get(k) is None]"
+      - "config.get(k): returns None if absent OR if value is None"
+      - "Empty string config value: valid (user explicitly set it)"
+      - "Preserves required_keys order — missing keys reported in declaration order"
+      - "Returns [] (empty list) if all required keys have non-None values"
+    narration: >
+      The choice to treat 'key present but None' as missing is a deliberate design
+      decision. If you loaded config from os.environ and then explicitly set a key
+      to None in the dict, that is a programming error — not intentional configuration.
+      Treating it as 'missing' catches this case. The choice NOT to treat empty string
+      as missing is also deliberate: 'FEATURE_FLAG=' in a .env file means the flag
+      is off but explicitly configured, which is different from not being configured
+      at all.
+
+  - type: code
+    label: "validate_config"
+    heading: "validate_config — Full Implementation"
+    code: |
+      def validate_config(config: dict, required_keys: list) -> list:
+          """Return list of required_keys that are absent or None in config."""
+          return [k for k in required_keys if config.get(k) is None]
+
+      # Example
+      cfg = {
+          "API_KEY":    "sk-abc123",
+          "DB_HOST":    "localhost",
+          "DB_PORT":    "5432",
+          "EMPTY_VAL":  "",       # explicitly empty — not missing
+          "NULL_VAL":   None,     # explicitly None — treated as missing
+      }
+
+      required = ["API_KEY", "DB_HOST", "DB_PORT", "WEBHOOK_URL"]
+      missing  = validate_config(cfg, required)
+      print(missing)
+      # ['WEBHOOK_URL']  — only the absent key; EMPTY_VAL would also be missing if required
+
+      # Fail fast pattern
+      if missing:
+          raise EnvironmentError(
+              f"Missing required config: {', '.join(missing)}\n"
+              "Set these in your .env file."
+          )
+    narration: >
+      The EnvironmentError raise pattern is the recommended fail-fast usage: a clear
+      message listing all missing keys with a hint about where to set them. Some
+      teams use a custom exception class (e.g., ConfigError) for easier catching in
+      tests. EnvironmentError (or its alias OSError) is the stdlib choice — it is
+      appropriate because missing environment configuration is an environment problem.
+      validate_config itself never raises — it always returns a list, empty or not.
+
+  - type: exercise
+    heading: "Exercise 3: validate_config"
+    prompt: >
+      Open exercises/exercise_03.ipynb. Implement validate_config(config, required_keys)
+      that returns a list of keys from required_keys where config.get(key) is None.
+      A key is considered missing if it is absent from config OR if its value is None.
+      An empty string value is NOT missing. The return value is an empty list if all
+      required keys are present with non-None values.
+    hint: >
+      return [k for k in required_keys if config.get(k) is None].
+      That's one line. config.get(k) returns None for absent keys (default) and
+      for keys whose value is None. Empty string is not None — not missing.
+    narration: >
+      The check harness provides a config dict and various required_keys lists, and
+      verifies the returned list matches the expected missing keys. It tests: all keys
+      present (empty list returned), some keys absent (missing list correct), a key
+      present with None value (treated as missing), a key present with empty string
+      (not missing), and the order of the missing list matching required_keys order.
+
+  - type: summary
+    heading: "Lesson 3: Key Takeaways"
+    bullets:
+      - "validate_config: [k for k in required if config.get(k) is None]"
+      - "config.get(k) is None: catches absent keys AND keys set to None"
+      - "Empty string is valid — explicitly configured, not missing"
+      - "Returns list, never raises — caller decides how to handle failures"
+      - "if missing: raise EnvironmentError(...) is the standard fail-fast pattern"
+    narration: >
+      Lesson 3 gave us validate_config. Lesson 4 is safe_log_config — it applies
+      mask_secret to a specified set of config keys and returns a new dict that is
+      safe to pass to a logger, a print statement, or a monitoring system. Together
+      with validate_config, it forms the two-step config safety ritual: validate first,
+      then log safely.
