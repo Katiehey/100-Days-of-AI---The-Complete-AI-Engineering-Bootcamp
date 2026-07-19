@@ -1,0 +1,174 @@
+day: "040"
+lesson: "01"
+title: "The Data-to-Text Pattern"
+slides:
+  - type: title
+    heading: "The Data-to-Text Pattern"
+    subheading: "json.dumps, df.to_dict — bridging data structures and LLM prompts"
+    narration: >
+      Days 36 through 39 taught you to compute EDA results and draw charts.
+      Day 40 adds the final step: take those numeric results and ask an LLM to
+      narrate them in plain English. This lesson covers the bridge between the
+      two worlds: how you convert a Python dict or DataFrame into a string that
+      fits inside a prompt without overwhelming the model.
+
+  - type: concept
+    label: "Why data needs to become text"
+    heading: "LLMs speak text — not dicts or DataFrames"
+    body: >
+      `ollama.chat` takes a string prompt. Your EDA results live in dicts,
+      DataFrames, and numpy arrays. Before the model can narrate anything,
+      you must serialize those structures into readable text that you can embed
+      in a prompt. The two tools that do this job are `json.dumps` (for dicts)
+      and `df.to_dict(orient='records')` (for DataFrames).
+    bullets:
+      - "json.dumps(d, indent=2) — readable JSON block from a dict"
+      - "json.dumps(d, indent=2, default=str) — handles non-serialisable types"
+      - "df.to_dict(orient='records') — list of row dicts, one dict per row"
+      - "The LLM reads the JSON block as structured context"
+      - "Keep prompts focused: include only the subset of data the question needs"
+    narration: >
+      json.dumps with indent=2 produces the most readable format for an LLM.
+      It aligns keys, uses consistent spacing, and looks like the JSON examples
+      that fill every LLM's training data. The default=str argument is a safety
+      net: it converts any type that the JSON encoder cannot handle natively
+      — numpy integers, pandas Timestamps, Python tuples — to their string
+      representation. You will see this pattern used throughout Days 40 to 50.
+
+  - type: how_it_works
+    label: "json.dumps and df.to_dict"
+    heading: "Converting data to prompt-ready strings"
+    body: >
+      `json.dumps(obj, indent=2)` recursively converts a Python object to a
+      JSON-formatted string. Dicts become objects, lists become arrays, and
+      primitive types become their JSON equivalents. Passing `default=str`
+      means any unrecognised type is converted via `str()` instead of raising
+      a TypeError. `df.to_dict(orient='records')` returns a list of row dicts
+      — the most natural format for giving an LLM a table row-by-row.
+    bullets:
+      - "json.dumps({'mean': 45.2, 'std': 12.1}, indent=2) → indented JSON block"
+      - "default=str handles numpy int64, pd.Timestamp, tuple, etc."
+      - "df.to_dict(orient='records') → [{col: val, ...}, ...] one dict per row"
+      - "json.dumps(df.to_dict(orient='records'), indent=2) → full table as JSON"
+    narration: >
+      The two conversions have different purposes. json.dumps on a dict is for
+      summary statistics: you already have a dict of computed values and you
+      just need to format it. to_dict with orient records is for tabular data:
+      you have a DataFrame and you want to show the LLM each row as a unit.
+      The combination — to_dict then json.dumps — converts a DataFrame to a
+      JSON array of row objects, which the LLM can read as a compact table.
+
+  - type: code
+    label: "From stats dict to prompt"
+    heading: "json.dumps in a prompt — step by step"
+    code: |
+      import json
+      import ollama
+
+      # EDA result you computed on Day 38
+      stats = {
+          'count': 12, 'mean': 298.69, 'std': 453.04,
+          'min': 8.0, 'q25': 112.5, 'median': 200.0,
+          'q75': 425.0, 'max': 1800.0, 'null_count': 0,
+      }
+
+      # Step 1: format the dict as a readable JSON block
+      data_block = json.dumps(stats, indent=2)
+      print(data_block)
+      # {
+      #   "count": 12,
+      #   "mean": 298.69,
+      #   ...
+      # }
+
+      # Step 2: embed in a prompt
+      prompt = (
+          "You are a concise data analyst. Describe the column 'revenue' "
+          "in 1-2 sentences for a non-technical reader.\n\n"
+          f"Statistics:\n{data_block}"
+      )
+
+      # Step 3: call the model
+      resp = ollama.chat(model='llama3.2',
+                         messages=[{"role": "user", "content": prompt}])
+      print(resp["message"]["content"].strip())
+    narration: >
+      The three-step pattern — format, embed, call — is the core of every
+      AI-assisted analysis function you will write today. Step 1 converts
+      the data to a string. Step 2 wraps that string in a prompt that tells
+      the model what role to play and what to produce. Step 3 sends the
+      prompt and returns the model's response. The role instruction, "You are
+      a concise data analyst", is intentional: it primes the model to produce
+      professional, concise output rather than verbose or speculative text.
+
+  - type: code
+    label: "From DataFrame to prompt"
+    heading: "df.to_dict(orient='records') in a prompt"
+    code: |
+      import json
+      import pandas as pd
+      import ollama
+
+      df = pd.DataFrame({
+          'product': ['Gadget', 'Thingamajig', 'Doohickey', 'Widget'],
+          'total':   [1800.0,   1000.0,        680.0,       625.0],
+          'count':   [3,        2,              3,           4],
+      })
+
+      # Convert DataFrame to list of row dicts
+      records = df.to_dict(orient='records')
+      # [{'product': 'Gadget', 'total': 1800.0, 'count': 3}, ...]
+
+      # Embed in a prompt
+      prompt = (
+          "You are a concise data analyst. Write 2-3 sentences about "
+          "which products have the highest revenue and what stands out.\n\n"
+          f"Top products by revenue:\n{json.dumps(records, indent=2)}"
+      )
+      resp = ollama.chat(model='llama3.2',
+                         messages=[{"role": "user", "content": prompt}])
+      print(resp["message"]["content"].strip())
+    narration: >
+      to_dict with orient='records' is the natural way to pass tabular data
+      to an LLM. Each row becomes a self-contained dict with named fields,
+      so the model can reason about column values without needing to parse
+      positional alignment. This is the format used by narrate_top_groups
+      in Exercise 2. Notice the prompt explicitly tells the model how many
+      sentences to write — 2-3 — which keeps responses predictable in length.
+      Unconstrained prompts produce unpredictable output lengths.
+
+  - type: exercise
+    heading: "Exercise 1 — summarize_column"
+    prompt: >
+      Implement `summarize_column(col_name, stats, model='llama3.2') -> str`.
+      Build a prompt that includes the column name and
+      `json.dumps(stats, indent=2)`. Call `ollama.chat` with a
+      "concise data analyst" system context. Return the stripped response.
+    hint: >
+      Prompt pattern: `f"You are a concise data analyst. Describe the column
+      '{col_name}' in 1-2 clear sentences for a non-technical reader.\n\n
+      Statistics:\n{json.dumps(stats, indent=2)}"`.
+      Then `resp = ollama.chat(model=model, messages=[...])`.
+      Return `resp["message"]["content"].strip()`.
+    narration: >
+      The hint gives you the full prompt pattern. Your job is to put the three
+      steps together: format, embed, call, return. The check will verify that
+      the function returns a string, the string is non-empty, it is longer than
+      30 characters, and that it works for both a numeric column (revenue)
+      and a categorical column (product).
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "json.dumps(d, indent=2) — dict to prompt-ready JSON string"
+      - "json.dumps(d, indent=2, default=str) — safe for any Python type"
+      - "df.to_dict(orient='records') — DataFrame to list of row dicts"
+      - "Three-step pattern: format → embed in prompt → ollama.chat → strip"
+      - "Role instruction in prompt: 'You are a concise data analyst'"
+      - "Constrain response length in the prompt (e.g. '1-2 sentences')"
+    narration: >
+      You now have the bridge between your EDA toolkit and the LLM. The four
+      remaining lessons each add one more function on top of this pattern:
+      narrate_top_groups, narrate_correlations, narrate_eda_report, and finally
+      generate_data_story, which composes them all into a single function that
+      turns any DataFrame into a written executive summary.

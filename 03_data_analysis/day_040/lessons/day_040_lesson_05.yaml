@@ -1,0 +1,156 @@
+day: "040"
+lesson: "05"
+title: "The Data Story Pipeline"
+slides:
+  - type: title
+    heading: "The Data Story Pipeline"
+    subheading: "generate_data_story — DataFrame in, executive narrative out"
+    narration: >
+      Lesson 5 brings everything together. You compose the two functions you
+      built today — eda_report from Day 38 and narrate_eda_report from
+      Lesson 4 — into a single end-to-end function: generate_data_story.
+      The function is deliberately minimal: two lines of logic. The power
+      is in the pipeline it assembles, not in the function itself.
+
+  - type: concept
+    label: "Composition over complexity"
+    heading: "The pipeline pattern: each function does one thing"
+    body: >
+      `generate_data_story` could include all the EDA logic inline. It does not.
+      It calls `eda_report(df)` to compute the report, then calls
+      `narrate_eda_report(report, title, model)` to narrate it. This is the
+      function-composition pattern: each function has one responsibility, and
+      the pipeline function wires them together. If you want to change how the
+      EDA is computed, you change eda_report — not generate_data_story.
+    bullets:
+      - "generate_data_story does not compute EDA — it delegates to eda_report"
+      - "generate_data_story does not format the prompt — it delegates to narrate_eda_report"
+      - "Changing either sub-function improves every pipeline that uses it"
+      - "Two-line functions are not lazy — they are correctly decomposed"
+    narration: >
+      The temptation when writing generate_data_story is to replicate the EDA
+      logic inline. Resist it. A function that does everything is a function
+      that is hard to test, hard to change, and hard to reuse. The two-line
+      implementation is the correct design: it names the pipeline steps, it is
+      readable at a glance, and any improvement to eda_report or narrate_eda_report
+      automatically improves the stories it generates.
+
+  - type: code
+    label: "generate_data_story implementation"
+    heading: "The complete end-to-end function"
+    code: |
+      import ollama
+      import pandas as pd
+
+      def generate_data_story(df: pd.DataFrame, title: str = 'Dataset',
+                              model: str = 'llama3.2') -> str:
+          report = eda_report(df)
+          return narrate_eda_report(report, title=title, model=model)
+
+      # One call. DataFrame in, story out.
+      story = generate_data_story(SALES_DF, title='Retail Sales Dataset')
+      print(story)
+      # → "The Retail Sales Dataset contains 12 orders across 7 fields with
+      #    no missing values. Gadget and Thingamajig contribute the majority
+      #    of revenue despite lower order counts, suggesting a focus on
+      #    high-value products may yield better returns than volume growth..."
+    narration: >
+      The two-line implementation reads exactly like a description of the
+      pipeline: run the EDA report, narrate it. The title parameter lets the
+      caller give the dataset a human-readable name that appears in the
+      narrative: 'Retail Sales Dataset', 'Q4 Orders', 'Customer Churn Data'.
+      The model parameter allows switching to a different Ollama model for
+      comparison without modifying the function. Both parameters flow through
+      to narrate_eda_report without transformation.
+
+  - type: concept
+    label: "The auto-generated report pattern"
+    heading: "Data → EDA → narrative: the Day 50 Insight Engine"
+    body: >
+      The pattern you assembled today — load data, compute EDA, narrate it —
+      is the core of the Day 50 Insight Engine capstone. On Day 50 you will
+      add a file-upload UI and a web endpoint, but the analysis pipeline will
+      be exactly this: `generate_data_story(df, title=filename)`. The value
+      is not in any individual function; it is in the pipeline that composes
+      them. A user uploads a CSV and gets a written executive summary back
+      within seconds — no human analyst required.
+    bullets:
+      - "User uploads CSV → pandas reads it → generate_data_story narrates it"
+      - "Each function is replaceable: swap narrate_eda_report for a richer version"
+      - "Add more narration functions between EDA and story for more depth"
+      - "Day 50 adds UI + web layer on top of this exact pipeline"
+    narration: >
+      The insight engine is a preview of what every section in this course
+      builds toward: a complete, deployable product. You now have the analysis
+      layer. Section 4 (Days 51-65) adds the web layer. The insight engine
+      brings them together: a FastAPI endpoint receives a CSV upload, calls
+      generate_data_story, and returns the narrative as JSON. A Streamlit UI
+      lets the user upload the file and read the story in a browser. All of
+      that runs on your machine, for free, using the EDA and narration functions
+      you built on Days 36 through 40.
+
+  - type: code
+    label: "The full pipeline in action"
+    heading: "End-to-end demo: CSV → story"
+    code: |
+      import pandas as pd
+      import io
+
+      # Any DataFrame works — not just the retail dataset
+      prices_csv = (
+          'date,close,volume\n'
+          '2024-01-01,150.2,1000000\n'
+          '2024-01-02,152.4,1200000\n'
+          '2024-01-03,149.8,900000\n'
+          '2024-01-04,155.1,1500000\n'
+          '2024-01-05,153.6,1100000\n'
+      )
+      prices_df = pd.read_csv(io.StringIO(prices_csv))
+
+      story = generate_data_story(prices_df, title='Stock Prices Jan 2024')
+      print(story)
+      # → "The Stock Prices Jan 2024 dataset covers 5 trading days with
+      #    closing prices ranging from $149.80 to $155.10. Volume peaks
+      #    on January 4th, coinciding with the highest closing price,
+      #    suggesting strong buying interest at the top of the range..."
+    narration: >
+      The same generate_data_story function works on the stock price DataFrame
+      without any modification. The model reads the column names — close,
+      volume, date — and produces domain-appropriate language about stock
+      prices and trading volume, not about retail revenue. This is the
+      generalisation power of LLM-based analysis: the same function adapts
+      to any structured dataset. The column names carry the domain knowledge.
+
+  - type: exercise
+    heading: "Exercise 5 — generate_data_story"
+    prompt: >
+      Implement `generate_data_story(df, title='Dataset', model='llama3.2') -> str`.
+      Two lines: call `eda_report(df)` then `narrate_eda_report(report, title=title,
+      model=model)`. Return the result. All prior functions are provided in the setup.
+    hint: >
+      The implementation is exactly two lines inside the function body.
+      `report = eda_report(df)` then `return narrate_eda_report(report,
+      title=title, model=model)`. Do not replicate EDA logic inline.
+    narration: >
+      Check 5 verifies the function works on a minimal DataFrame with a
+      completely different structure (two columns: x and label) — confirming
+      the function is truly general. The gate also tests a stock price DataFrame.
+      The function passes all checks without modification because the EDA and
+      narration functions handle any column structure.
+
+  - type: summary
+    heading: "What you learned today — Day 40 complete"
+    bullets:
+      - "generate_data_story: eda_report + narrate_eda_report composed into one call"
+      - "Two-line functions are correct composition — not lazy shortcuts"
+      - "The same pipeline works for any structured DataFrame"
+      - "Column names carry domain knowledge — the model adapts language accordingly"
+      - "Day 50 Insight Engine = this pipeline + FastAPI upload endpoint + Streamlit UI"
+      - "Five narration functions: summarize_column, narrate_top_groups, narrate_correlations, narrate_eda_report, generate_data_story"
+    narration: >
+      You have built the AI-assisted analysis layer of the Section 3 toolkit.
+      Tomorrow on Day 41 you will go further: instead of narrating pre-computed
+      EDA results, you will let the user ask questions about a CSV in plain
+      English, and the LLM will generate the pandas code to answer them. That
+      is Natural Language to Pandas — turning a DataFrame into an on-demand
+      analytics engine driven by plain-English questions.

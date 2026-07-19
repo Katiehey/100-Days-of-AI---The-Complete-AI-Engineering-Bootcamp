@@ -1,0 +1,152 @@
+day: "040"
+lesson: "02"
+title: "Narrating a Single Column"
+slides:
+  - type: title
+    heading: "Narrating a Single Column"
+    subheading: "summarize_column — from distribution_summary dict to English sentence"
+    narration: >
+      Lesson 1 showed the pattern. Lesson 2 applies it to the most granular
+      level: a single column. You take the stats dict from distribution_summary,
+      pass it through the three-step pattern, and get back a one-or-two-sentence
+      description that a non-technical reader can act on. The function is small
+      but it is the foundation for every narration function that follows.
+
+  - type: concept
+    label: "What makes a good column prompt"
+    heading: "Column prompt design: name + stats + constraint"
+    body: >
+      Three ingredients make a column prompt work. First, the column name —
+      the model needs to know what it is describing. Second, the stats dict —
+      formatted with json.dumps so every key-value pair is readable. Third,
+      a length constraint — "1-2 sentences" gives the model a target and
+      prevents it from writing a paragraph when you only need a summary.
+      These same three ingredients appear in every narration function.
+    bullets:
+      - "Column name: tells the model what it is describing"
+      - "Stats dict: the numeric or categorical evidence to draw from"
+      - "Length constraint: '1-2 sentences' keeps the response predictable"
+      - "Role: 'concise data analyst' primes professional, brief output"
+      - "Non-technical framing: 'for a non-technical reader' shapes vocabulary"
+    narration: >
+      The non-technical framing is important. Without it, the model tends to
+      repeat the statistics in a different order: "The mean is 298.69 and the
+      standard deviation is 453.04." With it, the model translates the numbers
+      into meaning: "Revenue varies very widely, from small orders under $100
+      to a handful of very large orders above $1,000, with a typical order
+      around $200." The second version is useful to a stakeholder; the first
+      is not.
+
+  - type: how_it_works
+    label: "summarize_column internals"
+    heading: "The three-step implementation"
+    body: >
+      `summarize_column` has three lines of logic: build the prompt using an
+      f-string that embeds `json.dumps(stats, indent=2)`, call
+      `ollama.chat(model=model, messages=[...])` with the prompt as the user
+      message, and return `resp["message"]["content"].strip()`. The `.strip()`
+      removes any leading or trailing whitespace the model adds — a common
+      issue when the model starts its response on a new line.
+    bullets:
+      - "f-string prompt: role + column name + length + newline + stats block"
+      - "ollama.chat: model=model, messages=[{'role':'user','content':prompt}]"
+      - "resp['message']['content'] — the model's reply as a string"
+      - ".strip() — remove leading/trailing whitespace from response"
+    narration: >
+      The messages list for a single-turn call always contains one dict with
+      role 'user' and the full prompt as content. For the narration functions
+      in this day, single-turn is the right choice: each call is independent
+      and stateless. Multi-turn history is only needed when the model must
+      remember earlier messages — not the case here.
+
+  - type: code
+    label: "summarize_column implementation"
+    heading: "Complete implementation"
+    code: |
+      import json
+      import ollama
+
+      def summarize_column(col_name: str, stats: dict,
+                           model: str = 'llama3.2') -> str:
+          prompt = (
+              f"You are a concise data analyst. Describe the column '{col_name}' "
+              f"in 1-2 clear sentences for a non-technical reader.\n\n"
+              f"Statistics:\n{json.dumps(stats, indent=2)}"
+          )
+          resp = ollama.chat(model=model,
+                             messages=[{"role": "user", "content": prompt}])
+          return resp["message"]["content"].strip()
+
+      # Test with numeric column
+      from eda_functions import distribution_summary, SALES_DF  # from Day 38
+      rev_stats = distribution_summary(SALES_DF, 'revenue')
+      print(summarize_column('revenue', rev_stats))
+      # → "Revenue varies widely, from $8 to $1,800..."
+
+      # Test with categorical column
+      cat_stats = distribution_summary(SALES_DF, 'product')
+      print(summarize_column('product', cat_stats))
+      # → "Widget is the most frequently ordered product..."
+    narration: >
+      The implementation is three lines of logic wrapped in a function.
+      Notice that the stats dict can be either numeric (with count, mean,
+      std, quartiles) or categorical (with count, unique, top, top_freq).
+      The model handles both: it reads the keys and values and produces an
+      appropriate description regardless of which kind of stats it receives.
+      This flexibility means you can loop over all columns in a DataFrame and
+      call summarize_column on each one without checking the dtype.
+
+  - type: concept
+    label: "Numeric vs categorical stats"
+    heading: "One function handles both column types"
+    body: >
+      The stats dict from `distribution_summary` has different keys for
+      numeric and categorical columns. Numeric dicts have mean, std, and
+      quartiles. Categorical dicts have unique, top, and top_freq.
+      `summarize_column` does not need to distinguish them: the prompt tells
+      the model to describe the column using whatever statistics are present,
+      and the model adapts its language accordingly.
+    bullets:
+      - "Numeric stats: count, mean, std, min, q25, median, q75, max, null_count"
+      - "Categorical stats: count, unique, top, top_freq, null_count"
+      - "The model reads the keys and adapts its language — no if/else needed"
+      - "Loop over df.columns and call summarize_column on each for a full profile"
+    narration: >
+      This adaptability is one of the practical advantages of LLM-driven
+      analysis. A traditional report generator would need separate formatting
+      logic for numeric and categorical columns. The LLM reads the keys,
+      infers what kind of column it is, and produces the right language.
+      The function stays simple and the model does the type-specific work.
+
+  - type: exercise
+    heading: "Exercise 1 — summarize_column"
+    prompt: >
+      Implement `summarize_column(col_name, stats, model='llama3.2') -> str`.
+      Use the three-step pattern: json.dumps the stats dict, embed in a prompt
+      with the column name and a 1-2 sentence constraint, call ollama.chat,
+      return stripped response.
+    hint: >
+      The setup cell already imports json and ollama. Prompt template:
+      `f"You are a concise data analyst. Describe the column '{col_name}' "
+      f"in 1-2 clear sentences for a non-technical reader.\n\n"
+      f"Statistics:\n{json.dumps(stats, indent=2)}"`.
+    narration: >
+      Check 2 makes a real Ollama call with the revenue column.
+      Checks 3 and 4 verify the response is non-empty and longer than 30
+      characters — a meaningful sentence. Check 5 verifies the function also
+      works on the categorical product column. Make sure Ollama is running
+      with llama3.2 before you run the checks.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "summarize_column: col_name + stats dict → 1-2 sentence description"
+      - "Prompt = role + column name + length constraint + JSON stats block"
+      - "ollama.chat returns resp['message']['content']"
+      - ".strip() removes whitespace the model often adds before its response"
+      - "Works for both numeric and categorical columns without branching"
+    narration: >
+      summarize_column is the atomic unit of AI-assisted analysis. Lesson 3
+      builds on it by moving from a single column to a ranked table —
+      narrate_top_groups, which takes a top_groups DataFrame and narrates
+      which groups lead and by how much.

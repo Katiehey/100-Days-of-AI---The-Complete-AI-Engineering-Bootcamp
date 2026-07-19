@@ -1,0 +1,206 @@
+day: "040"
+lesson: "04"
+title: "Narrating Correlations and the Full EDA"
+slides:
+  - type: title
+    heading: "Narrating Correlations and the Full EDA"
+    subheading: "narrate_correlations, narrate_eda_report — from numbers to executive insight"
+    narration: >
+      Lesson 3 narrated a ranked table. Lesson 4 covers two more narration
+      functions: narrate_correlations, which explains directional relationships
+      between features, and narrate_eda_report, which narrates the entire EDA
+      report as an executive summary. The key new challenge is keeping the
+      prompt focused when you have a lot of data to pass.
+
+  - type: concept
+    label: "Narrating correlations"
+    heading: "Correlation numbers need directional language"
+    body: >
+      A correlation coefficient of 0.86 between quantity and revenue means
+      something specific: as quantity increases, revenue tends to increase,
+      and the relationship is strong. An LLM turns this into business language:
+      "Quantity is the strongest driver of revenue — higher order volumes
+      consistently produce proportionally higher sales." Negative correlations
+      also need translation: r=-0.42 might become "Price has a moderately
+      negative relationship with quantity, suggesting higher-priced items
+      sell in smaller volumes."
+    bullets:
+      - "Positive r: 'increases with', 'drives', 'is correlated with'"
+      - "Negative r: 'decreases as', 'trades off with', 'inversely related'"
+      - "r near 1 or -1: 'strong', 'consistent', 'reliable'"
+      - "r near 0: 'weak', 'little relationship', 'independent'"
+      - "The LLM does this translation automatically given the feature names"
+    narration: >
+      Correlation numbers without names are meaningless. The reason narrate_
+      correlations works is that the prompt includes the feature names alongside
+      the values. When the model sees quantity: 0.86 and price: 0.23, it
+      knows quantity is a numeric measure of order volume and price is a per-unit
+      cost, and it can reason about what those relationships mean in a retail
+      context. The context embedded in column names is often more powerful
+      than you realise — it pulls in everything the model knows about how those
+      concepts relate in the real world.
+
+  - type: how_it_works
+    label: "narrate_correlations"
+    heading: "Directional features → 2-3 sentence interpretation"
+    body: >
+      `narrate_correlations` takes the `correlation_summary` DataFrame (feature,
+      correlation columns, sorted by absolute value) plus the target column name.
+      It converts to records, builds a prompt asking which features correlate
+      most with the target and what that likely means, and returns the stripped
+      response. Including `target_col` in the prompt text is essential — it
+      anchors the narrative.
+    bullets:
+      - "records = corr_df.to_dict(orient='records')"
+      - "Prompt: f'which features correlate most with \"{target_col}\"'"
+      - "The sorted order (by |r|) means the most important feature is first"
+      - "2-3 sentences is enough for a correlation narrative"
+    narration: >
+      The correlation_summary function from Day 38 already sorts by absolute
+      correlation, so the first record is always the most important feature.
+      The model can follow this ordering and use it to structure its response:
+      strongest first, then secondary, then weakest. This produces a well-
+      structured narrative without any additional prompt engineering.
+
+  - type: code
+    label: "narrate_correlations implementation"
+    heading: "Complete implementation"
+    code: |
+      import json
+      import ollama
+
+      def narrate_correlations(corr_df, target_col: str,
+                               model: str = 'llama3.2') -> str:
+          records = corr_df.to_dict(orient='records')
+          prompt = (
+              f"You are a concise data analyst. Write 2-3 sentences explaining which "
+              f"features correlate most with '{target_col}' and what this likely means.\n\n"
+              f"Correlations with '{target_col}':\n{json.dumps(records, indent=2)}"
+          )
+          resp = ollama.chat(model=model,
+                             messages=[{"role": "user", "content": prompt}])
+          return resp["message"]["content"].strip()
+
+      # Example
+      corr = correlation_summary(SALES_DF, 'revenue')
+      print(corr)
+      #   feature  correlation
+      #  quantity         0.86
+      #     price         0.57
+      # order_id         0.21
+
+      print(narrate_correlations(corr, 'revenue'))
+      # → "Quantity is the strongest predictor of revenue with a correlation
+      #    of 0.86, suggesting that order volume is the primary driver of sales..."
+    narration: >
+      The output correctly identifies quantity as the primary driver and price
+      as a secondary factor. This is exactly what the correlation values suggest,
+      but the model articulates it in language a business stakeholder can use.
+      Notice the prompt says 'what this likely means' rather than 'explain the
+      correlations' — the word 'means' pushes the model toward interpretation
+      rather than restatement, which is the valuable output.
+
+  - type: concept
+    label: "Keeping the full EDA prompt focused"
+    heading: "narrate_eda_report: selective context for executive summaries"
+    body: >
+      The full eda_report dict contains hundreds of values: describe() stats for
+      every numeric column, full value_counts for every categorical column,
+      a complete correlation matrix. Passing all of it would produce a prompt
+      too large to process coherently. The solution is to extract a compact
+      summary: shape, null count, column names, numeric describe stats, and only
+      the top 5 entries per categorical column. This gives the model enough
+      to write an executive summary without noise.
+    bullets:
+      - "Include: shape, null totals, column names, numeric describe, top-5 categories"
+      - "Exclude: full value_counts (truncate to 5), raw correlations matrix"
+      - "json.dumps with default=str — handles tuple (shape) and any other type"
+      - "Prompt: ask for 3-5 sentences for a 'business audience'"
+    narration: >
+      The design choice of truncating category counts to 5 is pragmatic.
+      A product column with 20 distinct values adds 15 irrelevant entries to
+      the prompt. The top 5 capture the dominant categories, which are the ones
+      worth mentioning in an executive summary. The model will note that the
+      most common products are Widget, Gadget, and Doohickey without needing
+      to see all 20 entries. Less is more when building LLM context.
+
+  - type: code
+    label: "narrate_eda_report implementation"
+    heading: "Compact summary dict → executive summary"
+    code: |
+      import json
+      import ollama
+
+      def narrate_eda_report(report: dict, title: str = 'Dataset',
+                             model: str = 'llama3.2') -> str:
+          shape = report['shape']
+          nulls = sum(report['null_counts'].values())
+          summary = {
+              'dataset':             title,
+              'rows':                shape[0],
+              'columns':             shape[1],
+              'total_nulls':         nulls,
+              'numeric_columns':     list(report['numeric_summary'].keys()),
+              'categorical_columns': list(report['category_counts'].keys()),
+              'numeric_stats':       report['numeric_summary'],
+              'top_categories':      {
+                  col: dict(list(counts.items())[:5])
+                  for col, counts in report['category_counts'].items()
+              },
+          }
+          prompt = (
+              "You are a data analyst. Write a 3-5 sentence executive summary "
+              "of this dataset for a business audience. Highlight key patterns, "
+              "data quality, and notable findings.\n\n"
+              f"EDA Report:\n{json.dumps(summary, indent=2, default=str)}"
+          )
+          resp = ollama.chat(model=model,
+                             messages=[{"role": "user", "content": prompt}])
+          return resp["message"]["content"].strip()
+
+      report = eda_report(SALES_DF)
+      print(narrate_eda_report(report, title='Retail Sales'))
+      # → "The Retail Sales dataset contains 12 rows across 7 columns with
+      #    no missing values, indicating clean data ready for analysis..."
+    narration: >
+      The compact summary dict has eight keys. The model gets the dataset title,
+      dimensions, data quality, column names, numeric describe output, and
+      the top categories per categorical column. This is enough to write a
+      genuinely useful executive summary. The json.dumps call uses default=str
+      to handle the shape tuple — a Python tuple is not JSON-serialisable by
+      default, so without default=str this would raise a TypeError.
+
+  - type: exercise
+    heading: "Exercises 3 and 4"
+    prompt: >
+      Exercise 3 — implement `narrate_correlations(corr_df, target_col, model)`:
+      convert corr_df to records, build a prompt mentioning target_col,
+      embed the JSON, call ollama.chat, return stripped response.
+      Exercise 4 — implement `narrate_eda_report(report, title, model)`:
+      extract the compact summary dict (rows, columns, nulls, column lists,
+      numeric_stats, top 5 categories per col), build a 3-5 sentence
+      executive-summary prompt, call ollama.chat, return stripped response.
+    hint: >
+      For Exercise 4: `nulls = sum(report['null_counts'].values())`.
+      Top-5 categories: `{col: dict(list(counts.items())[:5]) for col, counts
+      in report['category_counts'].items()}`. Use `default=str` in json.dumps.
+    narration: >
+      Exercise 3 checks that the function works for two different target
+      columns: revenue and price. Exercise 4 checks that the response is
+      longer than 100 characters — a full executive summary rather than a
+      one-liner — and that passing explicit title and model parameters works.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "narrate_correlations: corr_df + target → directional business narrative"
+      - "Include 'what this likely means' in the prompt for interpretation not restatement"
+      - "narrate_eda_report: extract compact summary dict before prompting"
+      - "Truncate category counts to top 5 to keep context focused"
+      - "json.dumps default=str handles tuple, numpy types, pd.Timestamp"
+    narration: >
+      You now have four narration functions: column, groups, correlations,
+      and full EDA. Lesson 5 composes them into generate_data_story —
+      a single function that takes any DataFrame and returns a complete
+      written analysis. That function is the deliverable for the Day 50
+      Insight Engine capstone.

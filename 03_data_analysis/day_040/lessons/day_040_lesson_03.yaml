@@ -1,0 +1,155 @@
+day: "040"
+lesson: "03"
+title: "Narrating Groups and Rankings"
+slides:
+  - type: title
+    heading: "Narrating Groups and Rankings"
+    subheading: "narrate_top_groups — df.to_dict(orient='records') for tabular context"
+    narration: >
+      Lesson 2 covered a single-column narrative. Lesson 3 moves to a
+      ranked table: the top_groups DataFrame you built on Day 38. To pass a
+      DataFrame to an LLM you use to_dict with orient equals records, which
+      converts each row to a dict. This gives the model a structured,
+      row-by-row view of the data it needs to narrate.
+
+  - type: concept
+    label: "df.to_dict(orient='records')"
+    heading: "Converting a DataFrame to a list of row dicts"
+    body: >
+      `df.to_dict(orient='records')` returns a list where each element is a
+      dict mapping column names to row values. This is the most natural format
+      for giving an LLM a table: each row is self-contained and labeled.
+      The alternative — passing the raw CSV string or using `.to_string()` —
+      is harder for the model to parse reliably.
+    bullets:
+      - "orient='records' → [{col: val, ...}, {col: val, ...}, ...]"
+      - "orient='dict' → {col: {idx: val}} — column-first, harder to read"
+      - "orient='list' → {col: [val, val, ...]} — needs separate key lookup"
+      - "records is the best choice for LLM context: row-first, fully labeled"
+    narration: >
+      The orient parameter controls the shape of the output dict. The records
+      orientation puts the model in the same position as a person reading a
+      table row by row: for each row, you see all columns together. The model
+      can then reason about which rows have the highest values, compare totals,
+      and pick out leaders without needing to cross-reference column and index
+      dicts separately. This makes the prompt more robust and the output more
+      accurate.
+
+  - type: how_it_works
+    label: "narrate_top_groups internals"
+    heading: "From DataFrame to narrative"
+    body: >
+      The function takes the top_groups DataFrame plus the column names used
+      in the groupby (group_col) and the aggregated value (value_col). It
+      converts the DataFrame to records with `to_dict(orient='records')`,
+      builds a prompt that mentions both column names, embeds the JSON block,
+      and returns the stripped response. Mentioning group_col and value_col
+      in the prompt helps the model use the right terminology in its output.
+    bullets:
+      - "records = groups_df.to_dict(orient='records')"
+      - "Prompt: f'which {group_col} groups have the highest {value_col}'"
+      - "json.dumps(records, indent=2) — embed the table in the prompt"
+      - "ollama.chat → strip → return"
+    narration: >
+      Passing group_col and value_col into the prompt is a small but important
+      design choice. If you hard-code 'product' and 'revenue', the function
+      only works for one dataset. Parameterising the column names means the
+      same function works for any groupby: region by sales, category by margin,
+      salesperson by deal count. The LLM uses the column names in its output,
+      so the narrative automatically uses the right vocabulary for the specific
+      analysis.
+
+  - type: code
+    label: "narrate_top_groups implementation"
+    heading: "Complete implementation"
+    code: |
+      import json
+      import ollama
+
+      def narrate_top_groups(groups_df, group_col: str, value_col: str,
+                             model: str = 'llama3.2') -> str:
+          records = groups_df.to_dict(orient='records')
+          prompt = (
+              f"You are a concise data analyst. Write 2-3 sentences about which "
+              f"'{group_col}' groups have the highest '{value_col}' and what stands out.\n\n"
+              f"Top groups by {value_col}:\n{json.dumps(records, indent=2)}"
+          )
+          resp = ollama.chat(model=model,
+                             messages=[{"role": "user", "content": prompt}])
+          return resp["message"]["content"].strip()
+
+      # Example usage
+      top4 = top_groups(SALES_DF, 'product', 'revenue', n=4)
+      print(top4.to_string(index=False))
+      #   product   total   mean  count
+      #    Gadget  1800.0  600.0      3
+      # Thingamajig 1000.0 500.0    2
+      #  Doohickey   680.0 226.7    3
+      #     Widget   625.0 156.25   4
+
+      print(narrate_top_groups(top4, 'product', 'revenue'))
+      # → "Gadget leads with $1,800 in total revenue — more than all other
+      #    products combined..."
+    narration: >
+      The records list passed to the LLM contains all three aggregated columns:
+      total, mean, and count. The model can use any of these in its narrative.
+      In practice it tends to focus on total — the most informative for a
+      business audience — but it might also mention that Widget has the highest
+      order count while Gadget has the highest revenue per order. This kind of
+      multi-metric reasoning emerges naturally when you provide all three values.
+
+  - type: concept
+    label: "What to include in the prompt"
+    heading: "Selective context: include what the question needs"
+    body: >
+      More data in the prompt does not always mean better output. Passing the
+      entire SALES_DF as JSON to narrate_top_groups would produce a prompt with
+      a hundred values — most of them irrelevant to the ranking question.
+      Instead, compute the top_groups result first (which summarises the data
+      into the four most important rows) and then pass only that summary.
+      This keeps the prompt focused and the response accurate.
+    bullets:
+      - "Don't pass raw data when a summary will do"
+      - "top_groups computes the summary; narrate_top_groups narrates it"
+      - "Fewer rows = more focused response"
+      - "n=4 or n=5 covers all products in a typical small dataset"
+      - "For large datasets: top 5 is usually enough context"
+    narration: >
+      The principle is separation of concerns. EDA functions from Day 38 compute
+      the summaries. Narration functions from Day 40 narrate them. Keeping these
+      two responsibilities separate makes both sets of functions easier to test
+      and reuse. If you find the LLM narrative is missing context, the fix is
+      usually in the EDA step — compute a richer summary — not in cramming more
+      raw data into the narration prompt.
+
+  - type: exercise
+    heading: "Exercise 2 — narrate_top_groups"
+    prompt: >
+      Implement `narrate_top_groups(groups_df, group_col, value_col, model='llama3.2') -> str`.
+      Convert groups_df to records with `to_dict(orient='records')`.
+      Build a prompt asking for 2-3 sentences about which group_col values
+      have the highest value_col. Embed the JSON records. Call ollama.chat.
+      Return stripped response.
+    hint: >
+      `records = groups_df.to_dict(orient='records')`. Prompt: mention both
+      group_col and value_col in the instruction. Include
+      `json.dumps(records, indent=2)`. The setup provides top_groups and SALES_DF.
+    narration: >
+      Check 5 calls the function with a different groupby — region instead of
+      product. This verifies that the column-name parameters do their job:
+      the same function narrates any groupby without modification. Make sure
+      to compute top_groups before passing it to narrate_top_groups.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "df.to_dict(orient='records') — the right orient for LLM table context"
+      - "Pass group_col and value_col into the prompt for correct terminology"
+      - "Separate EDA (compute summary) from narration (describe it)"
+      - "Fewer rows = more focused LLM response"
+      - "narrate_top_groups works for any groupby column pair"
+    narration: >
+      You can now narrate a ranked table. Lesson 4 applies the same pattern
+      to a different structure: the correlation_summary DataFrame, where the
+      numbers have directional meaning and the narrative must explain not just
+      which features are related to the target but what direction and why.
