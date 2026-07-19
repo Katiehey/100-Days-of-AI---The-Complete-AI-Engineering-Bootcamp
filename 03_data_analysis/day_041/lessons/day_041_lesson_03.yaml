@@ -1,0 +1,196 @@
+day: "041"
+lesson: "03"
+title: "Building the Prompt and Parsing the Response"
+slides:
+  - type: title
+    heading: "Building the Prompt and Parsing the Response"
+    subheading: "build_query_prompt, extract_code — re.search, re.DOTALL, non-greedy .*?"
+    narration: >
+      Lesson 3 covers the two functions that bridge the schema and the
+      executable code: build_query_prompt assembles the LLM prompt, and
+      extract_code parses the code back out of the response. Both are
+      deterministic — no Ollama call needed — which makes them easy to
+      test in isolation. The key new technique is re.search with re.DOTALL
+      for multi-line pattern matching.
+
+  - type: concept
+    label: "What makes a good code-generation prompt"
+    heading: "Three requirements: df name, result variable, code-only response"
+    body: >
+      A code-generation prompt must be more prescriptive than a narration prompt.
+      Three things are mandatory. First: tell the model what variable the DataFrame
+      is bound to (df). Without this, it might use 'data' or 'dataframe' instead.
+      Second: tell the model to store the answer in a variable called 'result'.
+      Without this, exec runs but you have no variable to read. Third: tell the
+      model to respond with ONLY a code block. Without this, the model wraps the
+      code in explanatory prose that must be stripped.
+    bullets:
+      - "df is already loaded: 'The DataFrame is loaded as `df`'"
+      - "result variable: 'Store the answer in a variable named `result`'"
+      - "Code-only response: 'Respond with ONLY a ```python ... ``` block'"
+      - "pd is in scope: 'pd is also available' — prevents import pandas"
+      - "No explanation: 'no explanation' prevents prose wrapping the code"
+    narration: >
+      The result variable requirement is the most critical. When you exec a
+      code string, the exec return value is always None — it does not return
+      the last expression like a Jupyter cell does. The only way to get a value
+      out of exec is to have the code assign it to a variable in the namespace.
+      By requiring 'result', you guarantee there is always a variable to read.
+      If the code is complex — for example, it computes a groupby then filters
+      it — the model should store the final answer in result, not the intermediate.
+
+  - type: how_it_works
+    label: "build_query_prompt"
+    heading: "Assembling the prompt from schema + question"
+    body: >
+      `build_query_prompt` combines the requirements into an f-string prompt.
+      The structure is: system context (role + rules) followed by the schema
+      block, then the question at the end. Putting the schema before the question
+      means the model sees the DataFrame layout before the question — this
+      matches how a human would read context before answering.
+    bullets:
+      - "Role first: 'You are a Python data analyst'"
+      - "Rules: df name, result variable, code-only format"
+      - "Schema block: schema_str (output of get_df_schema)"
+      - "Question last: 'Question: {question}'"
+      - "Schema before question mirrors natural reading order"
+    narration: >
+      The order matters. If you put the question before the schema, the model
+      commits to an approach before it sees the column names, which sometimes
+      causes it to use column names that do not exist. Putting the schema first
+      ensures the model reads the full layout before forming its answer. This
+      is a general principle in prompt engineering: provide context before asking
+      the question, not after.
+
+  - type: how_it_works
+    label: "re.search vs re.findall + re.DOTALL"
+    heading: "Parsing multi-line code blocks with re.search"
+    body: >
+      `re.search(pattern, string)` finds the first match of pattern anywhere
+      in string and returns a match object (or None). `re.findall` returns all
+      matches as a list. For extract_code you want the first code block, so
+      `re.search` is correct. The critical flag is `re.DOTALL`: by default,
+      `.` in a regex does NOT match newline characters. With `re.DOTALL`, `.`
+      matches everything including newlines — essential for multi-line code blocks.
+    bullets:
+      - "re.search(pattern, string) → match object or None"
+      - "match.group(0) → full match; match.group(1) → first capture group"
+      - "re.DOTALL — make '.' match '\\n' too (essential for code blocks)"
+      - "Without DOTALL: '.*?' stops at first newline → gets only the first line"
+      - "With DOTALL: '.*?' matches everything up to the closing ``` → gets full block"
+    narration: >
+      The re.DOTALL flag is easy to forget and hard to debug. Without it, the
+      pattern r'```python\s*(.*?)```' will stop matching at the first newline
+      inside the code block and return only the first line of code. With DOTALL,
+      the .* matches across newlines and captures the entire block. Any time you
+      are matching content that might span multiple lines — code blocks, JSON,
+      HTML sections — you need DOTALL.
+
+  - type: concept
+    label: "Non-greedy quantifiers: .*?"
+    heading: ".*? vs .* — why non-greedy matters here"
+    body: >
+      `.*` is greedy: it matches as many characters as possible. `.*?` is
+      non-greedy: it matches as few as possible while still satisfying the
+      pattern. For extracting a code block, non-greedy is essential. If a
+      response contains two code blocks, greedy `.*` would match from the
+      opening ``` of the first block all the way to the closing ``` of the
+      last block — including everything in between. Non-greedy `.*?` stops
+      at the first closing ```.
+    bullets:
+      - "`.*` (greedy) — match as many chars as possible"
+      - "`.*?` (non-greedy) — match as few chars as possible"
+      - "r'```python\\s*(.*?)```' — captures content of FIRST code block"
+      - "With greedy r'```python\\s*(.*)```' — would capture across multiple blocks"
+      - "Non-greedy is the safe default for delimited content"
+    narration: >
+      The difference only shows up with multiple code blocks, which occasionally
+      happens when the model adds a usage example after the answer block. In
+      that case, greedy would return both blocks merged; non-greedy returns
+      only the first, which is the one you want. Using non-greedy quantifiers
+      for delimited content like code blocks, JSON objects, or HTML tags is
+      a best practice — greedy tends to over-match in ways that are hard to
+      predict.
+
+  - type: code
+    label: "extract_code and build_query_prompt implementations"
+    heading: "Both functions together"
+    code: |
+      import re
+
+      def build_query_prompt(question: str, schema_str: str) -> str:
+          return (
+              "You are a Python data analyst. Write pandas code to answer the question.\n\n"
+              "Requirements:\n"
+              "- The DataFrame is already loaded as `df`. `pd` is also in scope.\n"
+              "- Store the final answer in a variable named `result`.\n"
+              "- Respond with ONLY a ```python ... ``` code block, no explanation.\n\n"
+              f"DataFrame schema:\n{schema_str}\n\n"
+              f"Question: {question}"
+          )
+
+      def extract_code(response: str) -> str:
+          # Try ```python...``` first
+          match = re.search(r'```python\s*(.*?)```', response, re.DOTALL)
+          if match:
+              return match.group(1).strip()
+          # Fall back to plain ```...```
+          match = re.search(r'```\s*(.*?)```', response, re.DOTALL)
+          if match:
+              return match.group(1).strip()
+          # Last resort: return stripped raw text
+          return response.strip()
+
+      # Test extract_code with various response formats
+      r1 = extract_code('```python\nresult = df.shape[0]\n```')
+      print(repr(r1))  # 'result = df.shape[0]'
+
+      r2 = extract_code('```\nresult = 42\n```')
+      print(repr(r2))  # 'result = 42'
+
+      r3 = extract_code('result = 0')
+      print(repr(r3))  # 'result = 0'
+    narration: >
+      extract_code tries the most specific pattern first (```python) and
+      falls back to progressively less specific patterns. This handles the
+      three formats a model might return: a properly labelled Python block,
+      an unlabelled code block, or raw code without any fencing. The fallback
+      to raw text means the function never raises — it always returns something.
+      In practice, models almost always use ```python when explicitly told to,
+      but the fallbacks prevent hard failures on the rare edge cases.
+
+  - type: exercise
+    heading: "Exercises 2 and 3"
+    prompt: >
+      Exercise 2 — implement `build_query_prompt(question, schema_str) -> str`:
+      build a prompt that includes the role, three requirements (df name,
+      result variable, code-only format), the schema, and the question.
+      Exercise 3 — implement `extract_code(response) -> str`:
+      use re.search with re.DOTALL to try ```python first, then plain ```,
+      then fall back to response.strip().
+    hint: >
+      For extract_code: `match = re.search(r'```python\\s*(.*?)```', response,
+      re.DOTALL)`. Non-greedy `.*?` is essential. Check `if match:` before
+      calling `match.group(1).strip()`. The fallback is just `return response.strip()`.
+    narration: >
+      Exercise 3's checks are fully deterministic — all five checks use
+      handcrafted response strings, not Ollama calls. You can run them
+      immediately without Ollama running. This is the benefit of keeping
+      the parsing step separate from the LLM step: you can test and iterate
+      on the parser without touching the model.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "build_query_prompt: role + rules (df, result, code-only) + schema + question"
+      - "Put schema before question — model sees context before forming answer"
+      - "re.search(pattern, string) → first match object (or None)"
+      - "re.DOTALL — make '.' match newlines (essential for multi-line blocks)"
+      - ".*? (non-greedy) — match as few chars as possible (stops at first ```)"
+      - "match.group(1) — first capture group, not the full match"
+      - "extract_code: try ```python → try ``` → fall back to stripped text"
+    narration: >
+      You now have three of the five pipeline functions. Lesson 4 covers the
+      execution step: run_pandas_code, which runs the extracted code in a
+      controlled namespace using exec(). Understanding why exec in a namespace
+      is safer than bare eval or global exec is the key lesson.

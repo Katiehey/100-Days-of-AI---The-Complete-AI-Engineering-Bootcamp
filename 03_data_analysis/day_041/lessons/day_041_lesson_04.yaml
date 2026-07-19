@@ -1,0 +1,169 @@
+day: "041"
+lesson: "04"
+title: "Safe Code Execution"
+slides:
+  - type: title
+    heading: "Safe Code Execution"
+    subheading: "exec() in a namespace — run LLM code without exposing your environment"
+    narration: >
+      You have a string of Python code from an LLM. How do you run it?
+      Not with eval() — eval is for expressions, not statements, and it is
+      forbidden for user-sourced input. Not with bare exec() in the global
+      scope. The safe approach is exec in a controlled namespace: a dict that
+      specifies exactly what names the code can see. Lesson 4 explains how
+      this works and why it matters.
+
+  - type: concept
+    label: "eval vs exec vs exec-in-namespace"
+    heading: "Three ways to run code strings — only one is right here"
+    body: >
+      `eval(expr)` evaluates a single expression and returns its value.
+      It cannot run statements like assignments or for loops. LLM-generated
+      pandas code always includes assignments (`result = ...`), so eval
+      cannot run it. `exec(code)` runs any Python code but uses the
+      current global scope — the code can read and modify any variable in
+      your program. `exec(code, namespace)` runs the code with only the
+      names in namespace visible. This is the right choice.
+    bullets:
+      - "eval() — expressions only, returns value, cannot run assignments"
+      - "exec(code) — any code, sees all global variables (dangerous)"
+      - "exec(code, namespace) — any code, sees only what's in namespace"
+      - "namespace = {'df': df, 'pd': pd} — the code sees df and pd only"
+      - "Course rule: never bare eval() for user input (or LLM-generated input)"
+    narration: >
+      The safety benefit of the namespace is containment. If the LLM generates
+      code that accidentally (or intentionally) references a variable that
+      happens to exist in your global scope — like a configuration object or
+      a credentials dict — the namespace prevents that access. The code only
+      sees df and pd. It cannot see anything else. This is a lightweight but
+      meaningful sandbox for the use case of answering data questions.
+
+  - type: how_it_works
+    label: "exec(code, namespace)"
+    heading: "Reading the result from the exec namespace"
+    body: >
+      `exec(code, namespace)` always returns None. The code's side effects
+      are written into the namespace dict — including any variable assignments.
+      After exec, you read the result with `namespace.get('result', default)`.
+      The `.get()` call is necessary because if the code errored (and you
+      caught the exception before reading the namespace), or if the model
+      forgot to assign result, the key will not be present.
+    bullets:
+      - "exec(code, namespace) → None (always)"
+      - "code's assignments land in namespace dict"
+      - "namespace.get('result', 'No result variable found') → the answer"
+      - "Wrap exec in try/except — return error string instead of crashing"
+      - "str(result) — convert pandas Series, int, float to a readable string"
+    narration: >
+      The try/except wrapper is not defensive programming for hypothetical
+      failures — it is handling a very real and common failure mode: the LLM
+      generates code that does not work. The pandas operation might use a
+      column name that does not exist, or the code might compute something
+      that causes a division-by-zero. Returning an error string instead of
+      crashing means ask_df always returns a string, and the caller can inspect
+      whether it starts with 'Code execution error' to decide if a retry is needed.
+
+  - type: code
+    label: "run_pandas_code implementation"
+    heading: "Complete implementation"
+    code: |
+      import pandas as pd
+
+      def run_pandas_code(code: str, df) -> str:
+          namespace = {'df': df, 'pd': pd}
+          try:
+              exec(code, namespace)
+          except Exception as e:
+              return f"Code execution error: {e}"
+          result = namespace.get('result', 'No result variable found')
+          return str(result)
+
+      # Test with SALES_DF
+
+      # Row count
+      r = run_pandas_code('result = df.shape[0]', SALES_DF)
+      print(r)            # '12'
+      assert r == '12'
+
+      # Revenue sum
+      r = run_pandas_code("result = df['revenue'].sum()", SALES_DF)
+      print(r)            # '4105.0'
+      assert '4105' in r
+
+      # Top product
+      r = run_pandas_code(
+          "result = df.groupby('product')['revenue'].sum().idxmax()",
+          SALES_DF)
+      print(r)            # 'Gadget'
+      assert r == 'Gadget'
+
+      # Error handling
+      r = run_pandas_code("result = df['bad_col'].sum()", SALES_DF)
+      print(r)            # 'Code execution error: ...'
+      assert 'error' in r.lower()
+    narration: >
+      The four test cases demonstrate the three success modes and the error
+      mode. Row count returns '12' — a scalar integer as a string. Revenue sum
+      returns '4105.0' — a float. Top product returns 'Gadget' — a string that
+      was already a string. The error case returns a message starting with
+      'Code execution error'. All four return str values, so the caller can
+      always treat the output uniformly.
+
+  - type: concept
+    label: "What the namespace actually contains"
+    heading: "Inside the exec namespace after a successful run"
+    body: >
+      Before exec, namespace is `{'df': df, 'pd': pd}`. After exec, it also
+      contains any variables the code defined, plus Python automatically adds
+      `__builtins__` (which enables standard functions like str(), len(), range()).
+      The code can use Python built-ins and anything in the initial namespace.
+      It cannot access anything outside the namespace dict — not even variables
+      defined in the calling function.
+    bullets:
+      - "Before exec: {'df': df, 'pd': pd}"
+      - "After exec: + all vars the code defined + '__builtins__'"
+      - "Built-ins available: str(), len(), range(), print(), etc."
+      - "Not available: any other name from the outer scope"
+      - "namespace.get('result') reads back what the code stored"
+    narration: >
+      Python adds __builtins__ to the namespace automatically when you pass
+      a custom globals dict to exec. This means the code can use standard
+      library functions. If you wanted a stricter sandbox — one where even
+      print() and len() are unavailable — you would add __builtins__: {}
+      to the initial namespace dict. For this course's use case, allowing
+      built-ins is the right trade-off: it lets the model write natural code
+      without needing to import everything.
+
+  - type: exercise
+    heading: "Exercise 4 — run_pandas_code"
+    prompt: >
+      Implement `run_pandas_code(code, df) -> str`. Create
+      `namespace = {'df': df, 'pd': pd}`. Wrap `exec(code, namespace)` in
+      `try/except Exception as e: return f'Code execution error: {e}'`.
+      After exec: `result = namespace.get('result', 'No result variable found')`.
+      Return `str(result)`.
+    hint: >
+      The entire implementation is under 10 lines. The namespace dict is what
+      makes it safe — only df and pd are visible to the executed code.
+      Remember that exec always returns None; the result is read from the
+      namespace dict, not from exec's return value.
+    narration: >
+      All five checks for this exercise are deterministic — no Ollama needed.
+      Check 3 verifies the row count, check 4 verifies the revenue sum,
+      check 5 verifies that bad code returns an error string (not an exception).
+      These can all be run and iterated on without the model running.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "exec(code, namespace) — runs any Python code with only namespace visible"
+      - "namespace = {'df': df, 'pd': pd} — lightweight sandbox"
+      - "exec always returns None — read result from namespace.get('result', ...)"
+      - "try/except around exec — return error string instead of crashing"
+      - "str(result) — convert any pandas output to a string for uniform return type"
+      - "eval() is for expressions; exec() is for statements; use namespace for safety"
+    narration: >
+      You now have four of the five functions. Lesson 5 composes them all
+      into ask_df — the single function a user calls to ask a plain-English
+      question and get an answer back. That five-line composition function
+      is the 'Chat with your CSV' deliverable.

@@ -1,0 +1,162 @@
+day: "041"
+lesson: "05"
+title: "The Full Pipeline — ask_df"
+slides:
+  - type: title
+    heading: "The Full Pipeline — ask_df"
+    subheading: "Five lines of composition: schema → prompt → LLM → extract → exec → answer"
+    narration: >
+      Lesson 5 wires the four functions you built into the final pipeline
+      function: ask_df. Like generate_data_story on Day 40, ask_df is
+      deliberately minimal — five lines of function calls, each doing one
+      clearly named thing. The function's power is entirely in what it
+      composes, not in what it does itself.
+
+  - type: concept
+    label: "Composition revisited"
+    heading: "ask_df: five function calls in sequence"
+    body: >
+      `ask_df(df, question, model)` calls five functions in order.
+      `get_df_schema` produces the schema string. `build_query_prompt`
+      combines schema and question into the LLM prompt. `ollama.chat` sends
+      the prompt and returns the raw response. `extract_code` strips the
+      response down to clean Python. `run_pandas_code` execs the code
+      and returns the answer. Five calls, five responsibilities, all composed
+      in one function.
+    bullets:
+      - "schema  = get_df_schema(df)"
+      - "prompt  = build_query_prompt(question, schema)"
+      - "resp    = ollama.chat(model=model, messages=[{user: prompt}])"
+      - "code    = extract_code(resp['message']['content'])"
+      - "return run_pandas_code(code, df)"
+    narration: >
+      Reading the function body reads like a description of the pipeline:
+      get the schema, build the prompt, call the model, extract the code,
+      run the code. Each line tells you exactly what is happening. This is
+      what well-composed code looks like: no logic, no loops, no conditions —
+      just a sequence of clearly named operations that tell the story of
+      the process.
+
+  - type: code
+    label: "ask_df implementation"
+    heading: "Complete five-line implementation"
+    code: |
+      import re
+      import ollama
+      import pandas as pd
+
+      def ask_df(df, question: str, model: str = 'llama3.2') -> str:
+          schema  = get_df_schema(df)
+          prompt  = build_query_prompt(question, schema)
+          resp    = ollama.chat(model=model,
+                                messages=[{"role": "user", "content": prompt}])
+          code    = extract_code(resp["message"]["content"])
+          return run_pandas_code(code, df)
+
+      # Examples
+      print(ask_df(SALES_DF, 'What is the total revenue?'))
+      # → '4105.0'
+
+      print(ask_df(SALES_DF, 'Which product has the highest revenue?'))
+      # → 'Gadget'
+
+      print(ask_df(SALES_DF, 'What is the most common region?'))
+      # → 'East' or 'North' (both appear 4 times — depends on how LLM writes code)
+
+      print(ask_df(SALES_DF, 'How many unique product categories are there?'))
+      # → '2'
+    narration: >
+      The last two examples show the variability of code generation. For
+      'most common region', East and North both appear 4 times. The LLM
+      might write code that returns the first one alphabetically, the last
+      one, or a list of tied values — it depends on which pandas operation
+      it uses. This is the inherent ambiguity of natural language: 'most
+      common' is undefined when there is a tie. The narration approach from
+      Day 40 would handle this more gracefully by describing both. Code
+      generation is more precise but less robust to ambiguous questions.
+
+  - type: concept
+    label: "Robustness and retry"
+    heading: "What to do when the generated code fails"
+    body: >
+      The answer from ask_df might start with 'Code execution error:' if the
+      model generates code that does not work. The simplest recovery strategy
+      is to try a second call with a more constrained prompt — for example,
+      appending 'Make sure the variable is named result exactly.' For the
+      project, questions are simple enough that a single call almost always
+      works. On Day 87 (Guardrails) you will build a more principled retry
+      loop for agent tools.
+    bullets:
+      - "ask_df always returns a string — check if it starts with 'Code execution error'"
+      - "Retry strategy: call ask_df again with a slightly different question"
+      - "Or: append a reminder about the 'result' variable to the prompt"
+      - "For simple factual questions, a retry is rarely needed"
+      - "Ambiguous questions sometimes need reformulation, not retry"
+    narration: >
+      The 'Code execution error' prefix is a design choice. It makes error
+      detection trivial: `if answer.startswith('Code execution error'):`
+      is all the check you need. If you returned None or raised an exception,
+      the caller would need to use try/except. Returning a special string is
+      simpler and makes the pipeline composable — you can print the error or
+      log it without extra branching.
+
+  - type: concept
+    label: "Generalisation"
+    heading: "ask_df works on any DataFrame"
+    body: >
+      ask_df takes any pandas DataFrame — not just SALES_DF. The schema
+      function adapts to whatever columns are present; the prompt includes
+      the actual column names; the model writes code for those columns.
+      On Day 43 you will build the SQL equivalent: ask_sql(db, question)
+      describes the database schema and generates SQL instead of pandas.
+      The pipeline shape is identical.
+    bullets:
+      - "ask_df(any_df, question) — works for any DataFrame structure"
+      - "Same pattern, Day 43: ask_sql(db, question) → SQL generation"
+      - "Same pattern, Day 48: ask_ml(df, target) → scikit-learn pipeline"
+      - "The abstraction is: describe context → ask question → execute answer"
+    narration: >
+      The 'describe context → ask question → execute answer' abstraction is
+      one of the most powerful patterns in AI engineering. It applies whenever
+      you have a formal execution environment — pandas, SQL, shell commands,
+      API calls — and want to allow natural language access to it. On Day 85
+      you will see this formalised as the Model Context Protocol: a standard
+      way for LLMs to describe and call tools. Today's pipeline is the same
+      idea at a simpler scale.
+
+  - type: exercise
+    heading: "Exercise 5 — ask_df"
+    prompt: >
+      Implement `ask_df(df, question, model='llama3.2') -> str`. Five lines:
+      `schema = get_df_schema(df)`, `prompt = build_query_prompt(question, schema)`,
+      `resp = ollama.chat(model=model, messages=[{'role':'user','content':prompt}])`,
+      `code = extract_code(resp['message']['content'])`,
+      `return run_pandas_code(code, df)`. All prior functions are provided.
+    hint: >
+      `resp["message"]["content"]` is the model's response string.
+      Pass it to `extract_code`. Pass the extracted code and `df` to
+      `run_pandas_code`. The implementation matches the description
+      exactly — five sequential lines with no branching.
+    narration: >
+      Check 4 verifies the total revenue answer contains 4105 — this tests
+      that the full pipeline correctly answers a factual question. Check 5
+      tests a second question (row count) to verify the pipeline works for
+      any question, not just the first one. Both require Ollama running.
+
+  - type: summary
+    heading: "What you learned today — Day 41 complete"
+    bullets:
+      - "ask_df: five-line composition of get_df_schema, build_query_prompt, ollama.chat, extract_code, run_pandas_code"
+      - "Code generation pipeline: schema → prompt → LLM → extract → exec → str(result)"
+      - "exec(code, namespace) — run LLM code with only df and pd visible"
+      - "re.search + re.DOTALL — parse multi-line code blocks from responses"
+      - ".*? (non-greedy) — stop at first closing ``` not the last"
+      - "Error handling: 'Code execution error: ...' string instead of exception"
+      - "The same pattern applies to SQL on Day 43 and agents on Day 81"
+    narration: >
+      You now have a working 'chat with your CSV' pipeline. Tomorrow on Day 42
+      you will learn SQL fundamentals — SELECT, WHERE, JOIN — using the same
+      retail dataset in a SQLite database. The day after, Day 43, you will build
+      the SQL equivalent of today's ask_df: natural language to SQL generation
+      and execution. The concepts from both days combine into the Insight Engine
+      capstone on Day 50.

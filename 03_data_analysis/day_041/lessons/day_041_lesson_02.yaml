@@ -1,0 +1,161 @@
+day: "041"
+lesson: "02"
+title: "Describing a DataFrame for the Prompt"
+slides:
+  - type: title
+    heading: "Describing a DataFrame for the Prompt"
+    subheading: "get_df_schema — dtypes.items(), head().to_string(index=False)"
+    narration: >
+      Before the LLM can write pandas code, it must know what the DataFrame
+      looks like. Lesson 2 builds get_df_schema — the function that converts
+      a DataFrame into a text description. The description must be compact,
+      accurate, and include just enough information for the model to write
+      correct code. This lesson covers the two new pandas methods that make
+      it possible: dtypes.items() and to_string.
+
+  - type: concept
+    label: "What the LLM needs to know"
+    heading: "Three things: shape, column types, sample values"
+    body: >
+      For the LLM to generate correct pandas code, it needs to know: how many
+      rows (to reason about scale), what columns exist and what type they are
+      (to avoid str/float confusion), and what the data looks like (to
+      understand value formats like '25.0' vs 'Widget'). The schema description
+      packs these three into a text block that fits comfortably in the prompt.
+    bullets:
+      - "Shape: tells the model the dataset size"
+      - "Column names + dtypes: prevents str/float/int type errors"
+      - "Sample rows: shows actual values so the model can calibrate"
+      - "All three together: enough context for most pandas questions"
+      - "Keep it compact: a few dozen lines is sufficient"
+    narration: >
+      Without the dtype information, the model might write `df['order_id'] * 2`
+      not knowing that order_id is an integer — which would work. But without
+      dtype info it also might write `df['product'].sum()`, not knowing that
+      product is a string column — which would fail. The dtypes tell the model
+      which columns are numeric and which are categorical, preventing the most
+      common class of code generation errors.
+
+  - type: how_it_works
+    label: "df.dtypes.items()"
+    heading: "Iterating over column names and their dtypes"
+    body: >
+      `df.dtypes` is a pandas Series mapping column names to dtype objects.
+      `.items()` returns (name, dtype) pairs, just like `dict.items()`. This
+      lets you loop over all columns and format each one as a string.
+      `str(dtype)` converts the dtype object to a readable name like 'float64',
+      'int64', or 'object' (which means string in pandas).
+    bullets:
+      - "df.dtypes → Series of {column: dtype} mappings"
+      - "df.dtypes.items() → iterator of (column_name, dtype) tuples"
+      - "str(dtype) → 'float64', 'int64', 'object' (string), 'bool'"
+      - "f'  {col}: {dtype}' → '  revenue: float64'"
+      - "'object' dtype means string (or mixed types) in pandas"
+    narration: >
+      The 'object' dtype is a pandas convention that confuses beginners.
+      It means the column holds Python objects — most commonly strings.
+      When the LLM sees 'product: object', it should understand this means
+      strings. In practice, models trained on pandas documentation understand
+      this convention and generate correct string-operation code for object
+      columns. You do not need to rename 'object' to 'string' in the schema.
+
+  - type: how_it_works
+    label: "df.head(3).to_string(index=False)"
+    heading: "Compact text table without the row index"
+    body: >
+      `df.to_string()` converts a DataFrame to a text table. By default it
+      includes the row index (0, 1, 2 ...) as the left column. Passing
+      `index=False` removes that column, giving a cleaner table where the
+      first column is the actual data. `df.head(3)` limits to 3 rows —
+      enough to show the data shape without making the prompt too long.
+    bullets:
+      - "df.to_string() — full DataFrame as a text table"
+      - "index=False — remove the row index column from the output"
+      - "df.head(3).to_string(index=False) — first 3 rows, no index"
+      - "Column widths auto-align to the widest value in each column"
+      - "3 rows is enough context; more adds noise to the prompt"
+    narration: >
+      The to_string output looks exactly like what you see when you print
+      a DataFrame in the terminal. The model has seen this format in its
+      training data — it is the canonical way to display a pandas table
+      in prose — so it reads it accurately. Removing the index with
+      index=False is a small but useful detail: the index column is
+      usually irrelevant to the question and removes clutter that might
+      distract the model from the actual column names and values.
+
+  - type: code
+    label: "get_df_schema implementation"
+    heading: "Complete implementation"
+    code: |
+      import pandas as pd
+
+      def get_df_schema(df) -> str:
+          lines = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]
+          lines.append("\nColumns and dtypes:")
+          for col, dtype in df.dtypes.items():
+              lines.append(f"  {col}: {dtype}")
+          lines.append(
+              f"\nSample (first 3 rows):\n{df.head(3).to_string(index=False)}"
+          )
+          return "\n".join(lines)
+
+      # Example output
+      print(get_df_schema(SALES_DF))
+      # Shape: 12 rows x 7 columns
+      #
+      # Columns and dtypes:
+      #   order_id: int64
+      #   product: object
+      #   category: object
+      #   region: object
+      #   price: float64
+      #   quantity: int64
+      #   revenue: float64
+      #
+      # Sample (first 3 rows):
+      #  order_id  product    category region  price  quantity  revenue
+      #         1   Widget Electronics  North   25.0        10    250.0
+      #         2   Gadget Electronics  South  150.0         3    450.0
+      #         3   Widget Electronics  South   25.0         5    125.0
+    narration: >
+      The output is a compact, fully readable schema. The LLM can read
+      the dtype column and know which operations are valid: sum() works on
+      float64 and int64 columns; value_counts() is appropriate for object
+      columns; groupby() works on any column. The sample rows confirm the
+      actual values: prices are floats like 25.0 and 150.0, products are
+      strings like Widget and Gadget. This is sufficient context to write
+      correct pandas code for most questions.
+
+  - type: exercise
+    heading: "Exercise 1 — get_df_schema"
+    prompt: >
+      Implement `get_df_schema(df) -> str`. Build a list of lines:
+      1) shape line using df.shape[0] and df.shape[1],
+      2) 'Columns and dtypes:' header,
+      3) one indented line per column via `for col, dtype in df.dtypes.items()`,
+      4) a sample section using `df.head(3).to_string(index=False)`.
+      Return '\\n'.join(lines).
+    hint: >
+      Start with `lines = [f"Shape: {df.shape[0]} rows x {df.shape[1]} columns"]`.
+      Then append the header and dtype lines. Then append the sample section
+      as a single f-string: f"\\nSample (first 3 rows):\\n{df.head(3).to_string(index=False)}".
+    narration: >
+      The checks verify shape info, all column names, and that sample row data
+      (Widget or Gadget) is present. None of these require Ollama — get_df_schema
+      is a deterministic function that converts a DataFrame to text. This means
+      you can run and iterate on it without waiting for a model call.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "df.dtypes → Series of column→dtype pairs"
+      - "df.dtypes.items() → (column, dtype) tuples for iteration"
+      - "'object' dtype = string (or mixed) in pandas"
+      - "df.head(n).to_string(index=False) — compact text table without index"
+      - "Schema includes: shape + dtypes + 3 sample rows"
+      - "Compact schema = less prompt noise = more accurate code generation"
+    narration: >
+      get_df_schema is deterministic: the same DataFrame always produces the
+      same schema string. This makes it easy to inspect and debug. Lesson 3
+      uses this schema to build the full prompt and covers how to extract
+      clean Python code from whatever the LLM returns.

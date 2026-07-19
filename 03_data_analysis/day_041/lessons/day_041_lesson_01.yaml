@@ -1,0 +1,130 @@
+day: "041"
+lesson: "01"
+title: "The Code Generation Pattern"
+slides:
+  - type: title
+    heading: "The Code Generation Pattern"
+    subheading: "Let the LLM write the code — you exec it and return the result"
+    narration: >
+      Day 40 taught you to narrate data. Day 41 teaches you to interrogate it.
+      Instead of writing pandas code yourself, you describe your DataFrame to
+      an LLM, ask a plain-English question, and let the model write the pandas
+      code for you. You then execute that code and return the answer. This is
+      the code generation pattern — and it is how 'chat with your CSV' works.
+
+  - type: concept
+    label: "Code generation vs narration"
+    heading: "Two AI-assisted analysis patterns"
+    body: >
+      Day 40's narration pattern went: data → JSON → prompt → narrative text.
+      The model read numbers and wrote English. Day 41's code generation pattern
+      goes: schema → prompt → pandas code → exec → answer. The model reads
+      a schema description and writes code. The difference is what you get back:
+      narration produces prose; code generation produces executable logic whose
+      output is a fact.
+    bullets:
+      - "Narration: model reads numbers → writes English sentences"
+      - "Code generation: model reads schema → writes Python/pandas code"
+      - "Code generation result: str(exec result) — a fact, not a description"
+      - "Code generation is more precise but can fail on complex questions"
+      - "Use narration for storytelling; code generation for factual queries"
+    narration: >
+      The practical difference matters. If you ask 'what is the total revenue?'
+      via narration, you get a sentence like 'Total revenue is approximately
+      $4,105.' If you ask via code generation, you get '4105.0' — the exact
+      computed value. For factual queries that will be used downstream in a
+      calculation or display, code generation is the right tool. For a written
+      report that a stakeholder reads, narration is right.
+
+  - type: concept
+    label: "The four-step pipeline"
+    heading: "Schema → Prompt → Code → Exec → Answer"
+    body: >
+      The full pipeline has five steps, each a separate function. Step 1:
+      `get_df_schema(df)` describes the DataFrame as text. Step 2:
+      `build_query_prompt(question, schema)` wraps schema and question in
+      an instruction prompt. Step 3: `ollama.chat` sends the prompt and gets
+      code back. Step 4: `extract_code(response)` strips the markdown fences.
+      Step 5: `run_pandas_code(code, df)` execs the code and returns the result.
+      `ask_df` composes all five into one call.
+    bullets:
+      - "Step 1: get_df_schema — DataFrame → text description"
+      - "Step 2: build_query_prompt — schema + question → LLM prompt"
+      - "Step 3: ollama.chat — prompt → raw LLM response (contains code)"
+      - "Step 4: extract_code — raw response → clean Python string"
+      - "Step 5: run_pandas_code — code string + df → str(result)"
+    narration: >
+      Separating these five steps into separate functions is important for
+      the same reason it mattered in Day 40: each function has one responsibility
+      and can be tested independently. get_df_schema and build_query_prompt need
+      no Ollama call — you can verify their output without a model. extract_code
+      takes only strings — fully deterministic, no model needed. Only step 3
+      and step 5 are non-deterministic. Keeping deterministic logic separate from
+      LLM calls makes debugging much easier when something goes wrong.
+
+  - type: code
+    label: "The pipeline at a glance"
+    heading: "End-to-end: one question answered"
+    code: |
+      import re
+      import ollama
+      import pandas as pd
+
+      # (all five functions already defined — see Exercises 1-5)
+
+      # One call answers any plain-English question
+      answer = ask_df(SALES_DF, 'What is the total revenue?')
+      print(answer)
+      # → '4105.0'
+
+      answer = ask_df(SALES_DF, 'Which product has the highest revenue?')
+      print(answer)
+      # → 'Gadget'
+
+      answer = ask_df(SALES_DF,
+                      'How many orders are there in each region?')
+      print(answer)
+      # → 'region\nEast     4\nNorth    4\nSouth    3\nWest     1'
+    narration: >
+      The three questions show the range of answers the pipeline produces:
+      a scalar float, a category label, and a multi-line grouped count.
+      The pandas code for each is different, but ask_df handles all three
+      the same way. The LLM adapts the code to the question; you never
+      write any pandas yourself. For the grouped count, the result is a
+      pandas Series converted to string — the formatting is whatever
+      str(result) produces, which is readable but not pretty. Day 50's
+      Insight Engine wraps this in a better display layer.
+
+  - type: exercise
+    heading: "Exercise 1 — get_df_schema"
+    prompt: >
+      Implement `get_df_schema(df) -> str`. Build a multi-line string
+      with: 1) 'Shape: N rows x M columns', 2) 'Columns and dtypes:' header,
+      3) one '  col: dtype' line per column via df.dtypes.items(),
+      4) 'Sample (first 3 rows):' followed by df.head(3).to_string(index=False).
+      Return '\\n'.join(lines).
+    hint: >
+      `for col, dtype in df.dtypes.items():` gives you column names and their
+      dtype objects. `df.head(3).to_string(index=False)` gives you a compact
+      text table without the row index column.
+    narration: >
+      The schema is what the LLM reads to know what columns exist and what
+      types they are. Without it, the model cannot know that 'revenue' is a
+      float column or that 'product' contains strings like 'Widget'. The sample
+      rows show actual values — the model can use those to calibrate what the
+      data looks like and avoid generating code that assumes wrong types.
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "Code generation pattern: schema → prompt → code → exec → answer"
+      - "Five-step pipeline: get_df_schema, build_query_prompt, ollama.chat, extract_code, run_pandas_code"
+      - "Deterministic functions (schema, prompt, extract, exec) separate from LLM calls"
+      - "Code generation returns facts; narration returns prose"
+      - "ask_df composes all five steps into one function"
+    narration: >
+      The pattern you learned today applies far beyond CSVs. Day 43 applies
+      the same approach to SQL: describe a schema, ask a question, get SQL back,
+      execute it. The pipeline shape is identical; only the execution layer
+      changes. Mastering the code generation pattern now means you will recognise
+      it and extend it throughout the rest of the course.
