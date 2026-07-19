@@ -1,0 +1,199 @@
+day: "042"
+lesson: "04"
+title: "Aggregation with GROUP BY"
+slides:
+  - type: title
+    heading: "Aggregation with GROUP BY"
+    subheading: "SUM, COUNT, AVG, ROUND — SQL's groupby().agg()"
+    narration: >
+      Lesson 4 covers SQL aggregation: the GROUP BY clause and the aggregate
+      functions SUM, COUNT, AVG, and ROUND. If you know pandas groupby().agg(),
+      you already know the concept — GROUP BY is SQL's version. This lesson
+      also explains when to use HAVING versus WHERE and how to safely use
+      f-strings for column names in group_revenue.
+
+  - type: concept
+    label: "GROUP BY and aggregate functions"
+    heading: "COUNT(*), SUM(col), AVG(col), ROUND(val, n)"
+    body: >
+      GROUP BY collapses all rows that share the same value of a column into
+      a single output row. Aggregate functions then compute a summary across
+      the rows in each group. COUNT(*) counts rows; SUM(col) sums a numeric
+      column; AVG(col) averages it; ROUND(val, n) rounds to n decimal places.
+      The result is one row per group, with the grouped column(s) plus the
+      aggregate values. SELECT must contain only grouped columns and aggregate
+      functions — any other raw column is an error in strict SQL.
+    bullets:
+      - "COUNT(*) — number of rows in the group"
+      - "SUM(col) — total value across rows"
+      - "AVG(col) — mean value across rows"
+      - "ROUND(val, n) — round to n decimal places"
+      - "GROUP BY col — one output row per unique value of col"
+      - "SELECT must contain only group columns + aggregate expressions"
+    narration: >
+      The restriction on SELECT is important. If you write
+      `SELECT product, region, SUM(revenue) FROM orders GROUP BY product`,
+      region is neither grouped nor aggregated — SQLite may return an arbitrary
+      region value for each product group. Strictly, every SELECT column must
+      be either in the GROUP BY clause or wrapped in an aggregate function.
+      SQLite is more lenient than other databases here; PostgreSQL would raise
+      an error. Follow the strict rule to write portable SQL.
+
+  - type: code
+    label: "GROUP BY example"
+    heading: "Revenue by product"
+    code: |
+      # GROUP BY product — one row per product
+      rows = run_query(conn,
+          'SELECT product, SUM(revenue) AS total, '
+          'COUNT(*) AS orders, ROUND(AVG(revenue), 2) AS avg_revenue '
+          'FROM orders '
+          'GROUP BY product '
+          'ORDER BY total DESC')
+
+      for r in rows:
+          print(f"{r['product']:14} total={r['total']:.0f}  "
+                f"orders={r['orders']}  avg={r['avg_revenue']:.2f}")
+      # Gadget         total=1800  orders=3  avg=600.00
+      # Thingamajig   total=1000  orders=2  avg=500.00
+      # Doohickey      total=680   orders=3  avg=226.67
+      # Widget         total=625   orders=4  avg=156.25
+    narration: >
+      Gadget is the top product by revenue: 3 orders in East (1050), North
+      (300), South (450) totalling 1800. Thingamajig is second: 2 orders
+      (North 200 + East 800 = 1000). Doohickey: 3 orders (East 400 + North
+      160 + South 120 = 680). Widget: 4 orders (North 250 + South 125 +
+      East 100 + West 150 = 625). These totals sum to 4105 — the same as
+      the overall total from setup_db. Always sanity-check: sum of group
+      totals must equal the grand total.
+
+  - type: concept
+    label: "HAVING vs WHERE"
+    heading: "WHERE filters rows; HAVING filters groups"
+    body: >
+      WHERE executes before GROUP BY — it removes individual rows before
+      grouping. HAVING executes after GROUP BY — it removes groups whose
+      aggregate does not meet a condition. You cannot use an aggregate
+      function in a WHERE clause; you can use it in a HAVING clause.
+      Example: `WHERE revenue > 100` removes low-revenue rows before
+      summing; `HAVING SUM(revenue) > 500` keeps only groups whose total
+      exceeds 500. These are very different operations.
+    bullets:
+      - "WHERE — filters rows BEFORE aggregation"
+      - "HAVING — filters groups AFTER aggregation"
+      - "WHERE SUM(revenue) > 100 → SYNTAX ERROR"
+      - "HAVING SUM(revenue) > 100 → valid, filters groups"
+      - "Can use both: WHERE narrows rows, HAVING narrows groups"
+    narration: >
+      A practical example: to find products with more than 2 orders AND
+      total revenue above 600, you would write:
+      `SELECT product, COUNT(*) AS orders, SUM(revenue) AS total
+      FROM orders GROUP BY product HAVING orders > 2 AND total > 600`.
+      The WHERE clause would be empty here because you want all rows
+      before grouping. If you also wanted to exclude the West region from
+      the calculation, you would add `WHERE region != 'West'` before
+      GROUP BY — this removes West rows from the raw data before the
+      aggregation runs.
+
+  - type: how_it_works
+    label: "f-string in group_revenue"
+    heading: "f-string column names — safe when from trusted code"
+    body: >
+      `group_revenue(conn, group_col)` accepts a column name and uses
+      `f'SELECT {group_col}, SUM(revenue) AS total ...'`. This is an
+      f-string interpolating a column name — not a data value. The column
+      name comes from the calling code, not from a user typing into a form.
+      SQL injection requires user-controlled strings. If group_col is always
+      passed as a string literal from your own code ('product', 'region',
+      'category'), the f-string is safe. The ? placeholder is for data
+      values (strings, numbers) that filter which rows to include.
+    bullets:
+      - "? placeholder — for data values (WHERE col = ?)"
+      - "f-string — acceptable for column/table names from trusted code"
+      - "Untrusted = strings a user could type; trusted = your own constants"
+      - "'product', 'region', 'category' are trusted constants, not user input"
+      - "If group_col ever came from a web form, validate against allowlist first"
+    narration: >
+      The rule of thumb: ask 'could an attacker control this string?' If yes,
+      use ?. If the string is a constant in your own code, f-string is fine.
+      Day 43 will use this distinction when building a text-to-SQL function:
+      the SQL itself comes from an LLM (untrusted) and must be executed with
+      care; the column names in the GROUP BY are generated by our code (trusted).
+      Keeping this distinction clear avoids both over-engineering (paranoid ?
+      use where f-string is fine) and under-engineering (f-string for user input).
+
+  - type: code
+    label: "group_revenue implementation"
+    heading: "Parameterised group column"
+    code: |
+      def group_revenue(conn, group_col):
+          sql = (
+              f'SELECT {group_col}, SUM(revenue) AS total, '
+              'COUNT(*) AS orders, ROUND(AVG(revenue), 2) AS avg_revenue '
+              f'FROM orders GROUP BY {group_col} ORDER BY total DESC'
+          )
+          return run_query(conn, sql)
+
+      # Group by product
+      for r in group_revenue(conn, 'product'):
+          print(r['product'], r['total'])
+      # Gadget 1800.0
+      # Thingamajig 1000.0
+      # Doohickey 680.0
+      # Widget 625.0
+
+      # Group by region
+      for r in group_revenue(conn, 'region'):
+          print(r['region'], r['total'])
+      # East 1550.0
+      # West 950.0
+      # North 910.0
+      # South 695.0
+
+      # Group by category
+      for r in group_revenue(conn, 'category'):
+          print(r['category'], r['total'])
+      # Electronics 2700.0
+      # Accessories 1405.0
+    narration: >
+      The same function works for three different groupings. The f-string
+      interpolation puts the column name directly into the SQL: when
+      group_col='product', the SQL becomes 'SELECT product, SUM(revenue)...
+      GROUP BY product'. SQLite receives the same SQL as if you had hard-coded
+      'product'. The function is a thin wrapper — three lines of code that
+      generate correct SQL for any group column in the orders table.
+
+  - type: exercise
+    heading: "Exercise 4 — group_revenue"
+    prompt: >
+      Implement `group_revenue(conn, group_col) -> list[dict]`. Build the SQL:
+      `f'SELECT {group_col}, SUM(revenue) AS total, COUNT(*) AS orders,
+      ROUND(AVG(revenue), 2) AS avg_revenue FROM orders GROUP BY {group_col}
+      ORDER BY total DESC'`. Return `run_query(conn, sql)`.
+    hint: >
+      Both f-string lines need the {group_col} variable. The SUM and COUNT
+      lines can be plain strings (no f-prefix needed for those middle parts).
+      The two f-string parts are the SELECT column at the start and the
+      GROUP BY at the end.
+    narration: >
+      Check 6 verifies group_revenue(conn,'product')[0]['product'] == 'Gadget'
+      (top by total revenue: 1800.0). Check 7 verifies group_revenue(conn,'region')
+      finds East with total 1550.0. Check 8 verifies group_revenue(conn,'category')
+      returns 2 rows — Electronics and Accessories. These three checks confirm
+      that the f-string substitution is correct and the ORDER BY total DESC places
+      the highest-revenue group first.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "GROUP BY col — one output row per unique value"
+      - "COUNT(*), SUM(col), AVG(col), ROUND(val, n) — aggregate functions"
+      - "SELECT must contain only grouped columns and aggregate expressions"
+      - "WHERE filters rows BEFORE aggregation"
+      - "HAVING filters groups AFTER aggregation"
+      - "f-string for column names is safe when the name comes from your code"
+      - "? placeholder for data values; f-string for structural SQL parts"
+    narration: >
+      You can now aggregate any column by any group and filter the results.
+      Lesson 5 adds the final piece: INNER JOIN — combining two tables — and
+      pd.read_sql_query, which brings SQL results into a pandas DataFrame.

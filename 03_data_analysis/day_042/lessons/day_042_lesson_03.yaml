@@ -1,0 +1,147 @@
+day: "042"
+lesson: "03"
+title: "Dynamic WHERE Clauses"
+slides:
+  - type: title
+    heading: "Dynamic WHERE Clauses"
+    subheading: "Building parameterized SQL from optional keyword arguments"
+    narration: >
+      Real-world query functions rarely have a fixed WHERE clause. A user
+      might filter by region, or by category, or by both, or by neither.
+      Lesson 3 teaches the pattern for building dynamic WHERE clauses:
+      parallel conditions and params lists, joined only when values are
+      provided. This is the pattern behind filter_orders — and the same
+      pattern behind every production query builder.
+
+  - type: concept
+    label: "The parallel lists pattern"
+    heading: "conditions + params — build WHERE clause from optional args"
+    body: >
+      Start with two empty lists: `conditions = []` and `params = []`.
+      For each optional filter, check `if value is not None:`, then append
+      the SQL fragment (e.g. `'region = ?'`) to conditions and the value
+      to params. After all checks, join conditions with `' AND '` and
+      prepend `'WHERE '` if any conditions exist. Pass `tuple(params)` to
+      `cur.execute`. This produces a valid, injection-safe query for any
+      combination of filters.
+    bullets:
+      - "conditions = [] — SQL fragments ('region = ?', 'revenue >= ?', ...)"
+      - "params = [] — matching values for each ? in conditions"
+      - "if val is not None: append both lists in parallel"
+      - "where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''"
+      - "run_query(conn, f'SELECT ... {where} ORDER BY ...', tuple(params))"
+    narration: >
+      The `if conditions else ''` guard is important. If no filter is
+      provided, conditions is empty, `' AND '.join([])` is an empty string,
+      and the WHERE keyword must be omitted — 'WHERE' alone is a syntax
+      error. The conditional expression handles this: if the list is empty,
+      the where string is empty, and the SQL is a plain SELECT without
+      a WHERE clause.
+
+  - type: code
+    label: "filter_orders implementation"
+    heading: "Dynamic WHERE in practice"
+    code: |
+      def filter_orders(conn, region=None, category=None, min_revenue=None):
+          conditions = []
+          params = []
+
+          if region is not None:
+              conditions.append('region = ?')
+              params.append(region)
+
+          if category is not None:
+              conditions.append('category = ?')
+              params.append(category)
+
+          if min_revenue is not None:
+              conditions.append('revenue >= ?')
+              params.append(min_revenue)
+
+          where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+          sql   = f'SELECT * FROM orders {where} ORDER BY order_id'
+          return run_query(conn, sql, tuple(params))
+
+      # No filter
+      print(len(filter_orders(conn)))                          # 12
+
+      # One filter
+      print(len(filter_orders(conn, region='East')))           # 4
+
+      # Two filters
+      print(len(filter_orders(conn, region='East',
+                              category='Electronics')))        # 2
+
+      # Three filters
+      print(filter_orders(conn, region='East',
+                          category='Electronics',
+                          min_revenue=500.0))
+      # [{'order_id': 5, 'product': 'Gadget', ..., 'revenue': 1050.0}]
+    narration: >
+      The three-filter case shows the full power of the pattern. Only Gadget
+      in East with revenue above 500 matches. The generated SQL is:
+      'SELECT * FROM orders WHERE region = ? AND category = ? AND revenue >= ?
+      ORDER BY order_id' with params ('East', 'Electronics', 500.0).
+      No string concatenation touches the values; SQLite handles everything.
+      The generated SQL is also readable at a glance — you can log it and
+      understand immediately what the query does.
+
+  - type: concept
+    label: "is not None vs falsy checks"
+    heading: "Use 'is not None', not 'if value'"
+    body: >
+      Using `if region:` instead of `if region is not None:` would silently
+      drop a filter for any falsy value: empty string, 0, 0.0, False.
+      For numeric filters, `min_revenue=0` is a valid filter (include only
+      orders with revenue >= 0 — which is all of them, but it is a
+      syntactically valid request). If you write `if min_revenue:`, passing
+      `min_revenue=0` would be silently ignored because 0 is falsy.
+      Always use `is not None` for optional parameters.
+    bullets:
+      - "if value: — skips None, False, 0, 0.0, '', [], {} (all falsy)"
+      - "if value is not None: — only skips None"
+      - "min_revenue=0 is a valid filter; min_revenue=None means 'not set'"
+      - "The conventional sentinel for 'not provided' is None"
+      - "Use is not None for optional function parameters consistently"
+    narration: >
+      This is a general Python best practice, not just a SQL concern. When
+      a function has an optional parameter with a meaningful default, use
+      None as the sentinel and check `is not None`. If you use 0 as the
+      default, you lose the ability to distinguish 'not provided' from
+      'provided as zero'. The pattern `param=None` plus `if param is not None:`
+      is idiomatic Python for optional arguments.
+
+  - type: exercise
+    heading: "Exercise 3 — filter_orders"
+    prompt: >
+      Implement `filter_orders(conn, region=None, category=None, min_revenue=None)
+      -> list[dict]`. Use the parallel-lists pattern: `conditions = []; params = []`.
+      Append pairs for each non-None argument. Build `where` with the guard
+      `('WHERE ' + ' AND '.join(conditions)) if conditions else ''`.
+      Return `run_query(conn, f'SELECT * FROM orders {where} ORDER BY order_id',
+      tuple(params))`.
+    hint: >
+      The three if-blocks each append one SQL fragment and one value.
+      For min_revenue: `conditions.append('revenue >= ?')` and
+      `params.append(min_revenue)`. The tuple() call on params is needed
+      because run_query expects a tuple, not a list, for the params argument.
+    narration: >
+      Check 3 verifies region='North' returns exactly 4 rows. Check 4 verifies
+      category='Electronics' returns 7 rows. Check 5 verifies the combined
+      filter region='East' + category='Electronics' returns exactly 2 rows.
+      These checks confirm that each filter works independently and that
+      combining them with AND produces the intersection.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Dynamic WHERE: conditions list + params list built in parallel"
+      - "Join conditions with ' AND '.join(conditions)"
+      - "Guard: 'WHERE ' + ... if conditions else '' (avoid bare 'WHERE')"
+      - "tuple(params) — run_query expects a tuple not a list"
+      - "is not None — the correct check for optional parameters"
+      - "Falsy check (if value:) silently ignores 0, False, ''"
+    narration: >
+      You can now build flexible, safe queries. Lesson 4 covers aggregation —
+      the SQL equivalent of groupby().agg() — which is how you compute
+      totals, averages, and counts grouped by product or region.

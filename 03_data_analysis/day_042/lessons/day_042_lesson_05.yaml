@@ -1,0 +1,206 @@
+day: "042"
+lesson: "05"
+title: "JOINs and Querying into Pandas"
+slides:
+  - type: title
+    heading: "JOINs and Querying into Pandas"
+    subheading: "INNER JOIN, LEFT JOIN, ON, and pd.read_sql_query"
+    narration: >
+      Lesson 5 completes Day 42. You will learn how to combine two tables
+      with INNER JOIN — the core relational operation — and how to bring
+      SQL results directly into a pandas DataFrame with pd.read_sql_query.
+      By the end, you will have a complete SQL toolkit: create, insert,
+      filter, aggregate, and join, with results flowing into the data
+      structures you already know from Days 36–40.
+
+  - type: concept
+    label: "The relational model"
+    heading: "Split data into tables; JOIN brings it back together"
+    body: >
+      Relational databases split related data into separate tables.
+      The orders table stores each order; the products table stores each
+      product's metadata (unit price, category). This avoids repeating
+      the category string on every order row. A JOIN combines them:
+      `INNER JOIN products p ON o.product = p.product` adds the product
+      row to every matching order row. INNER JOIN only keeps rows where
+      the ON condition matches in BOTH tables. LEFT JOIN keeps all rows
+      from the left table even if there is no match in the right.
+    bullets:
+      - "Normalisation: split data into tables to avoid repetition"
+      - "JOIN: recombine tables by matching a column"
+      - "ON condition: o.product = p.product — the match column"
+      - "INNER JOIN: only rows matched in BOTH tables"
+      - "LEFT JOIN: all left rows, NULL for unmatched right columns"
+      - "Table aliases: orders o, products p — shorter names"
+    narration: >
+      The difference between INNER and LEFT JOIN matters for the data in
+      Day 42. The orders table has no orders for product 'Thingamajig' in the
+      West region — actually it has no orders in the West for Accessories.
+      A LEFT JOIN of orders ON products would still return all 12 orders.
+      An INNER JOIN of orders ON products returns all 12 because every order's
+      product exists in the products table. But if you joined the other way
+      (products as the left table), LEFT JOIN would return all 4 products even
+      if some had no orders; INNER JOIN would only return products that have
+      orders — again all 4 in this data, so the difference shows up in the
+      GROUP BY output: 7 rows vs potentially fewer.
+
+  - type: code
+    label: "INNER JOIN syntax"
+    heading: "Join orders to products, GROUP BY region and category"
+    code: |
+      sql = (
+          'SELECT o.region, p.category, '
+          'SUM(o.revenue) AS total_revenue, COUNT(*) AS order_count '
+          'FROM orders o '
+          'INNER JOIN products p ON o.product = p.product '
+          'GROUP BY o.region, p.category '
+          'ORDER BY total_revenue DESC'
+      )
+      rows = run_query(conn, sql)
+      print(f'{len(rows)} rows')   # 7
+
+      for r in rows[:3]:
+          print(f"{r['region']:8} {r['category']:14} {r['total_revenue']:.0f}")
+      # East     Accessories    1200
+      # East     Electronics    1150
+      # North    Electronics     910
+    narration: >
+      Seven rows instead of the potential sixteen (4 regions x 4 products would
+      be 16 if all combinations existed). West has no Accessories orders so the
+      East/Accessories group at 1200 is the top — Doohickey (400) plus
+      Thingamajig (800). Notice East/Electronics is 1150 — Gadget (1050) plus
+      Widget (100). Knowing that the top group is East/Accessories not
+      East/Electronics requires actually running the SQL or calculating manually.
+      This is why the gate checks 1200.0 explicitly.
+
+  - type: how_it_works
+    label: "pd.read_sql_query"
+    heading: "SQL result directly into a pandas DataFrame"
+    body: >
+      `pd.read_sql_query(sql, conn)` runs the SQL against the sqlite3
+      connection and returns a pandas DataFrame. Column names come from
+      the SELECT aliases (AS total_revenue, AS order_count). The dtype
+      inference is automatic: INTEGER → int64, REAL → float64, TEXT → object.
+      This bridges the two worlds: use SQL for filtering, joining, and
+      aggregating, then switch to pandas for further analysis, plotting,
+      or formatting that SQL handles less cleanly.
+    bullets:
+      - "pd.read_sql_query(sql, conn) → DataFrame"
+      - "Column names from SELECT ... AS alias"
+      - "Works with sqlite3 connections (also SQLAlchemy engines)"
+      - "Dtype inference: INTEGER→int64, REAL→float64, TEXT→object"
+      - "Use SQL for filtering/joining, pandas for further analysis"
+    narration: >
+      pd.read_sql_query is the bridge between the two tools that complement
+      each other well: SQL is excellent at filtering, joining, and aggregating
+      across large tables stored on disk; pandas excels at reshaping, plotting,
+      and running Python operations row-by-row. A common pattern in production
+      is to do heavy lifting in SQL (possibly on a remote database) and transfer
+      only the summarised result to pandas for presentation and visualisation.
+
+  - type: code
+    label: "pd.read_sql_query in practice"
+    heading: "SQL → DataFrame bridge"
+    code: |
+      import pandas as pd
+      import warnings
+      warnings.filterwarnings('ignore')
+
+      # Aggregation directly into a DataFrame
+      df = pd.read_sql_query(
+          'SELECT region, SUM(revenue) AS total '
+          'FROM orders GROUP BY region ORDER BY total DESC',
+          conn
+      )
+      print(df)
+      #   region   total
+      # 0   East  1550.0
+      # 1   West   950.0
+      # 2  North   910.0
+      # 3  South   695.0
+
+      # JOIN result as DataFrame
+      df2 = pd.read_sql_query(
+          'SELECT o.region, p.category, SUM(o.revenue) AS total_revenue '
+          'FROM orders o '
+          'INNER JOIN products p ON o.product = p.product '
+          'GROUP BY o.region, p.category '
+          'ORDER BY total_revenue DESC',
+          conn
+      )
+      print(df2.dtypes)
+      # region            object
+      # category          object
+      # total_revenue    float64
+    narration: >
+      The DataFrame preserves the column names from the SQL aliases. You can
+      now call df.plot(), df.pivot_table(), or any pandas method on the result.
+      The transition is seamless because pd.read_sql_query handles the
+      type conversion. The two tools are complementary, not competing — SQL
+      for retrieval and summarisation, pandas for subsequent analysis and
+      visualisation.
+
+  - type: code
+    label: "join_summary implementation"
+    heading: "The fifth function"
+    code: |
+      def join_summary(conn):
+          sql = (
+              'SELECT o.region, p.category, '
+              'SUM(o.revenue) AS total_revenue, COUNT(*) AS order_count '
+              'FROM orders o '
+              'INNER JOIN products p ON o.product = p.product '
+              'GROUP BY o.region, p.category '
+              'ORDER BY total_revenue DESC'
+          )
+          return run_query(conn, sql)
+
+      rows = join_summary(conn)
+      print(f'{len(rows)} groups')          # 7
+      top = rows[0]
+      print(top)
+      # {'region': 'East', 'category': 'Accessories',
+      #  'total_revenue': 1200.0, 'order_count': 2}
+    narration: >
+      join_summary has no parameters beyond conn — it always returns the
+      full cross-join aggregation. The seven groups cover all region-category
+      combinations that have at least one matching order. West/Accessories has
+      zero orders in the data (Widget is Electronics, Doohickey is Accessories
+      but all Doohickey orders are in North, South, East) — so INNER JOIN
+      excludes it, giving 7 not 8 groups.
+
+  - type: exercise
+    heading: "Exercise 5 — join_summary"
+    prompt: >
+      Implement `join_summary(conn) -> list[dict]`. Write the INNER JOIN SQL:
+      SELECT o.region, p.category, SUM(o.revenue) AS total_revenue,
+      COUNT(*) AS order_count FROM orders o INNER JOIN products p ON
+      o.product = p.product GROUP BY o.region, p.category ORDER BY
+      total_revenue DESC. Return run_query(conn, sql).
+    hint: >
+      Use table aliases: `FROM orders o` and `INNER JOIN products p`.
+      Reference columns as `o.region`, `p.category`, `o.revenue`.
+      The ON clause is `ON o.product = p.product`. The GROUP BY uses
+      `o.region, p.category` — both group columns, comma-separated.
+    narration: >
+      Check 9 verifies len(join_summary) == 7. Check 10 verifies the top row
+      has total_revenue == 1200.0 (East/Accessories: Doohickey 400 + Thingamajig 800).
+      These two checks confirm the JOIN is correct, the INNER semantics exclude
+      West/Accessories, and the ORDER BY puts the right group first.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "INNER JOIN table2 ON t1.col = t2.col — match rows across tables"
+      - "INNER JOIN: only rows matched in BOTH tables"
+      - "LEFT JOIN: all left rows, NULL for unmatched right side"
+      - "Table aliases (orders o, products p) — shorter column references"
+      - "Multi-column GROUP BY: GROUP BY o.region, p.category"
+      - "pd.read_sql_query(sql, conn) — SQL result as a pandas DataFrame"
+      - "SQL + pandas: use each where it excels"
+    narration: >
+      You now have the full Day 42 SQL toolkit: create, insert, filter, aggregate,
+      join, and bridge to pandas. Day 43 builds on this by letting an LLM write
+      the SQL: Natural Language to SQL — you describe a question in English and
+      the model generates the query. The guardrails you learn tomorrow will use
+      the ? placeholder rules from today.

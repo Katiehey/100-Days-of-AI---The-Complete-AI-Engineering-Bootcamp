@@ -1,0 +1,172 @@
+day: "042"
+lesson: "01"
+title: "SQLite and the sqlite3 Module"
+slides:
+  - type: title
+    heading: "SQLite and the sqlite3 Module"
+    subheading: "sqlite3.connect, cursor, execute, fetchall — a database in one line"
+    narration: >
+      Day 42 introduces SQL and relational databases. You will use SQLite —
+      a full relational database engine built into Python's standard library.
+      No installation, no server, no configuration. One import and one line
+      of code gives you a complete database. By the end of today you will
+      query data with SELECT, filter it with WHERE, aggregate it with GROUP BY,
+      and combine tables with INNER JOIN.
+
+  - type: concept
+    label: "SQLite and sqlite3"
+    heading: "A relational database with no server required"
+    body: >
+      SQLite stores an entire database in a single file (or in RAM with
+      ':memory:'). It supports the full SQL standard: DDL, DML, and DQL.
+      The `sqlite3` module is in Python's standard library — no pip install.
+      It is the right choice for local data storage, prototyping, and
+      small-to-medium datasets. Day 44 will introduce SQLAlchemy for
+      larger apps; today's focus is pure sqlite3.
+    bullets:
+      - "sqlite3 is in Python stdlib — no install needed"
+      - "sqlite3.connect(':memory:') — in-memory database, lost on close"
+      - "sqlite3.connect('sales.db') — file-based, persists between runs"
+      - "Supports full SQL: CREATE, INSERT, SELECT, JOIN, GROUP BY, etc."
+      - "Typical use: prototyping, embedded apps, Day 44 SQLAlchemy replaces for production"
+    narration: >
+      The ':memory:' database is ideal for learning and for gate-executed
+      notebooks: it is fast, requires no cleanup, and vanishes automatically
+      when the connection closes. The syntax is identical to a file-backed
+      database — switching from ':memory:' to 'sales.db' is a one-word change.
+      This makes ':memory:' perfect for development and testing, and
+      'sales.db' perfect for the project where you want the file to persist.
+
+  - type: how_it_works
+    label: "The sqlite3 object model"
+    heading: "Connection → Cursor → execute → fetchall"
+    body: >
+      `conn = sqlite3.connect(':memory:')` opens a connection. A connection
+      manages transactions. `cur = conn.cursor()` creates a cursor — the
+      object that sends SQL to the database and receives results.
+      `cur.execute(sql)` sends one statement. `cur.fetchall()` retrieves
+      all result rows as a list of tuples. `conn.commit()` persists changes
+      (INSERT/UPDATE/DELETE). `conn.close()` releases the connection.
+    bullets:
+      - "Connection: manages the database session and transactions"
+      - "Cursor: executes SQL and holds the result set"
+      - "cur.execute(sql) — send one statement"
+      - "cur.fetchall() → list of tuples"
+      - "cur.fetchone() → one tuple, or None"
+      - "conn.commit() — flush pending changes to disk (or memory)"
+      - "conn.close() — release the connection"
+    narration: >
+      The cursor is a stateful object: after execute(), it holds the result
+      set internally. fetchall() drains it; fetchone() takes one row and
+      leaves the rest. If you call execute() again on the same cursor before
+      fetching, the previous result is discarded. In practice, the simplest
+      pattern is: new cursor for each query, execute, fetchall, done.
+      Day 42's run_query helper wraps this pattern so you never have to
+      manage cursors manually in the exercises.
+
+  - type: code
+    label: "sqlite3 basics"
+    heading: "Connect, execute, fetchall — the minimal pattern"
+    code: |
+      import sqlite3
+
+      # In-memory database
+      conn = sqlite3.connect(':memory:')
+      cur  = conn.cursor()
+
+      # CREATE TABLE
+      cur.execute('''
+          CREATE TABLE IF NOT EXISTS numbers (
+              id    INTEGER PRIMARY KEY,
+              value REAL
+          )''')
+
+      # INSERT rows
+      cur.executemany('INSERT INTO numbers VALUES (?, ?)',
+                      [(1, 3.14), (2, 2.71), (3, 1.41)])
+      conn.commit()
+
+      # SELECT
+      cur.execute('SELECT * FROM numbers ORDER BY value DESC')
+      rows = cur.fetchall()
+      print(rows)
+      # [(1, 3.14), (2, 2.71), (3, 1.41)]
+
+      # Column names from cursor.description
+      cols = [col[0] for col in cur.description]
+      print(cols)  # ['id', 'value']
+
+      conn.close()
+    narration: >
+      The two-question-mark syntax in executemany is called a parameterized
+      query. The values (1, 3.14) are passed separately from the SQL string —
+      SQLite substitutes them safely, handling quoting and type conversion
+      automatically. This is the correct way to insert data. Never use
+      f-strings to interpolate data values into SQL: that creates SQL injection
+      vulnerabilities and breaks on values that contain quotes or special
+      characters. Column names in GROUP BY or ORDER BY are safe to f-string
+      because they are not data — they are structural parts of the query that
+      come from your own code, not from user input.
+
+  - type: concept
+    label: "SQLite column types"
+    heading: "TEXT, REAL, INTEGER, BLOB, NULL — SQLite's five types"
+    body: >
+      SQLite uses five storage classes: NULL, INTEGER (whole numbers),
+      REAL (floating-point), TEXT (strings), and BLOB (raw bytes).
+      Unlike most SQL databases, SQLite is loosely typed: the declared
+      column type is advisory, not enforced. This means you can store a
+      string in an INTEGER column without error. For the course, always
+      declare the correct type — it documents intent and will matter when
+      you move to stricter databases on Day 44.
+    bullets:
+      - "INTEGER — whole numbers (Python int)"
+      - "REAL — floating-point numbers (Python float)"
+      - "TEXT — strings (Python str)"
+      - "BLOB — raw bytes (rarely used in data analysis)"
+      - "NULL — missing value (Python None)"
+      - "PRIMARY KEY — uniquely identifies each row; must be NOT NULL"
+    narration: >
+      SQLite's loose typing is occasionally surprising. If you insert the
+      string '42' into an INTEGER column, SQLite stores it as an integer 42.
+      If you insert a float into an INTEGER column, it stores it as a float
+      REAL. In practice, as long as you use parameterized queries and pass
+      Python native types, the values land in the right storage class.
+      Stick to INTEGER for ids and counts, REAL for prices and revenues,
+      and TEXT for names and labels.
+
+  - type: exercise
+    heading: "Exercise 1 — setup_db"
+    prompt: >
+      Implement `setup_db(conn)`. Create two tables: `orders` (order_id INT PK,
+      product TEXT, category TEXT, region TEXT, price REAL, quantity INT,
+      revenue REAL) and `products` (product TEXT PK, category TEXT,
+      unit_price REAL). Insert the 12 RETAIL_CSV rows into orders and 4
+      product rows into products using `cursor.executemany` with
+      'INSERT OR IGNORE INTO ... VALUES (?,?,?,?,?,?,?)'. Call `conn.commit()`.
+    hint: >
+      Use `cur.execute('''CREATE TABLE IF NOT EXISTS orders (...) ''')` for
+      the DDL. Use `cur.executemany('INSERT OR IGNORE INTO orders VALUES
+      (?,?,?,?,?,?,?)', rows)` where rows is a list of 12 tuples.
+      'INSERT OR IGNORE' skips rows whose PRIMARY KEY already exists,
+      which makes the function safe to call multiple times.
+    narration: >
+      The checks verify: 12 rows in orders, total revenue 4105.0, 4 rows
+      in products, and Gadget's unit_price is 150.0. All checks are
+      deterministic — no Ollama needed for any Day 42 exercise.
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "sqlite3 is in Python stdlib — no install, no server"
+      - "sqlite3.connect(':memory:') — full database in RAM"
+      - "conn.cursor() → cursor for executing SQL"
+      - "cur.execute(sql) / cur.executemany(sql, rows) — run SQL"
+      - "cur.fetchall() → list of tuples"
+      - "cur.description → column metadata (name, type, ...)"
+      - "conn.commit() — persist inserts/updates/deletes"
+      - "Five column types: INTEGER, REAL, TEXT, BLOB, NULL"
+    narration: >
+      You have a working SQLite database. Lesson 2 covers SELECT and WHERE —
+      the two most-used SQL clauses, and the basis for everything else
+      you will build this week.

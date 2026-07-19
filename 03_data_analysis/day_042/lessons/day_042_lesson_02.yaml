@@ -1,0 +1,169 @@
+day: "042"
+lesson: "02"
+title: "SELECT, WHERE, and Parameterized Queries"
+slides:
+  - type: title
+    heading: "SELECT, WHERE, and Parameterized Queries"
+    subheading: "Query structure, filtering, ? placeholders — and why never to f-string data"
+    narration: >
+      Lesson 2 covers the two most-used SQL clauses: SELECT (choose what to
+      return) and WHERE (choose which rows). It also covers parameterized
+      queries — the correct way to pass dynamic values into SQL — and the
+      run_query helper that wraps cursor results as a list of dicts.
+
+  - type: concept
+    label: "SELECT anatomy"
+    heading: "The six clauses of a SELECT statement"
+    body: >
+      A full SELECT has six optional clauses, always in this order:
+      SELECT (columns), FROM (table), WHERE (filter rows), GROUP BY (group),
+      HAVING (filter groups), ORDER BY (sort), LIMIT (cap row count).
+      You do not need all six in every query. The minimum is
+      SELECT ... FROM ..., which returns all rows of a table.
+    bullets:
+      - "SELECT col1, col2 — choose columns (SELECT * for all)"
+      - "FROM table — which table to read"
+      - "WHERE condition — filter rows before grouping"
+      - "GROUP BY col — aggregate into groups"
+      - "HAVING condition — filter groups after aggregation"
+      - "ORDER BY col ASC/DESC — sort result"
+      - "LIMIT n — return at most n rows"
+    narration: >
+      The ORDER matters: WHERE always comes before GROUP BY, which comes
+      before HAVING. A common mistake is writing HAVING when you mean WHERE:
+      WHERE filters individual rows before aggregation; HAVING filters
+      aggregated groups. If you write HAVING revenue > 100, SQLite
+      evaluates it on the aggregated output. If you write WHERE revenue > 100,
+      it filters before the aggregation — a very different result.
+
+  - type: how_it_works
+    label: "Parameterized queries"
+    heading: "? placeholders — the only safe way to pass data into SQL"
+    body: >
+      `cur.execute("SELECT * FROM orders WHERE region = ?", ('North',))` passes
+      the string 'North' as a parameter. SQLite substitutes it safely, handling
+      quoting, escaping, and type coercion. The alternative — building the SQL
+      with an f-string like `f"WHERE region = '{region}'"` — is dangerous
+      for data values: a user could pass `"East' OR '1'='1"` and read the
+      entire table. For column names (GROUP BY, ORDER BY), f-strings are
+      acceptable because column names come from your code, not from user input.
+    bullets:
+      - "? placeholder — one per value, in the SQL string"
+      - "params tuple — values in the same order as ? markers"
+      - "cur.execute(sql, params) — SQLite substitutes safely"
+      - "cur.executemany(sql, list_of_tuples) — batch inserts"
+      - "Never f-string data values into SQL — SQL injection risk"
+      - "f-string column names (GROUP BY col) are safe when col comes from your code"
+    narration: >
+      The SQL injection rule is worth internalising: data values (strings a
+      user might control) always go through the ? placeholder. Structure values
+      (table names, column names, ORDER BY direction) that come from your own
+      trusted code can be interpolated with f-strings. The distinction is:
+      is this string from outside my program? If yes, use ?.
+      If it comes from my own constant or function parameter that I control,
+      f-string interpolation is acceptable.
+
+  - type: how_it_works
+    label: "run_query helper"
+    heading: "cursor.description — column names from a result set"
+    body: >
+      `cursor.description` is a tuple of 7-element tuples, one per column.
+      The first element of each sub-tuple is the column name. So
+      `[col[0] for col in cur.description]` gives you the column names.
+      Combined with `zip(cols, row)` in a dict comprehension, this converts
+      each row tuple into a dict: `dict(zip(cols, row))`.
+      `run_query` does this once and returns `list[dict]` for every query.
+    bullets:
+      - "cur.description → tuple of 7-elem tuples, one per column"
+      - "col[0] → column name (other elements are type info, rarely used)"
+      - "cols = [col[0] for col in cur.description]"
+      - "dict(zip(cols, row)) → one row as {col: val, ...}"
+      - "[dict(zip(cols, row)) for row in cur.fetchall()] → list of row dicts"
+    narration: >
+      Without run_query, you would need to remember that revenue is column
+      index 6 and region is index 3. With run_query returning dicts, you
+      write row['revenue'] and row['region'] — self-documenting and safe
+      against column reordering. This pattern of converting tuples to named
+      dicts is so common that Python 3.12+ added sqlite3.Row as a built-in
+      alternative. Day 42 uses the dict pattern explicitly so you understand
+      what cursor.description contains.
+
+  - type: code
+    label: "SELECT, WHERE, and run_query"
+    heading: "Queries in practice"
+    code: |
+      import sqlite3
+
+      def run_query(conn, sql, params=()):
+          cur = conn.cursor()
+          cur.execute(sql, params)
+          cols = [col[0] for col in cur.description]
+          return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+      # (conn already created and setup_db called)
+
+      # SELECT all
+      all_rows = run_query(conn, 'SELECT * FROM orders')
+      print(f'{len(all_rows)} rows')                # 12 rows
+
+      # WHERE with param
+      north = run_query(conn,
+                        'SELECT * FROM orders WHERE region = ?',
+                        ('North',))
+      print(f'{len(north)} North orders')            # 4 North orders
+
+      # Multi-condition WHERE
+      big = run_query(conn,
+                      'SELECT product, revenue FROM orders '
+                      'WHERE region = ? AND revenue >= ?',
+                      ('East', 500.0))
+      print(big)   # [{'product': 'Gadget', 'revenue': 1050.0}]
+
+      # SELECT specific columns + ORDER BY
+      top3 = run_query(conn,
+                       'SELECT product, revenue FROM orders '
+                       'ORDER BY revenue DESC LIMIT 3')
+      for r in top3:
+          print(r['product'], r['revenue'])
+    narration: >
+      The multi-condition WHERE clause uses AND to combine two conditions.
+      Both must be true for a row to be included. SQL also supports OR
+      (either condition true) and NOT (negate a condition). The order of
+      conditions does not matter for correctness but matters for readability:
+      put the most selective condition first so a reader can quickly understand
+      what the query returns. Big East orders returns only Gadget East because
+      it is the only order above 500 in the East region.
+
+  - type: exercise
+    heading: "Exercise 2 — run_query"
+    prompt: >
+      Implement `run_query(conn, sql, params=()) -> list[dict]`. Three lines:
+      `cur = conn.cursor()`, `cur.execute(sql, params)`,
+      `cols = [col[0] for col in cur.description]`,
+      `return [dict(zip(cols, row)) for row in cur.fetchall()]`.
+      The default `params=()` makes it work for both plain and parameterized queries.
+    hint: >
+      `cur.description` is available after `cur.execute()` for any SELECT.
+      For non-SELECT statements (INSERT, CREATE), `cur.description` is None.
+      run_query is only for SELECT queries, so description is always populated.
+    narration: >
+      Check 5 verifies that passing params=('North',) to a WHERE clause
+      returns exactly 4 rows, all with region='North'. This is the critical
+      parameterized-query check: it proves that the ? placeholder works and
+      that data is correctly substituted. All five checks are deterministic.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "SELECT, FROM, WHERE, GROUP BY, HAVING, ORDER BY, LIMIT — the six clauses"
+      - "Clauses must appear in this order; all except SELECT/FROM are optional"
+      - "WHERE filters rows before grouping; HAVING filters groups after"
+      - "? placeholder — the only safe way to pass data values into SQL"
+      - "cur.description → column names (col[0] for each)"
+      - "dict(zip(cols, row)) → row tuple to named dict"
+      - "run_query: three lines that make all result rows into dicts"
+    narration: >
+      You can now query and filter. Lesson 3 covers dynamic WHERE clauses —
+      building SQL programmatically from optional keyword arguments — which
+      is the pattern filter_orders uses to handle region, category, and
+      min_revenue as optional filters.
