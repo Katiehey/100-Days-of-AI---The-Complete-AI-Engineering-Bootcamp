@@ -1,0 +1,144 @@
+day: "043"
+lesson: "03"
+title: "Parsing SQL from LLM Responses"
+slides:
+  - type: title
+    heading: "Parsing SQL from LLM Responses"
+    subheading: "extract_sql — the same fence pattern as Day 41, applied to SQL"
+    narration: >
+      Lesson 3 is the Day 43 version of Day 41's extract_code. The LLM wraps
+      its SQL in a fenced code block. extract_sql finds that block, extracts
+      the content, and strips whitespace. It tries three patterns in order:
+      sql-tagged fence first, untagged fence second, plain text fallback third.
+      The only new technical point is the fence = backtick times 3 trick —
+      which you already know from Day 41.
+
+  - type: concept
+    label: "Fence extraction pattern"
+    heading: "Three-layer fallback: tagged → untagged → plain"
+    body: >
+      LLMs are not perfectly consistent about how they fence code. Most of the
+      time they use ` ```sql ... ``` `. Sometimes they use ` ``` ... ``` `
+      without a language tag. Occasionally they output the SQL directly.
+      `extract_sql` handles all three cases with a priority search:
+      first try the sql-tagged pattern; if no match, try the untagged pattern;
+      if still no match, return the stripped response as-is.
+      The regex uses `re.DOTALL` so that `.` matches newlines — essential
+      for multi-line SQL.
+    bullets:
+      - "Pattern 1: fence + 'sql' + whitespace + (.*?) + fence (re.DOTALL)"
+      - "Pattern 2: fence + whitespace + (.*?) + fence (re.DOTALL)"
+      - "Fallback: response.strip() — plain SQL, no fence"
+      - ".*? non-greedy — stops at first closing fence (not the last)"
+      - "re.DOTALL — makes '.' match newlines for multi-line SQL"
+      - "fence = '`' * 3 — never use literal triple-backticks in source"
+    narration: >
+      The non-greedy quantifier `.*?` is critical. If the LLM response contains
+      two fenced blocks (it sometimes adds an explanation block after the SQL
+      block), greedy `.*` would capture everything from the opening fence of
+      the first block to the closing fence of the last block — including the
+      prose in between. Non-greedy `.*?` stops at the first closing fence,
+      giving you just the first code block. This is the same reason Day 41's
+      extract_code uses `.*?`.
+
+  - type: code
+    label: "extract_sql implementation"
+    heading: "Three-tier fence parser"
+    code: |
+      import re
+
+      def extract_sql(response: str) -> str:
+          fence = '`' * 3
+          match = re.search(fence + r'sql\s*(.*?)' + fence, response, re.DOTALL)
+          if match:
+              return match.group(1).strip()
+          match = re.search(fence + r'\s*(.*?)' + fence, response, re.DOTALL)
+          if match:
+              return match.group(1).strip()
+          return response.strip()
+
+      fence = '`' * 3
+
+      # Case 1: sql-tagged fence
+      r1 = fence + 'sql\nSELECT * FROM orders\n' + fence
+      print(extract_sql(r1))
+      # SELECT * FROM orders
+
+      # Case 2: untagged fence
+      r2 = fence + '\nSELECT COUNT(*) FROM orders\n' + fence
+      print(extract_sql(r2))
+      # SELECT COUNT(*) FROM orders
+
+      # Case 3: plain SQL (no fence)
+      r3 = '  SELECT 1  '
+      print(extract_sql(r3))
+      # SELECT 1
+
+      # Case 4: multi-line SQL
+      r4 = fence + 'sql\nSELECT product,\n       SUM(revenue)\nFROM orders\nGROUP BY product\n' + fence
+      sql = extract_sql(r4)
+      print('GROUP BY' in sql)  # True
+    narration: >
+      In case 4, the `re.DOTALL` flag makes the `.` in `.*?` match the newlines
+      between `SELECT product,`, `       SUM(revenue)`, and `FROM orders`. Without
+      DOTALL, the `.` would stop at the first newline and the match would fail.
+      Multi-line SQL is the common case — any query with GROUP BY, ORDER BY,
+      or JOINs will span multiple lines. Always pass `re.DOTALL` for code
+      extraction patterns.
+
+  - type: concept
+    label: "Robustness considerations"
+    heading: "What extract_sql cannot handle"
+    body: >
+      `extract_sql` is deliberately simple. It does not verify that the
+      extracted string is valid SQL. It does not handle multiple SQL statements
+      in one fence (takes the first fence block). It does not detect if the
+      model refused to answer ('I cannot generate SQL for that request').
+      These cases are handled downstream: `is_safe_sql` rejects non-SELECT SQL;
+      `run_query` raises an exception if the SQL is syntactically invalid; the
+      `try/except` in `ask_db` catches that and returns an error string.
+    bullets:
+      - "extract_sql does not validate — it extracts"
+      - "Multiple fenced blocks → first block taken (non-greedy)"
+      - "Model refusal ('I cannot...') → returns the refusal text as-is"
+      - "Downstream gates handle validity (is_safe_sql) and syntax (try/except)"
+      - "Single responsibility: extract_sql just extracts, ask_db handles errors"
+    narration: >
+      If the model refuses and returns 'I cannot generate SQL for that request',
+      extract_sql returns that string (no fence, fallback path). Then is_safe_sql
+      receives 'I cannot generate SQL...' — it does not start with 'select', so it
+      returns False. ask_db returns the rejection message. The pipeline degrades
+      gracefully without exceptions at any step.
+
+  - type: exercise
+    heading: "Exercise 3 — extract_sql"
+    prompt: >
+      Implement `extract_sql(response: str) -> str`. Use `fence = '`' * 3`.
+      Try `re.search(fence + r'sql\s*(.*?)' + fence, response, re.DOTALL)` first.
+      If matched, return `match.group(1).strip()`. Try `re.search(fence + r'\s*(.*?)' + fence,
+      response, re.DOTALL)` second. If matched, return `.group(1).strip()`.
+      Fallback: `return response.strip()`.
+    hint: >
+      The `r'sql\s*(.*?)'` is a raw string — the `\s` and `.*?` are regex
+      syntax, not Python escape sequences. The `fence +` concatenation puts
+      the three-backtick string before the raw string in the final pattern.
+      Import re at the top of the function or at the module level.
+    narration: >
+      Check 2 passes a response of `fence + 'sql\n' + sql_text + '\n' + fence`
+      and expects `sql_text`. The `\s*` in the pattern allows any whitespace
+      between 'sql' and the SQL content, including newlines. Check 5 passes
+      a multi-line SQL query to verify that DOTALL is working correctly.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Three-tier extraction: sql-tagged fence → untagged fence → plain text"
+      - "fence = '`' * 3 — build the fence string dynamically, never hard-coded"
+      - "re.DOTALL — essential for multi-line code blocks"
+      - ".*? non-greedy — stops at first closing fence"
+      - "match.group(1) — first capture group, the content inside the fences"
+      - "extract_sql only extracts — validity checking is is_safe_sql's job"
+    narration: >
+      Lesson 4 covers is_safe_sql — the guardrail. You will see why a simple
+      'starts with SELECT' check is sufficient for a local in-memory database
+      guardrail, and how multi-statement injection is blocked with a semicolon check.

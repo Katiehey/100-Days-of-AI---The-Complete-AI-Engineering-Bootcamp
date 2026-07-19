@@ -1,0 +1,137 @@
+day: "043"
+lesson: "01"
+title: "The Text-to-SQL Pattern"
+slides:
+  - type: title
+    heading: "The Text-to-SQL Pattern"
+    subheading: "Natural language → schema description → LLM prompt → SQL"
+    narration: >
+      Day 43 builds directly on Day 41 and Day 42. In Day 41 you asked
+      questions of a pandas DataFrame and the LLM wrote Python. Today
+      you ask questions of a SQLite database and the LLM writes SQL.
+      The architecture is identical: describe your data source, prompt
+      the LLM, extract the code, run it, return the result. The data
+      source changes; the pattern does not.
+
+  - type: concept
+    label: "Text-to-SQL overview"
+    heading: "The five-step pipeline"
+    body: >
+      1. `get_db_schema(conn)` — query `sqlite_master` to produce a text
+      description of all tables and columns. This is the LLM's only view
+      of the database.
+      2. `build_sql_prompt(question, schema_str)` — wrap the schema and
+      question in a prompt that tells the LLM to write a SELECT query.
+      3. `extract_sql(response)` — parse the SQL from the fenced code block
+      in the LLM's reply.
+      4. `is_safe_sql(sql)` — reject anything that is not a SELECT statement.
+      5. `run_query(conn, sql)` — execute the SQL and return rows as dicts.
+      `ask_db(conn, question)` composes all five steps into one call.
+    bullets:
+      - "get_db_schema → schema string (LLM context)"
+      - "build_sql_prompt → full prompt string"
+      - "LLM call → fenced SQL response"
+      - "extract_sql → raw SQL string"
+      - "is_safe_sql → guardrail gate (True/False)"
+      - "run_query → list[dict] result"
+    narration: >
+      The pipeline mirrors Day 41 exactly. `get_db_schema` plays the role
+      of `get_df_schema`; `build_sql_prompt` plays the role of `build_query_prompt`;
+      `extract_sql` plays the role of `extract_code`; `run_query` from Day 42
+      replaces `exec(code, namespace)`. The key difference is the guardrail:
+      SQL is more dangerous than pandas expressions because SQL can modify or
+      delete data, so `is_safe_sql` is a required gate, not an optional check.
+
+  - type: how_it_works
+    label: "sqlite_master"
+    heading: "get_db_schema — querying the schema catalogue"
+    body: >
+      SQLite keeps a hidden table called `sqlite_master` that stores the
+      DDL (CREATE TABLE statement) for every table you have created.
+      `SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name`
+      returns one row per table: `name` is the table name, `sql` is the
+      full CREATE TABLE string. This is exactly what an LLM needs to
+      understand which columns exist and what types they are.
+    bullets:
+      - "sqlite_master — hidden catalogue table in every SQLite database"
+      - "type='table' — filter for tables (also stores views, indexes, triggers)"
+      - "name column — table name"
+      - "sql column — original CREATE TABLE statement"
+      - "ORDER BY name — deterministic order (LLM output is sensitive to order)"
+      - "Empty database → 'No tables found.' guard"
+    narration: >
+      The `sql` column contains exactly what you wrote in `CREATE TABLE`.
+      This gives the LLM the column names, their types, and any constraints
+      (PRIMARY KEY, NOT NULL) — everything it needs to write correct SQL.
+      An alternative approach is to query `PRAGMA table_info(tablename)` for
+      each table, which gives a row per column. The `sqlite_master` approach
+      is more compact and closer to how humans write schemas.
+
+  - type: code
+    label: "get_db_schema implementation"
+    heading: "From connection to schema string"
+    code: |
+      import sqlite3
+
+      def get_db_schema(conn) -> str:
+          cur = conn.cursor()
+          cur.execute(
+              "SELECT name, sql FROM sqlite_master "
+              "WHERE type='table' ORDER BY name"
+          )
+          rows = cur.fetchall()
+          if not rows:
+              return 'No tables found.'
+          parts = []
+          for name, ddl in rows:
+              parts.append(f'Table: {name}')
+              parts.append(ddl)
+              parts.append('')
+          return '\n'.join(parts).strip()
+
+      # Example output (two tables)
+      conn = sqlite3.connect(':memory:')
+      conn.execute('CREATE TABLE t (id INT, name TEXT)')
+      print(get_db_schema(conn))
+      # Table: t
+      # CREATE TABLE t (id INT, name TEXT)
+    narration: >
+      The empty string at the end of each table's parts list adds a blank
+      line between tables when joined. The `.strip()` removes any trailing
+      blank line at the end. The output is clean, human-readable, and
+      compact enough to fit in a prompt without wasting tokens. For a database
+      with 10 tables, this might produce 30-50 lines — well within the context
+      window of any local model.
+
+  - type: exercise
+    heading: "Exercise 1 — get_db_schema"
+    prompt: >
+      Implement `get_db_schema(conn) -> str`. Query sqlite_master:
+      `cur.execute("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name")`.
+      `cur.fetchall()` gives `list[(name, ddl)]`. If empty, return `'No tables found.'`.
+      Otherwise build a parts list: for each `(name, ddl)`, append `f'Table: {name}'`,
+      then ddl, then `''` (blank line). Return `'\n'.join(parts).strip()`.
+    hint: >
+      The query `SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name`
+      is passed as a string to `cur.execute()`. No parameters needed (no `?` placeholder).
+      `cur.fetchall()` returns a list of tuples, not dicts. Access name as `rows[i][0]`
+      or unpack directly: `for name, ddl in rows:`.
+    narration: >
+      Check 3 verifies 'orders' appears in the schema string. Check 4 verifies
+      'products' appears. Check 5 verifies 'revenue' appears (a column name).
+      All three are case-insensitive via `.lower()`. The schema string from the
+      orders/products database is about 20 lines — the right length for prompt context.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Text-to-SQL pipeline: describe schema → prompt → LLM → extract SQL → gate → run"
+      - "sqlite_master — hidden catalogue with CREATE TABLE DDL for every table"
+      - "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name"
+      - "cur.fetchall() returns list of tuples — unpack with 'for name, ddl in rows:'"
+      - "get_db_schema builds a parts list and joins with newlines"
+      - "Mirrors Day 41's get_df_schema: describe data source → LLM context"
+    narration: >
+      Lesson 2 covers building the SQL prompt and why the prompt structure
+      matters for reliable SQL generation. The schema string you just built
+      becomes the main context block in that prompt.

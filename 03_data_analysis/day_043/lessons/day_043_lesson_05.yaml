@@ -1,0 +1,188 @@
+day: "043"
+lesson: "05"
+title: "Assembling ask_db"
+slides:
+  - type: title
+    heading: "Assembling ask_db"
+    subheading: "Five functions → one pipeline call with graceful error handling"
+    narration: >
+      Lesson 5 assembles everything. ask_db is seven lines that compose the
+      five functions from lessons 1-4 into a single call. The lesson covers
+      the composition itself, why each step is in the order it is, and how
+      the try/except around run_query makes the pipeline never raise — always
+      returning a string, whether that string is a result, an error message,
+      or a rejection notice.
+
+  - type: concept
+    label: "ask_db composition"
+    heading: "Seven lines that connect schema → LLM → SQL → result"
+    body: >
+      `ask_db(conn, question, model='llama3.2')` composes the pipeline in order:
+      schema = get_db_schema(conn); prompt = build_sql_prompt(question, schema);
+      resp = ollama.chat(model=model, messages=[{'role':'user','content':prompt}]);
+      sql = extract_sql(resp['message']['content']); if not is_safe_sql(sql):
+      return rejection; try: rows = run_query(conn, sql); except: return error;
+      if not rows: return 'No results found.'; return str(rows).
+      Each step's output is the next step's input. No step is optional.
+    bullets:
+      - "get_db_schema → schema string (what the LLM sees)"
+      - "build_sql_prompt → prompt string (the full model input)"
+      - "ollama.chat → resp dict (the LLM's raw response)"
+      - "extract_sql(resp['message']['content']) → SQL string"
+      - "is_safe_sql → gate: return rejection message if False"
+      - "run_query in try/except → rows or error string"
+      - "str(rows) → final string return (always a string)"
+    narration: >
+      The return type of ask_db is always str. This is intentional: callers
+      do not need to handle exceptions or check types — they always get a string.
+      The string might be a list of dicts (the normal case), an error message
+      (bad SQL), a rejection notice (unsafe SQL), or 'No results found.' (empty
+      result). All four cases are represented as strings with a common calling
+      convention. This is the same pattern as Day 41's ask_df.
+
+  - type: code
+    label: "ask_db implementation"
+    heading: "The full pipeline in one function"
+    code: |
+      import ollama
+
+      def ask_db(conn, question: str, model: str = 'llama3.2') -> str:
+          schema = get_db_schema(conn)
+          prompt = build_sql_prompt(question, schema)
+          resp   = ollama.chat(model=model,
+                               messages=[{'role': 'user', 'content': prompt}])
+          sql    = extract_sql(resp['message']['content'])
+          if not is_safe_sql(sql):
+              return f'Unsafe SQL rejected: {sql[:120]}'
+          try:
+              rows = run_query(conn, sql)
+          except Exception as e:
+              return f'Query error: {e}'
+          if not rows:
+              return 'No results found.'
+          return str(rows)
+
+      # Demo (conn already has orders + products)
+      print(ask_db(conn, 'How many orders are there?'))
+      # [{'COUNT(*)': 12}]
+
+      print(ask_db(conn, 'Which product has the highest total revenue?'))
+      # [{'product': 'Gadget', 'total': 1800.0}]
+
+      print(ask_db(conn, 'What is the total revenue by region?'))
+      # [{'region': 'East', ...}, {'region': 'West', ...}, ...]
+    narration: >
+      The `sql[:120]` in the rejection message caps the rejected SQL to 120
+      characters. If the model produces a very long non-SELECT response, you
+      don't want to return the whole thing — just enough to diagnose what
+      went wrong. The `try/except Exception as e` around run_query is broad:
+      it catches SQLite syntax errors, column-not-found errors, and any other
+      exception that run_query might raise. The error string `f'Query error: {e}'`
+      gives enough information to debug the generated SQL.
+
+  - type: how_it_works
+    label: "Error paths"
+    heading: "Four return paths — all strings"
+    body: >
+      `ask_db` has four possible return paths:
+      (1) Normal — rows is non-empty: `return str(rows)`. Typical result.
+      (2) Empty — rows is an empty list: `return 'No results found.'`.
+      Happens when the SQL is valid but no rows match.
+      (3) Guardrail — is_safe_sql returns False: `return f'Unsafe SQL rejected: {sql[:120]}'`.
+      Happens when the model generates non-SELECT SQL.
+      (4) Syntax error — run_query raises: `return f'Query error: {e}'`.
+      Happens when the model generates syntactically invalid SQL (wrong column name,
+      wrong table name, etc.).
+    bullets:
+      - "Normal path → str(rows) — e.g. '[{...}, {...}]'"
+      - "Empty path → 'No results found.' — valid SQL, zero rows"
+      - "Guardrail path → 'Unsafe SQL rejected: ...' — non-SELECT"
+      - "Error path → 'Query error: ...' — invalid SQL syntax"
+      - "All four paths return str — callers never need to handle None or raise"
+      - "Caller can check result.startswith('Query error') or 'Unsafe' to detect failures"
+    narration: >
+      The caller can distinguish these paths if needed. A production wrapper
+      might check `result.startswith('Query error:')` and retry with a different
+      prompt, appending the error to the messages list so the model can self-correct.
+      Day 31's resilience patterns (retry + exponential backoff) apply here too.
+      For today's project, returning the error string is sufficient — the user
+      can rephrase their question if the first attempt fails.
+
+  - type: code
+    label: "Common failure modes"
+    heading: "What LLMs get wrong and how to diagnose"
+    code: |
+      # Failure 1: wrong column name (hallucination)
+      # Model generates: SELECT SUM(sales) FROM orders
+      # run_query raises: OperationalError: no such column: sales
+      # ask_db returns: 'Query error: no such column: sales'
+      # Fix: double-check schema in get_db_schema output
+
+      # Failure 2: wrong table name (hallucination)
+      # Model generates: SELECT * FROM sale_orders
+      # run_query raises: OperationalError: no such table: sale_orders
+      # ask_db returns: 'Query error: no such table: sale_orders'
+      # Fix: schema description must include exact table names
+
+      # Failure 3: ambiguous question → wrong SQL
+      # Q: 'Show me the top product'
+      # Model generates: SELECT * FROM orders ORDER BY order_id LIMIT 1
+      # Instead of: SELECT product, SUM(revenue) AS total FROM orders
+      #             GROUP BY product ORDER BY total DESC LIMIT 1
+      # ask_db returns: result is technically valid but semantically wrong
+      # Fix: rephrase question — 'Which product has the highest total revenue?'
+
+      # Diagnosis: print the extracted SQL
+      import ollama
+      schema = get_db_schema(conn)
+      q = 'Show me the top product'
+      prompt = build_sql_prompt(q, schema)
+      resp = ollama.chat(model='llama3.2', messages=[{'role':'user','content':prompt}])
+      sql = extract_sql(resp['message']['content'])
+      print('Generated SQL:', sql)
+    narration: >
+      Logging the generated SQL is the most useful debugging technique. If
+      ask_db returns an unexpected result or a query error, print the SQL
+      to understand what the model actually produced. Adding a `verbose=False`
+      parameter to ask_db that optionally prints the SQL before running it
+      is a common enhancement in production text-to-SQL systems. This is the
+      Bonus Challenge in the Day 43 project.
+
+  - type: exercise
+    heading: "Exercise 5 — ask_db"
+    prompt: >
+      Implement `ask_db(conn, question: str, model: str = 'llama3.2') -> str`.
+      Seven steps: (1) `schema = get_db_schema(conn)`, (2) `prompt = build_sql_prompt(question, schema)`,
+      (3) `resp = ollama.chat(model=model, messages=[{'role':'user','content':prompt}])`,
+      (4) `sql = extract_sql(resp['message']['content'])`,
+      (5) `if not is_safe_sql(sql): return f'Unsafe SQL rejected: {sql[:120]}'`,
+      (6) `try: rows = run_query(conn, sql)` / `except Exception as e: return f'Query error: {e}'`,
+      (7) `if not rows: return 'No results found.'` / `return str(rows)`.
+    hint: >
+      The try/except wraps only the `run_query` call (step 6), not the
+      entire function body. The is_safe_sql check (step 5) is before the try
+      block. The empty-rows check (step 7) is inside the try block after
+      run_query returns — if rows is [], we know the SQL ran but matched
+      nothing. import ollama at the top of the function or at module level.
+    narration: >
+      Check 2 calls ask_db with 'How many orders are there?' and verifies the
+      result is a non-empty string. Check 3 patches extract_sql to always
+      return 'DROP TABLE orders' and verifies the rejection path triggers.
+      Check 4 patches extract_sql to return 'SELECT nonexistent_col FROM orders'
+      and verifies that the query error path returns a string rather than
+      raising. Check 5 asks a revenue question end-to-end with Ollama.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ask_db composes 5 functions: get_db_schema → prompt → LLM → extract → gate → run"
+      - "Always returns str — four paths: result, empty, rejection, error"
+      - "try/except around run_query — bad SQL becomes an error string, not an exception"
+      - "sql[:120] in rejection — caps long non-SELECT responses"
+      - "str(rows) converts list[dict] to a string for uniform return type"
+      - "Log extracted SQL to diagnose failures — add verbose=False for production"
+    narration: >
+      Day 43 is complete. You can now query any SQLite database in plain English.
+      Day 44 extends this to file-backed databases and SQLAlchemy — the same
+      ask_db pipeline works unchanged. The text-to-SQL pattern you built today
+      is the foundation for the SQL-agent work in Section 6.

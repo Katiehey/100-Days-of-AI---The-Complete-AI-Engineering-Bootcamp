@@ -1,0 +1,145 @@
+day: "043"
+lesson: "02"
+title: "Building the SQL Prompt"
+slides:
+  - type: title
+    heading: "Building the SQL Prompt"
+    subheading: "Role, constraints, schema, question — in that order"
+    narration: >
+      The prompt is the contract between your code and the LLM. For SQL
+      generation specifically, the prompt must specify the role (SQL expert),
+      the dialect (SQLite), the output format (fenced SQL code block only),
+      and the schema. Lesson 2 covers what makes a text-to-SQL prompt
+      reliable and what happens when you leave parts out.
+
+  - type: concept
+    label: "Prompt anatomy for SQL"
+    heading: "Four required elements"
+    body: >
+      A reliable SQL prompt contains four elements in order:
+      (1) Role — 'You are a SQL expert. Write a SQLite SELECT query.'
+      (2) Constraints — 'Use only SELECT. Respond with ONLY a fenced SQL
+      code block, no explanation.'
+      (3) Schema — the output of `get_db_schema(conn)`.
+      (4) Question — the user's natural-language query.
+      Omitting the role produces vague responses. Omitting the output
+      format constraint makes extraction unreliable. Omitting the schema
+      makes correct SQL generation impossible.
+    bullets:
+      - "Role — tells the model what it is (SQL expert, SQLite dialect)"
+      - "Constraints — SELECT only; fenced code block, no prose"
+      - "Schema — CREATE TABLE DDL from get_db_schema"
+      - "Question — user's natural-language query"
+      - "Order matters: role and constraints before schema and question"
+      - "Never say 'fenced with triple-backticks' — say 'fenced SQL code block'"
+    narration: >
+      The 'no explanation' constraint is important. Without it, many models
+      preface the SQL with 'Here is the SQL query to answer your question:'
+      followed by the fenced block, followed by an explanation paragraph.
+      That structure is fine for a human reader but it means your extractor
+      has to handle prose text before the code block. 'Respond with ONLY
+      a fenced SQL code block' makes the extractor's job deterministic.
+
+  - type: code
+    label: "build_sql_prompt implementation"
+    heading: "Four elements in one string"
+    code: |
+      def build_sql_prompt(question: str, schema_str: str) -> str:
+          return (
+              'You are a SQL expert. Write a SQLite SELECT query to answer the question.\n\n'
+              'Requirements:\n'
+              '- Use only SELECT statements.\n'
+              '- The database schema is provided below.\n'
+              '- Respond with ONLY a fenced SQL code block, no explanation.\n\n'
+              f'Schema:\n{schema_str}\n\n'
+              f'Question: {question}'
+          )
+
+      # Example output
+      schema = 'Table: orders\nCREATE TABLE orders (order_id INT, revenue REAL)'
+      prompt = build_sql_prompt('What is the total revenue?', schema)
+      print(prompt)
+      # You are a SQL expert. Write a SQLite SELECT query to answer the question.
+      #
+      # Requirements:
+      # - Use only SELECT statements.
+      # - The database schema is provided below.
+      # - Respond with ONLY a fenced SQL code block, no explanation.
+      #
+      # Schema:
+      # Table: orders
+      # CREATE TABLE orders (order_id INT, revenue REAL)
+      #
+      # Question: What is the total revenue?
+    narration: >
+      The prompt uses a parenthesised string concatenation — each piece is
+      a separate string literal joined implicitly by Python's string literal
+      adjacency rule. No += and no backslashes needed. The `f'Schema:\n{schema_str}'`
+      injection puts the full DDL into the prompt context. The model will see
+      column names, types, and constraints and use them when generating the query.
+      If the schema mentions `revenue REAL`, the model will use `SUM(revenue)`
+      not `SUM(sales)` or some other hallucinated column name.
+
+  - type: concept
+    label: "Why no triple-backticks in the prompt"
+    heading: "Avoid literal fence characters in implementation strings"
+    body: >
+      Day 41 established this rule: if the `<details>` solution block
+      contains the literal string ` ```python `, the gate's injection
+      parser cuts off the solution early, producing a SyntaxError.
+      The same rule applies to ` ```sql `. The `build_sql_prompt`
+      implementation already avoids this — it says 'fenced SQL code block'
+      instead of writing the actual fence characters. This is not just a
+      style choice: it prevents a real parser bug.
+    bullets:
+      - "Gate injector uses first triple-backtick in <details> as code fence end"
+      - "If implementation contains triple-backticks, injection is cut short"
+      - "Fix: replace triple-backtick literals with prose ('fenced SQL code block')"
+      - "Same rule applies to extract_sql — use fence = '`' * 3 dynamically"
+      - "This was the root cause of the Day 41 exercise_02/exercise_03 failures"
+    narration: >
+      The rule is permanent: any implementation string that would naturally
+      contain ` ``` ` (three consecutive backticks) must either rephrase
+      the user-facing text ('fenced code block') or construct the fence
+      dynamically in code (`fence = '`' * 3`). The build_sql_prompt function
+      tells the LLM to respond with a 'fenced SQL code block' — the LLM
+      understands this means the standard markdown code fence, even without
+      seeing the literal characters in the prompt.
+
+  - type: exercise
+    heading: "Exercise 2 — build_sql_prompt"
+    prompt: >
+      Implement `build_sql_prompt(question: str, schema_str: str) -> str`.
+      Return a single string containing: role instruction ('SQL expert',
+      'SQLite SELECT query'), requirements ('SELECT only', 'fenced SQL code
+      block', 'no explanation'), then `f'Schema:\n{schema_str}'`, then
+      `f'Question: {question}'`. Do not use literal triple-backticks in
+      the source.
+    hint: >
+      Use a parenthesised multi-line string like the example above. The
+      f-string lines for schema_str and question must have the `f` prefix.
+      The requirements lines are plain strings (no f-prefix needed since
+      they contain no variables). The prompt does not need to be exact —
+      checks 3-5 only verify that the question, schema_str, and a
+      SQL/SELECT keyword appear somewhere in the output.
+    narration: >
+      Check 3 verifies `Q in prompt` (the question string appears verbatim).
+      Check 4 verifies `SCHEMA in prompt` (the schema string appears verbatim).
+      Check 5 verifies `'SELECT' in prompt or 'SQL' in prompt` (the prompt
+      instructs the LLM to write SQL). These three checks validate the
+      functional contract without enforcing an exact wording.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "SQL prompt: role + constraints + schema + question (in that order)"
+      - "'SELECT only' and 'no explanation' are required constraints"
+      - "'fenced SQL code block' — never use literal triple-backticks in source"
+      - "Parenthesised string concatenation — no += needed for multi-part prompts"
+      - "Schema injection: f'Schema:\\n{schema_str}' embeds the DDL"
+      - "Prompt structure → LLM output format → extractor reliability"
+    narration: >
+      Lesson 3 covers extract_sql — the mirror of Day 41's extract_code.
+      The same fence-parsing pattern works for SQL as for Python, with one
+      addition: you try the `sql`-tagged fence first, then the untagged fence,
+      then fall back to the stripped response.
