@@ -1,0 +1,149 @@
+day: "039"
+lesson: "05"
+title: "Saving and Dashboard Design"
+slides:
+  - type: title
+    heading: "Saving and Dashboard Design"
+    subheading: "fig.savefig, dpi, bbox_inches, plt.close — composing the full dashboard"
+    narration: >
+      Lesson 5 brings everything together. You will learn the correct way to save
+      a figure to disk with fig.savefig, why dpi and bbox_inches matter, and how
+      to compose all four chart functions into a reusable multi_chart_figure that
+      creates, populates, saves, and closes a 2×2 dashboard in one call.
+
+  - type: concept
+    label: "Why plt.close matters"
+    heading: "Always close figures: memory and accumulation"
+    body: >
+      Every time you call plt.subplots(), matplotlib allocates memory for a Figure
+      and keeps it in an internal registry. If you never close figures, the registry
+      grows with every call — a problem in loops or long-running pipelines.
+      plt.close(fig) releases one specific figure. plt.close('all') releases every
+      open figure. plt.get_fignums() returns the list of open figure numbers.
+    bullets:
+      - "plt.close(fig) — release one figure"
+      - "plt.close('all') — release all open figures"
+      - "plt.get_fignums() — list of open figure IDs (should be [] after closing)"
+      - "Always close inside the function that creates the figure"
+    narration: >
+      In a script that creates one chart, forgetting plt.close matters little.
+      In a loop that creates a thousand charts, it is a memory leak that will
+      eventually crash the process. The professional pattern is to close the figure
+      inside the same function that creates it: create, fill, savefig, close.
+      This keeps the figure lifetime local to the function and makes the function
+      easy to call in a loop. The automated checks for Exercise 5 verify this
+      explicitly: they call plt.get_fignums() before and after your function
+      and assert that the count does not increase.
+
+  - type: how_it_works
+    label: "fig.savefig"
+    heading: "fig.savefig — path, dpi, bbox_inches"
+    body: >
+      `fig.savefig(path, bbox_inches='tight', dpi=100)` saves the figure to a
+      PNG file. `bbox_inches='tight'` crops the white space around the figure
+      so titles and labels are not clipped. `dpi=100` sets the resolution in
+      dots per inch — 100 DPI is the standard for screen-quality output;
+      300 DPI for print-quality. The file format is inferred from the extension:
+      `.png`, `.jpg`, `.pdf`, `.svg` all work.
+    bullets:
+      - "fig.savefig('chart.png') — save as PNG"
+      - "bbox_inches='tight' — crop to content, prevent clipping"
+      - "dpi=100 — screen quality; dpi=300 for print"
+      - "fig.savefig('report.pdf') — PDF for print-ready output"
+      - "plt.close(fig) — always immediately after savefig"
+    narration: >
+      The two most important parameters are bbox_inches and dpi. Without
+      bbox_inches='tight', titles and rotated tick labels are frequently clipped
+      at the edge of the image — you save the figure and the x-axis label is
+      cut off. With 'tight', matplotlib measures the actual bounding box of all
+      visible elements and crops to fit. The dpi parameter controls file size
+      and sharpness: 72 DPI is suitable for a quick test, 100 for a notebook
+      or web page, 300 for a PDF report. Always call plt.close(fig) immediately
+      after savefig — not eventually, not at the end of the script, immediately
+      after, so the figure goes out of scope and is released.
+
+  - type: code
+    label: "multi_chart_figure — the complete dashboard"
+    heading: "Create, fill, savefig, close — one reusable function"
+    code: |
+      import matplotlib
+      matplotlib.use('Agg')
+      import matplotlib.pyplot as plt
+      import pandas as pd
+      import io
+
+      # (bar_chart, line_chart, scatter_chart, histogram already defined above)
+
+      def multi_chart_figure(df, out_path='dashboard.png'):
+          fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+          # [0,0] bar chart — revenue by product
+          totals = df.groupby('product')['revenue'].sum().sort_values(ascending=False)
+          bar_chart(axes[0, 0], totals.index.tolist(), totals.values.tolist(),
+                    'Revenue by Product', 'Product', 'Revenue ($)')
+
+          # [0,1] line chart — cumulative revenue
+          df_s = df.sort_values('order_id').reset_index(drop=True)
+          line_chart(axes[0, 1], list(range(1, len(df_s) + 1)),
+                     df_s['revenue'].cumsum().tolist(),
+                     'Cumulative Revenue', 'Order #', 'Revenue ($)',
+                     label='cumulative')
+
+          # [1,0] scatter — price vs revenue
+          scatter_chart(axes[1, 0], df['price'].tolist(), df['revenue'].tolist(),
+                        'Price vs Revenue', 'Price ($)', 'Revenue ($)')
+
+          # [1,1] histogram — revenue distribution
+          histogram(axes[1, 1], df['revenue'].tolist(), bins=8,
+                    title='Revenue Distribution', xlabel='Revenue ($)')
+
+          fig.suptitle('Sales Dashboard', fontsize=16)
+          plt.tight_layout()
+          fig.savefig(out_path, bbox_inches='tight', dpi=100)
+          plt.close(fig)          # release immediately after saving
+          return out_path
+    narration: >
+      The function follows a strict sequence: create the figure and axes, fill
+      each panel by calling the helper functions, add the overall title, call
+      tight_layout, save, close, return the path. The return value is the
+      out_path, which lets the caller log where the file was saved or pass it
+      to another function. Notice that tight_layout comes after all four panels
+      are filled — this is deliberate, as tight_layout needs to know the content
+      of every panel to calculate the correct spacing. The plt.close(fig) at the
+      end is the last line before return, ensuring no figure stays open after
+      the call.
+
+  - type: exercise
+    heading: "Exercise 5 — multi_chart_figure"
+    prompt: >
+      Implement `multi_chart_figure(df, out_path='dashboard.png') -> out_path`.
+      Create a 2×2 subplot grid. Fill [0,0] with bar_chart (revenue by product),
+      [0,1] with line_chart (cumulative revenue), [1,0] with scatter_chart
+      (price vs revenue), [1,1] with histogram (revenue, bins=8).
+      Add suptitle, tight_layout, savefig, plt.close(fig). Return out_path.
+    hint: >
+      `fig, axes = plt.subplots(2, 2, figsize=(12, 10))`. For the bar chart:
+      `df.groupby('product')['revenue'].sum().sort_values(ascending=False)`.
+      For the line chart: `df.sort_values('order_id').reset_index(drop=True)`
+      then `df_s['revenue'].cumsum().tolist()`.
+    narration: >
+      The check for this exercise verifies five things: the function is callable,
+      the output file is created, the file is a valid PNG, the file is large enough
+      to contain a multi-panel figure, and plt.close was called inside the function.
+      The last check uses plt.get_fignums() to confirm no open figures remain after
+      the function returns.
+
+  - type: summary
+    heading: "What you learned today"
+    bullets:
+      - "fig.savefig(path, bbox_inches='tight', dpi=100) — save correctly"
+      - "plt.close(fig) immediately after savefig — prevent accumulation"
+      - "plt.get_fignums() — verify no open figures"
+      - "multi_chart_figure: create → fill → suptitle → tight_layout → save → close"
+      - "Return out_path from dashboard functions for composability"
+    narration: >
+      You now have a complete visualisation toolkit: four chart types, a subplot
+      grid, correct saving, and a reusable dashboard function. Tomorrow on Day 40
+      you will give this dashboard to an LLM and ask it to narrate the data —
+      turning charts into an automatically generated written analysis. The dashboard
+      you built today is the input for tomorrow's AI-assisted analysis.

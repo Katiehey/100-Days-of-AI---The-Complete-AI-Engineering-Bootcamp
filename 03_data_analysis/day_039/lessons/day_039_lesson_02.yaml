@@ -1,0 +1,129 @@
+day: "039"
+lesson: "02"
+title: "Bar Charts"
+slides:
+  - type: title
+    heading: "Bar Charts"
+    subheading: "ax.bar, tick rotation, labels — the most common chart in reporting"
+    narration: >
+      Lesson 2 covers the bar chart — the single most common chart in data reporting.
+      You will learn ax.bar, how to set title and axis labels, how to rotate x-axis
+      tick labels so they don't overlap, and how to sort bars for maximum clarity.
+
+  - type: concept
+    label: "When to use bar charts"
+    heading: "Bar charts: compare discrete categories"
+    body: >
+      Use a bar chart when you have a categorical variable on one axis and a numeric
+      measure on the other. The height of each bar encodes the value directly —
+      making differences between categories immediately visible. Bar charts answer
+      questions like 'which product earns the most?' or 'which region had the
+      highest order count?'
+    bullets:
+      - "x-axis: categories (product names, regions, months)"
+      - "y-axis: a numeric measure (revenue, count, rate)"
+      - "Sort bars by value — descending is almost always clearest"
+      - "Rotate x-axis labels 45° when category names are long"
+    narration: >
+      Bar charts are the right choice when comparing a small number of discrete
+      categories — typically 2 to 20. More than 20 bars starts to become unreadable
+      unless you use a horizontal bar chart. The most common mistake is leaving
+      bars in whatever order the data happens to be in, rather than sorting by value.
+      Sorted bars let the reader instantly find the largest and smallest without
+      scanning. A 45-degree label rotation is the standard fix for overlapping tick
+      labels on the x-axis.
+
+  - type: how_it_works
+    label: "ax.bar"
+    heading: "ax.bar — draw bars from labels and values"
+    body: >
+      `ax.bar(labels, values)` takes a list of category labels and a corresponding
+      list of numeric values. Each pair becomes one bar. The function returns a
+      BarContainer object, which you can ignore unless you want to colour
+      individual bars differently. After calling bar, use ax.set_title,
+      ax.set_xlabel, ax.set_ylabel to annotate the chart.
+    bullets:
+      - "ax.bar(labels, values) — vertical bars"
+      - "ax.barh(labels, values) — horizontal bars (better for many categories)"
+      - "ax.set_title(title)"
+      - "ax.set_xlabel(label) / ax.set_ylabel(label)"
+      - "ax.tick_params(axis='x', rotation=45) — rotate labels"
+    narration: >
+      ax.bar takes the x positions as the first argument and the bar heights as
+      the second. When you pass a list of strings as x positions, matplotlib
+      automatically maps them to evenly spaced tick positions. After calling bar,
+      the Axes has the bars but no title or labels — you add those separately.
+      This is intentional: matplotlib is a low-level drawing library, not an
+      opinion-driven charting library like Plotly or Seaborn. The separation means
+      you can always override any default.
+
+  - type: code
+    label: "Bar chart with sorting and labels"
+    heading: "Sort → bar → annotate → save"
+    code: |
+      import matplotlib
+      matplotlib.use('Agg')
+      import matplotlib.pyplot as plt
+      import pandas as pd
+
+      df = pd.DataFrame({
+          'product': ['Widget', 'Gadget', 'Doohickey', 'Thingamajig'],
+          'revenue': [625.0, 1800.0, 680.0, 1000.0],
+      })
+
+      # Sort by revenue descending for clarity
+      df_sorted = df.sort_values('revenue', ascending=False)
+
+      fig, ax = plt.subplots(figsize=(7, 4))
+      ax.bar(df_sorted['product'], df_sorted['revenue'])
+      ax.set_title('Revenue by Product')
+      ax.set_xlabel('Product')
+      ax.set_ylabel('Revenue ($)')
+      ax.tick_params(axis='x', rotation=45)
+
+      fig.savefig('/tmp/bar_chart.png', bbox_inches='tight', dpi=100)
+      plt.close(fig)
+      print('Saved.')
+
+      # Verify the Axes has 4 bars
+      fig2, ax2 = plt.subplots()
+      ax2.bar(df_sorted['product'], df_sorted['revenue'])
+      print(f'Number of bars: {len(ax2.patches)}')   # 4
+      plt.close(fig2)
+    narration: >
+      The sort step before plotting is not optional if you want the chart to be
+      readable. Gadget goes first with 1800, then Thingamajig at 1000, Doohickey
+      at 680, and Widget at 625. Without sorting, the order would be whatever the
+      DataFrame happened to have. Notice that we verify the chart programmatically:
+      len(ax.patches) counts the rectangular patches that bar added, which equals
+      the number of bars. This is how the exercise checks work too — you assert on
+      Axes properties, not on visual appearance.
+
+  - type: exercise
+    heading: "Exercise 1 — bar_chart"
+    prompt: >
+      Implement `bar_chart(ax, labels, values, title='', xlabel='', ylabel='') -> ax`
+      using ax.bar, ax.set_title, ax.set_xlabel, ax.set_ylabel,
+      ax.tick_params(axis='x', rotation=45), and return ax.
+    hint: >
+      Five lines: ax.bar, set_title, set_xlabel, set_ylabel,
+      tick_params. Then return ax.
+    narration: >
+      The return ax pattern is important: it enables method chaining and allows
+      the caller to further customise the axes after your function returns.
+      In the dashboard exercise, you pass the result of bar_chart directly to
+      nothing — but the pattern is good practice and matches how professional
+      charting libraries work.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ax.bar(labels, values) — vertical bar chart"
+      - "ax.barh(labels, values) — horizontal alternative"
+      - "Sort by value before plotting — clearest for comparison"
+      - "ax.tick_params(axis='x', rotation=45) — prevent label overlap"
+      - "len(ax.patches) — programmatic count of rendered bars"
+    narration: >
+      Bar charts are the foundation. Lesson 3 introduces line charts and scatter
+      plots — two chart types that show relationships between variables rather
+      than comparisons between categories.

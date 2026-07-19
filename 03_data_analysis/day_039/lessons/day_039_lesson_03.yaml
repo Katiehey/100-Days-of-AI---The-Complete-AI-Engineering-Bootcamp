@@ -1,0 +1,134 @@
+day: "039"
+lesson: "03"
+title: "Line Charts and Scatter Plots"
+slides:
+  - type: title
+    heading: "Line Charts and Scatter Plots"
+    subheading: "ax.plot, ax.scatter, markers, legends — showing trends and relationships"
+    narration: >
+      Lesson 3 covers two chart types that show how variables relate across a
+      sequence or to each other: line charts for trends over a sequence, and
+      scatter plots for the relationship between two numeric variables.
+      Together with bar charts, these three cover the vast majority of
+      business charts you will ever need to build.
+
+  - type: concept
+    label: "Line vs Scatter"
+    heading: "Line chart: trend over sequence. Scatter: two-variable relationship."
+    body: >
+      A line chart connects points in order — it is the right choice when the
+      x-axis represents something sequential (time, order number, step) and the
+      connection between points is meaningful. A scatter plot places each point
+      independently — it is the right choice when you want to see whether two
+      numeric variables are correlated.
+    bullets:
+      - "Line chart — x is sequential; adjacent points connect meaningfully"
+      - "Scatter plot — x is numeric; no implied connection between points"
+      - "Both use the same core idea: place a point at (x, y)"
+      - "Add a label= to enable legend; omit for unlabelled series"
+    narration: >
+      The conceptual distinction matters for chart choice. If you are plotting
+      monthly revenue over 12 months, the line between March and April is
+      meaningful — it implies continuity. If you are plotting price against
+      revenue for 100 orders, connecting the points with a line would be
+      misleading — each point is independent and the connection implies an
+      ordering that does not exist. This is why matplotlib has both ax.plot
+      (which draws a line by default) and ax.scatter (which draws only points).
+
+  - type: how_it_works
+    label: "ax.plot and ax.scatter"
+    heading: "Two methods, one difference: lines vs points"
+    body: >
+      `ax.plot(x, y, marker='o', label=label)` draws a line connecting the points,
+      with a circular marker at each point. `ax.scatter(x, y)` draws only the points.
+      Both accept the same x/y lists. The `label` parameter names the series for
+      the legend; calling `ax.legend()` renders the legend box.
+    bullets:
+      - "ax.plot(x, y) — line (default, no markers)"
+      - "ax.plot(x, y, marker='o') — line with circular markers"
+      - "ax.scatter(x, y) — points only, no connecting line"
+      - "label='name' + ax.legend() — adds a legend entry"
+      - "ax.get_lines() — list of Line2D objects on the Axes"
+      - "ax.collections — list of PathCollection objects (scatter points)"
+    narration: >
+      The marker parameter accepts many shapes: 'o' for circle, 's' for square,
+      '^' for triangle, 'x' for cross. For line charts, 'o' is the standard choice
+      because it makes individual data points visible without distracting from the
+      overall trend. For scatter plots, the default circle is fine. The label
+      parameter is what feeds the legend: if you call ax.plot twice with different
+      labels and then call ax.legend(), matplotlib renders a box showing which
+      colour corresponds to which label. If label is None, no legend entry is
+      added for that series.
+
+  - type: code
+    label: "Line chart and scatter plot"
+    heading: "ax.plot with markers and legend; ax.scatter for relationships"
+    code: |
+      import matplotlib
+      matplotlib.use('Agg')
+      import matplotlib.pyplot as plt
+
+      orders = list(range(1, 13))
+      cumrev = [250, 375, 475, 875, 1925, 2025, 2185, 2485, 2635, 2755, 2955, 3755]
+
+      # Line chart — cumulative revenue
+      fig, ax = plt.subplots(figsize=(7, 4))
+      ax.plot(orders, cumrev, marker='o', label='cumulative revenue')
+      ax.set_title('Cumulative Revenue')
+      ax.set_xlabel('Order #')
+      ax.set_ylabel('Revenue ($)')
+      ax.legend()
+      fig.savefig('/tmp/line.png', bbox_inches='tight', dpi=100)
+      plt.close(fig)
+      print(f'Lines: {len(ax.get_lines())}')   # 1
+
+      # Scatter plot — price vs revenue
+      prices   = [25.0, 150.0, 25.0, 8.0, 150.0, 25.0, 8.0, 150.0, 25.0, 8.0, 200.0, 200.0]
+      revenues = [250, 450, 125, 400, 1050, 100, 160, 300, 150, 120, 200, 800]
+
+      fig2, ax2 = plt.subplots(figsize=(6, 5))
+      ax2.scatter(prices, revenues)
+      ax2.set_title('Price vs Revenue')
+      ax2.set_xlabel('Price ($)')
+      ax2.set_ylabel('Revenue ($)')
+      fig2.savefig('/tmp/scatter.png', bbox_inches='tight', dpi=100)
+      plt.close(fig2)
+      n_pts = ax2.collections[0].get_offsets().shape[0]
+      print(f'Points: {n_pts}')   # 12
+    narration: >
+      In the cumulative revenue line chart, each order is connected to the next
+      because the cumulative sum is truly sequential — the line encodes the growth
+      trend. The scatter plot for price versus revenue shows the relationship
+      without implying any ordering: the three price tiers — 8 dollars for
+      Doohickey, 25 for Widget, 150 for Gadget, and 200 for Thingamajig — are
+      visible as vertical clusters. You can verify the charts programmatically:
+      ax.get_lines() counts Line2D objects; ax.collections[0].get_offsets() gives
+      the array of (x, y) pairs in the scatter.
+
+  - type: exercise
+    heading: "Exercise 2 — line_chart"
+    prompt: >
+      Implement `line_chart(ax, x, y, title='', xlabel='', ylabel='', label=None) -> ax`
+      using `ax.plot(x, y, marker='o', label=label)`. Set title, xlabel, ylabel.
+      If label is not None, call `ax.legend()`. Return ax.
+    hint: >
+      `ax.plot(x, y, marker='o', label=label)` then set_title/xlabel/ylabel,
+      then `if label: ax.legend()`. Return ax.
+    narration: >
+      The conditional legend is important: if no label is passed, ax.legend()
+      would render an empty legend box, which is both ugly and confusing.
+      The 'if label' guard keeps the function clean for single-series charts
+      while enabling multi-series use when the caller wants a legend.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ax.plot(x, y, marker='o', label=name) — line with markers"
+      - "ax.scatter(x, y) — scatter plot (points only)"
+      - "ax.legend() — renders the legend; requires label= on the series"
+      - "ax.get_lines() — count Line2D objects"
+      - "ax.collections[0].get_offsets() — scatter point coordinates"
+    narration: >
+      You now have three chart types: bar, line, scatter. Lesson 4 adds the
+      fourth — histograms — and introduces subplots so you can combine all four
+      into a single figure.

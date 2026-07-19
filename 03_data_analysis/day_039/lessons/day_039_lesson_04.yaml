@@ -1,0 +1,137 @@
+day: "039"
+lesson: "04"
+title: "Histograms and Subplots"
+slides:
+  - type: title
+    heading: "Histograms and Subplots"
+    subheading: "ax.hist, plt.subplots(m, n), tight_layout — one figure, many panels"
+    narration: >
+      Lesson 4 covers two topics: histograms, which turn raw numeric data into a
+      visual distribution, and subplots, which let you arrange multiple charts in
+      a grid on one Figure. Together they are the building blocks of the
+      four-panel dashboard you will build in Exercise 5.
+
+  - type: concept
+    label: "What histograms show"
+    heading: "Histograms: the shape of a distribution"
+    body: >
+      A histogram groups numeric values into bins and draws a bar for each bin
+      showing how many values fall into it. The x-axis represents the value range;
+      the y-axis represents the count. Histograms reveal shape: normal, skewed,
+      bimodal, or uniform. They answer questions the five-number summary cannot —
+      like whether a distribution has two peaks.
+    bullets:
+      - "Bins divide the value range into equal-width intervals"
+      - "Bar height = count of values in that interval"
+      - "Few bins: smooth but hides detail"
+      - "Many bins: shows detail but becomes noisy"
+      - "8–15 bins is a reasonable default for most datasets"
+    narration: >
+      The number of bins is the key parameter. Too few bins and you smooth away
+      interesting structure — a bimodal distribution looks unimodal. Too many and
+      you see random noise rather than the underlying shape. The rule of thumb is
+      8 to 15 bins for datasets under a thousand rows. For larger datasets, you
+      can use the square-root rule: bins equal to the square root of the number
+      of data points. In practice, try a few values and look at the result.
+      Histograms are exploratory tools — the 'right' number of bins is the one
+      that best reveals the structure you are investigating.
+
+  - type: how_it_works
+    label: "ax.hist and plt.subplots(m, n)"
+    heading: "Histograms and subplot grids"
+    body: >
+      `ax.hist(data, bins=N, edgecolor='white')` draws a histogram. The edgecolor
+      separates adjacent bars visually. `plt.subplots(rows, cols, figsize=(w, h))`
+      returns a 2D array of Axes that you index as `axes[row, col]`. After filling
+      all panels, call `plt.tight_layout()` to prevent titles and labels from
+      overlapping between panels. `fig.suptitle(text, fontsize=N)` adds a title
+      above all panels.
+    bullets:
+      - "ax.hist(data, bins=N, edgecolor='white') — histogram"
+      - "ax.set_ylabel('Count') — histograms always count"
+      - "fig, axes = plt.subplots(2, 2, figsize=(12, 10)) — 2×2 grid"
+      - "axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1] — index each cell"
+      - "plt.tight_layout() — prevent label overlap between panels"
+      - "fig.suptitle('Dashboard', fontsize=16) — overall figure title"
+    narration: >
+      The edgecolor parameter is a subtle but important detail. Without it,
+      adjacent histogram bars with similar heights blur into each other.
+      White edges give each bar a clear boundary, making the distribution
+      shape much easier to read. The tight_layout call is also non-obvious
+      but essential for multi-panel figures: without it, the title of one
+      panel often overlaps the x-axis labels of the panel above it. tight_layout
+      automatically adjusts spacing to prevent this. The suptitle function
+      adds a super-title above all panels, distinct from the individual panel
+      titles you set with ax.set_title.
+
+  - type: code
+    label: "Histogram and 2×2 subplot"
+    heading: "ax.hist + plt.subplots(2, 2) in practice"
+    code: |
+      import matplotlib
+      matplotlib.use('Agg')
+      import matplotlib.pyplot as plt
+
+      revenues = [250, 450, 125, 400, 1050, 100, 160, 300, 150, 120, 200, 800]
+
+      # Single histogram
+      fig, ax = plt.subplots(figsize=(6, 4))
+      ax.hist(revenues, bins=8, edgecolor='white')
+      ax.set_title('Revenue Distribution')
+      ax.set_xlabel('Revenue ($)')
+      ax.set_ylabel('Count')
+      fig.savefig('/tmp/hist.png', bbox_inches='tight', dpi=100)
+      plt.close(fig)
+      print(f'Bars (patches): {len(ax.patches)}')   # up to 8
+
+      # 2×2 subplot grid
+      fig2, axes = plt.subplots(2, 2, figsize=(10, 8))
+      axes[0, 0].set_title('Top Left')
+      axes[0, 1].set_title('Top Right')
+      axes[1, 0].set_title('Bottom Left')
+      axes[1, 1].hist(revenues, bins=6, edgecolor='white')
+      axes[1, 1].set_title('Bottom Right: Histogram')
+
+      fig2.suptitle('Four-Panel Dashboard', fontsize=14)
+      plt.tight_layout()          # must come AFTER filling panels
+      fig2.savefig('/tmp/grid.png', bbox_inches='tight', dpi=100)
+      plt.close(fig2)
+      print('2×2 grid saved.')
+    narration: >
+      In the histogram, bins=8 produces up to 8 bars, but empty bins at the
+      extremes may be omitted, so len(ax.patches) might be less than 8 depending
+      on the data. The 2×2 grid shows the indexing pattern: row first, column
+      second. Notice that tight_layout is called after all panels are filled —
+      calling it before means it has no content to lay out around, and the spacing
+      adjustment will be wrong. The suptitle is called before tight_layout too, so
+      tight_layout accounts for it when calculating spacing.
+
+  - type: exercise
+    heading: "Exercise 4 — histogram"
+    prompt: >
+      Implement `histogram(ax, data, bins=10, title='', xlabel='') -> ax`
+      using `ax.hist(data, bins=bins, edgecolor='white')`.
+      Always set ylabel to 'Count'. Set title and xlabel. Return ax.
+    hint: >
+      `ax.hist(data, bins=bins, edgecolor='white')` then set_title, set_xlabel,
+      set_ylabel('Count'). Return ax. The ylabel is always 'Count' for histograms.
+    narration: >
+      The hardcoded ylabel 'Count' is a design decision: histograms always show
+      counts unless you explicitly normalise them (which requires density=True and
+      changes the y-axis to probability density). For this course's use cases,
+      count is always the right y-axis, so we bake it in rather than making it a
+      parameter.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ax.hist(data, bins=N, edgecolor='white') — histogram"
+      - "ylabel is always 'Count' for standard histograms"
+      - "plt.subplots(m, n) → (fig, 2D-axes-array)"
+      - "axes[row, col] — index into subplot grid"
+      - "plt.tight_layout() after filling panels — prevents overlap"
+      - "fig.suptitle(text) — overall figure title"
+    narration: >
+      You now have all four chart types and the subplot grid. Lesson 5 covers
+      saving figures to disk correctly and the full multi_chart_figure pattern
+      that combines everything into a reusable dashboard function.

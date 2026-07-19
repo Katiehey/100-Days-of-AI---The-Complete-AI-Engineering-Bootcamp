@@ -1,0 +1,126 @@
+day: "039"
+lesson: "01"
+title: "The Figure/Axes Model"
+slides:
+  - type: title
+    heading: "The Figure/Axes Model"
+    subheading: "plt.subplots, fig, ax — how matplotlib organises a chart"
+    narration: >
+      Lesson 1 introduces matplotlib's core mental model: the Figure and the Axes.
+      Understanding this model is the prerequisite for everything else — bar charts,
+      line charts, subplots, saving. Once you see why matplotlib separates the canvas
+      from the plot, every subsequent API call will make sense immediately.
+
+  - type: concept
+    label: "Figure vs Axes"
+    heading: "Figure = canvas, Axes = one chart"
+    body: >
+      A Figure is the whole window or image. An Axes is one individual plot
+      inside that Figure — it has its own x-axis, y-axis, title, and data.
+      One Figure can contain many Axes (subplots). Every drawing method
+      you will use lives on the Axes object, not on the Figure.
+    bullets:
+      - "Figure — the outer container (the page / the image file)"
+      - "Axes   — one plot with its own axes, title, and data"
+      - "plt.subplots() — creates both at once and returns (fig, ax)"
+    narration: >
+      The hardest thing about matplotlib for beginners is understanding why there
+      are two objects: Figure and Axes. Think of a Figure as a blank canvas and an
+      Axes as a framed picture hung on that canvas. You can hang multiple frames on
+      one canvas — that is what subplots do. All the chart-drawing methods live on
+      the Axes: ax.bar, ax.plot, ax.scatter. The Figure is only used for global
+      properties — the figure title, the size, and saving to a file. Once you
+      internalize this, the API becomes predictable.
+
+  - type: how_it_works
+    label: "plt.subplots"
+    heading: "plt.subplots() — the standard way to start a chart"
+    body: >
+      `fig, ax = plt.subplots()` creates one Figure and one Axes. The optional
+      `figsize=(width, height)` sets the canvas size in inches. For a grid of
+      subplots, pass the number of rows and columns: `plt.subplots(2, 2)`.
+      Always unpack both return values — you need fig to save, ax to draw.
+    bullets:
+      - "fig, ax = plt.subplots()  — one chart"
+      - "fig, ax = plt.subplots(figsize=(8, 4))  — wider chart"
+      - "fig, axes = plt.subplots(2, 2, figsize=(12, 10))  — 2×2 grid"
+      - "axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]  — index into grid"
+    narration: >
+      plt.subplots is the modern, recommended entry point. The older approach —
+      plt.figure() followed by plt.add_subplot() — is still common in tutorials
+      but harder to read and test. With plt.subplots you get both objects back
+      immediately and you can pass ax directly to functions, which is the pattern
+      we will use throughout this day. The figsize tuple is in inches at 100 DPI
+      by default, so figsize=(12, 10) gives a 1200×1000 pixel image at 100 DPI.
+
+  - type: code
+    label: "Creating and inspecting a figure"
+    heading: "fig, ax = plt.subplots() — the hello world of matplotlib"
+    code: |
+      import matplotlib
+      matplotlib.use('Agg')         # non-interactive backend for scripts
+      import matplotlib.pyplot as plt
+
+      # Single chart
+      fig, ax = plt.subplots(figsize=(6, 4))
+      print(type(fig))   # <class 'matplotlib.figure.Figure'>
+      print(type(ax))    # <class 'matplotlib.axes._axes.Axes'>
+
+      # ax has the drawing methods
+      ax.set_title('My First Chart')
+      ax.set_xlabel('X Axis')
+      ax.set_ylabel('Y Axis')
+      print(ax.get_title())   # My First Chart
+
+      # Save and close — NEVER plt.show() in scripts/gates
+      fig.savefig('/tmp/hello_chart.png', bbox_inches='tight', dpi=100)
+      plt.close(fig)          # release memory; prevents figure accumulation
+
+      # 2×2 subplot grid
+      fig2, axes = plt.subplots(2, 2, figsize=(10, 8))
+      print(axes.shape)    # (2, 2)
+      axes[0, 0].set_title('Top Left')
+      axes[1, 1].set_title('Bottom Right')
+      plt.close(fig2)
+    narration: >
+      The first thing to notice is that matplotlib.use('Agg') is called before
+      importing pyplot. Agg is a non-interactive backend that renders to PNG
+      without opening a window — it is the correct choice for scripts, automated
+      pipelines, and course gates. The Agg backend is available everywhere and
+      requires no display server. After drawing on the Axes, call fig.savefig to
+      write the image to disk, then plt.close(fig) to release memory. Never call
+      plt.show() in an automated context — it tries to open a window and will
+      either hang or throw an error. The 2×2 grid example shows that when you pass
+      row and column counts to plt.subplots, you get a 2D numpy array of Axes
+      objects that you index like axes[row, col].
+
+  - type: exercise
+    heading: "Exercise 1 — bar_chart"
+    prompt: >
+      Implement `bar_chart(ax, labels, values, title='', xlabel='', ylabel='') -> ax`
+      that calls ax.bar(labels, values), sets title/xlabel/ylabel, rotates
+      x-tick labels 45°, and returns ax.
+    hint: >
+      `ax.bar(labels, values)` draws the bars.
+      `ax.tick_params(axis='x', rotation=45)` rotates the labels.
+      Return ax at the end.
+    narration: >
+      The key insight is that you are drawing ON an existing ax, not creating a
+      new figure. The caller creates the Figure and Axes, passes ax to your
+      function, and your function decorates it. This separation of concerns —
+      caller owns the layout, function owns the chart content — is what makes
+      the functions composable into a multi-panel dashboard.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Figure = canvas (the file); Axes = one chart"
+      - "fig, ax = plt.subplots() — creates both at once"
+      - "All drawing methods live on ax (ax.bar, ax.plot, ax.scatter)"
+      - "fig.savefig(path) + plt.close(fig) — save and release"
+      - "matplotlib.use('Agg') before plt import — non-interactive backend"
+    narration: >
+      You now have the foundation. The Figure/Axes model explains every matplotlib
+      API call you will ever make. Lesson 2 builds the first real chart — a bar
+      chart — and adds professional details like title, axis labels, and tick
+      label rotation.
