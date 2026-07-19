@@ -1,0 +1,162 @@
+day: "044"
+lesson: "02"
+title: "Session and add_item — INSERT Without SQL"
+slides:
+  - type: title
+    heading: "Session and add_item — INSERT Without SQL"
+    subheading: "session.add(), commit(), refresh() — the three steps of persisting an object"
+    narration: >
+      Lesson 1 created the engine and defined the Item model. Lesson 2 shows
+      how to write data: create a Python object, hand it to the session, commit,
+      and read back the database-assigned id. The three-step pattern — add, commit,
+      refresh — appears in every ORM-backed application and is worth understanding
+      precisely, because the order matters.
+
+  - type: concept
+    label: "The Session as a staging area"
+    heading: "What happens between add() and commit()"
+    body: >
+      The Session is SQLAlchemy's unit of work. Think of it as a shopping cart:
+      you can add, modify, and remove items from the cart freely. Nothing touches
+      the database until you call `checkout` — which is `session.commit()`.
+      Between `session.add(item)` and `session.commit()`, the item exists only
+      in Python memory. The Session tracks it as a "pending" object — staged
+      for INSERT but not yet written. When `commit()` is called, SQLAlchemy
+      generates the INSERT SQL, sends it to the database, ends the transaction,
+      and marks all pending objects as "persistent". Only then does the database
+      assign the auto-increment `id`.
+    bullets:
+      - "`session.add(item)` — stages item for INSERT, no SQL yet"
+      - "`session.commit()` — flushes all pending objects, ends transaction"
+      - "After commit, `item.id` is set to the database-assigned integer"
+      - "'Pending' → (commit) → 'Persistent' — SQLAlchemy object lifecycle"
+      - "session.rollback() — discard all pending changes since last commit"
+      - "Multiple objects can be staged before a single commit — efficient batch INSERT"
+    narration: >
+      The Session also tracks modifications to existing objects. If you load
+      an item, change `item.price = 99`, and call `session.commit()`, SQLAlchemy
+      detects the change and generates `UPDATE items SET price=99 WHERE id=?`.
+      You never write the UPDATE yourself — the Session's change-tracking
+      mechanism handles it. This is called the "dirty tracking" feature.
+      Lesson 4 uses this for update_price.
+
+  - type: how_it_works
+    label: "session.refresh()"
+    heading: "Why refresh() is needed after commit()"
+    body: >
+      After `session.commit()`, SQLAlchemy marks all recently committed objects
+      as "expired". This is a performance optimization: the object's attributes
+      are no longer guaranteed to match the database state (another session might
+      have updated the row). Accessing `item.id` on an expired object triggers a
+      lazy load — a SELECT on the next attribute access. This is usually fine,
+      but it means `item.id` might be `None` if you check it before the
+      lazy load fires. `session.refresh(item)` immediately re-fetches the row
+      from the database, making all attributes current without waiting for a lazy
+      load. Always call `session.refresh(item)` in `add_item` to be explicit.
+    bullets:
+      - "After commit: object is 'expired' — attributes reload lazily on access"
+      - "Lazy load: first attribute access fires a SELECT to reload the row"
+      - "`session.refresh(item)` — immediate SELECT to reload all attributes"
+      - "Use refresh when you need the db-assigned id immediately after insert"
+      - "Skipping refresh is OK if you don't access attributes before the next query"
+      - "In tests and checks: always refresh to avoid implicit lazy-load surprises"
+    narration: >
+      The expired-after-commit behavior is a common point of confusion for ORM
+      newcomers. If you print `item.id` immediately after `session.commit()`
+      without calling `session.refresh(item)`, SQLAlchemy will transparently
+      issue a SELECT to fetch the id — but only if the session is still open.
+      Calling `session.refresh(item)` makes this explicit and ensures the
+      object is fully populated regardless of session state.
+
+  - type: code
+    label: "add_item implementation"
+    heading: "Five lines: construct → add → commit → refresh → return"
+    code: |
+      def add_item(session, name, category, price, quantity=0):
+          item = Item(name=name, category=category, price=price, quantity=quantity)
+          session.add(item)
+          session.commit()
+          session.refresh(item)
+          return item
+
+      # Usage
+      engine  = setup_engine()
+      session = Session(engine)
+
+      laptop = add_item(session, 'Laptop', 'Electronics', 999.99, 5)
+      print(laptop)        # Item(id=1, name='Laptop', price=999.99)
+      print(laptop.id)     # 1  (assigned by SQLite auto-increment)
+      print(laptop.name)   # 'Laptop'
+      print(laptop.price)  # 999.99
+
+      # Add several items
+      add_item(session, 'Headphones', 'Electronics', 149.99, 12)
+      add_item(session, 'Desk Chair', 'Furniture',   349.00, 3)
+      add_item(session, 'Bookcase',   'Furniture',   199.00, 8)
+      add_item(session, 'Pen Set',    'Stationery',   12.99, 50)
+    narration: >
+      `Item(name=name, category=category, price=price, quantity=quantity)` creates
+      a Python object — no database interaction. The `id` attribute is `None` at
+      this point because it hasn't been assigned by the database yet. After
+      `session.add(item)`, the item is in the "pending" state — SQLAlchemy knows
+      about it but hasn't written it. After `session.commit()`, the INSERT has
+      been sent and the transaction ended. After `session.refresh(item)`, the
+      id is populated. Printing `item.id` before `commit()` returns `None`.
+
+  - type: concept
+    label: "constructor keyword arguments"
+    heading: "Why Item(...) works without an __init__"
+    body: >
+      The `Item` class does not define `__init__`. SQLAlchemy's `DeclarativeBase`
+      metaclass auto-generates an `__init__` that accepts every column as a
+      keyword argument. So `Item(name='Laptop', category='Electronics', price=999.99)`
+      works immediately. The `id` column is omitted from the constructor call
+      because it is a primary key with `autoincrement=True` (the default for
+      integer primary keys in SQLAlchemy). The database assigns it on INSERT.
+      The `quantity` column has `default=0`, so it is optional in the constructor.
+    bullets:
+      - "DeclarativeBase auto-generates __init__ with all columns as kwargs"
+      - "Omit `id` — it is auto-assigned by the database on INSERT"
+      - "`default=0` on quantity — SQLAlchemy sends 0 if not provided in constructor"
+      - "Column order in constructor doesn't matter — all keyword arguments"
+      - "You can still define your own __init__ if you need custom logic"
+      - "The auto-generated __init__ accepts only mapped columns, not relationships"
+    narration: >
+      The `default=0` on `mapped_column(default=0)` is a Python-side default,
+      not a SQL-level DEFAULT. SQLAlchemy inserts 0 into the INSERT statement
+      if you don't provide a quantity. A SQL-level default would use
+      `server_default='0'` instead, which generates `DEFAULT 0` in the CREATE
+      TABLE DDL. For learning purposes, Python-side defaults are simpler and
+      work identically in SQLite.
+
+  - type: exercise
+    heading: "Exercise 2 — add_item"
+    prompt: >
+      Implement `add_item(session, name, category, price, quantity=0) -> Item`.
+      Five steps: (1) `item = Item(name=name, category=category, price=price, quantity=quantity)`,
+      (2) `session.add(item)`, (3) `session.commit()`,
+      (4) `session.refresh(item)`, (5) `return item`.
+    hint: >
+      Do not pass `id` to the Item constructor — leave it out entirely so that
+      SQLite assigns it automatically. Call `session.refresh(item)` after
+      `session.commit()` to ensure the auto-assigned `id` is populated before
+      you return. The check verifies `item.id is not None` and that it is an int.
+    narration: >
+      Check 2 calls add_item and verifies the return is an Item instance.
+      Check 3 verifies item.id is not None and is an int — confirming that
+      refresh() was called. Check 4 verifies all four attribute values are correct.
+      Check 5 verifies the item is queryable from the same session.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Session is a staging area — changes accumulate until session.commit()"
+      - "session.add(item) — marks item as pending (no SQL yet)"
+      - "session.commit() — flushes pending objects to DB, ends transaction"
+      - "After commit, objects are 'expired' — refresh() reloads from DB"
+      - "session.refresh(item) — immediate SELECT to populate id and all attributes"
+      - "Item() constructor is auto-generated — all columns as keyword args"
+      - "Omit primary key in constructor — database assigns it on INSERT"
+    narration: >
+      Lesson 3 covers reading data — the ORM SELECT equivalent — using
+      select(Item) and session.execute().scalars().all().

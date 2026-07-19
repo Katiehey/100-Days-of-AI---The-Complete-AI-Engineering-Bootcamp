@@ -1,0 +1,182 @@
+day: "044"
+lesson: "01"
+title: "Why ORM? SQLAlchemy Architecture"
+slides:
+  - type: title
+    heading: "Why ORM? SQLAlchemy Architecture"
+    subheading: "From raw SQL strings to Python objects backed by a database"
+    narration: >
+      Day 42 taught raw sqlite3: you wrote SQL strings, executed them, and decoded
+      rows manually. Day 43 let an LLM write those SQL strings. Day 44 removes SQL
+      strings from your Python code almost entirely. An Object-Relational Mapper
+      (ORM) maps Python classes to database tables and Python attribute assignments
+      to SQL INSERT/UPDATE. SQLAlchemy is the de-facto ORM in Python — used by
+      FastAPI, Flask, and most production backends. The goal of this lesson is to
+      understand why an ORM exists and how SQLAlchemy 2.x is structured.
+
+  - type: concept
+    label: "What is an ORM?"
+    heading: "Python objects ↔ database rows"
+    body: >
+      An Object-Relational Mapper (ORM) translates between two worlds:
+      Python objects (with attributes and methods) and relational database rows
+      (with columns and SQL). Without an ORM you write `cur.execute("INSERT INTO
+      items VALUES (?,?,?,?)", (name, cat, price, qty))` and then manually unpack
+      `row[0]`, `row[1]`. With an ORM you write `session.add(Item(name=name, ...))`.
+      The ORM generates the INSERT for you. When you read back an item, you get
+      an `Item` object with `.name`, `.price`, and `.quantity` attributes — not a
+      raw tuple. The trade-off: ORM abstractions hide SQL, which can make debugging
+      harder. SQLAlchemy solves this by letting you drop down to raw SQL any time.
+    bullets:
+      - "ORM = Python class per table, Python object per row"
+      - "Attributes map to columns — `item.price = 50` becomes an UPDATE"
+      - "No manual `cur.execute()` / `cur.fetchall()` / tuple unpacking"
+      - "Generated SQL is still real SQL — ORM adds convenience, not magic"
+      - "SQLAlchemy lets you mix ORM and raw SQL as needed"
+      - "Used by FastAPI (SQLModel), Flask-SQLAlchemy, Alembic migrations"
+    narration: >
+      The ORM pattern is decades old and exists in virtually every language:
+      ActiveRecord in Ruby, Hibernate in Java, Entity Framework in C#. Python's
+      SQLAlchemy is notable for its two-layer design. The lower layer — Core —
+      is a SQL expression language that generates SQL from Python. The upper
+      layer — ORM — maps Python classes onto Core. You can use Core without ORM
+      for more control, or ORM for more convenience. This course uses ORM since
+      it maps more naturally to building data-backed apps.
+
+  - type: concept
+    label: "SQLAlchemy 2.x architecture"
+    heading: "Engine → Session → Model — three layers"
+    body: >
+      SQLAlchemy 2.x has three core objects you create in order:
+      (1) `Engine` — the connection pool. Created once per application from a
+      database URL (`'sqlite:///:memory:'`, `'sqlite:///mydb.db'`). Knows which
+      database to connect to and manages connection reuse.
+      (2) `Session` — the unit of work. Like a transaction. You add, modify, and
+      delete objects on the session. Changes are only written to the database on
+      `session.commit()`. Think of it as a staging area.
+      (3) `Model` (declarative class) — the Python class that maps to a table.
+      Defines column names and types via `Mapped[T]` type annotations.
+    bullets:
+      - "Engine — one per app, created from URL — manages connection pool"
+      - "Session — one per request/operation — staging area for changes"
+      - "Model — one class per table — columns defined as `Mapped[T]` attributes"
+      - "Session vs Connection: Session is ORM-level; Connection is raw DB-level"
+      - "Base.metadata.create_all(engine) — create all tables from all models"
+      - "URL format: 'sqlite:///:memory:' (RAM), 'sqlite:///file.db' (disk)"
+    narration: >
+      The URL format follows RFC 3986: `dialect+driver://user:pass@host:port/dbname`.
+      For SQLite the host and port are absent, and the path is the file path.
+      `'sqlite:///:memory:'` is the special in-memory database — each connection
+      gets a fresh empty database. For exercises we use StaticPool (explained in
+      Exercise 1) to ensure all connections from one engine share one in-memory
+      database. For file-backed SQLite you would use `'sqlite:///path/to/file.db'`.
+
+  - type: how_it_works
+    label: "The three imports"
+    heading: "What each import does"
+    body: >
+      Five SQLAlchemy imports cover everything in today's exercises:
+      `create_engine` — factory function that returns an Engine from a URL.
+      `String`, `Float`, `Integer` — SQL column type classes (used in `mapped_column`).
+      `select` — builds a SELECT statement as a Python object.
+      `DeclarativeBase` — the base class your `Base` class inherits from;
+      all models inherit from `Base` and are registered in `Base.metadata`.
+      `Mapped`, `mapped_column` — Python 3.9+ annotation tools that define
+      ORM columns with type information and constraints.
+      `Session` — the unit-of-work class.
+      `StaticPool` from `sqlalchemy.pool` — forces all connections from an
+      engine to reuse the same underlying connection (essential for in-memory SQLite).
+    bullets:
+      - "`create_engine(url, ...)` → Engine"
+      - "`DeclarativeBase` → subclass it to get your `Base`"
+      - "`Mapped[int]` / `mapped_column(primary_key=True)` → integer PK column"
+      - "`Mapped[str]` / `mapped_column(String(100))` → VARCHAR(100) column"
+      - "`Mapped[float]` / `mapped_column()` → FLOAT column"
+      - "`select(Model)` → `session.execute(...).scalars().all()` → list of Model"
+    narration: >
+      The `String(100)` in `mapped_column(String(100))` sets the VARCHAR length.
+      For SQLite this is advisory — SQLite does not enforce column widths. But
+      it matters for databases that do enforce length limits (PostgreSQL, MySQL)
+      and is good practice for documentation. `Mapped[str]` without a length
+      defaults to `TEXT` in SQLAlchemy, which is unbounded in SQLite. Use
+      `String(n)` when you know the expected max length.
+
+  - type: code
+    label: "Full model definition"
+    heading: "Base class, Item model, all five columns"
+    code: |
+      import warnings
+      warnings.filterwarnings('ignore')
+      from sqlalchemy import create_engine, String, Float, Integer, select
+      from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+      from sqlalchemy.pool import StaticPool
+
+      class Base(DeclarativeBase):
+          pass                          # Base holds metadata for all models
+
+      class Item(Base):
+          __tablename__ = 'items'       # maps to a SQL table named 'items'
+          id:       Mapped[int]   = mapped_column(primary_key=True)
+          name:     Mapped[str]   = mapped_column(String(100))
+          category: Mapped[str]   = mapped_column(String(50))
+          price:    Mapped[float] = mapped_column()
+          quantity: Mapped[int]   = mapped_column(default=0)
+
+          def __repr__(self):
+              return f'Item(id={self.id}, name={self.name!r}, price={self.price})'
+
+      # Create engine for in-memory SQLite with StaticPool
+      engine = create_engine(
+          'sqlite:///:memory:',
+          connect_args={'check_same_thread': False},
+          poolclass=StaticPool,
+      )
+      Base.metadata.create_all(engine)   # CREATE TABLE items IF NOT EXISTS
+
+      # Verify
+      from sqlalchemy import inspect as sa_inspect
+      print(sa_inspect(engine).get_table_names())   # ['items']
+    narration: >
+      `class Base(DeclarativeBase): pass` is not an empty class — inheriting
+      from `DeclarativeBase` installs the metaclass that intercepts attribute
+      definitions on subclasses and registers them as ORM-mapped columns.
+      `Base.metadata` is a `MetaData` object that tracks every table defined
+      on every `Base` subclass. `Base.metadata.create_all(engine)` iterates
+      over those tables and emits `CREATE TABLE IF NOT EXISTS` for each one.
+      Running `create_all` twice is safe — the `IF NOT EXISTS` clause prevents
+      duplicate table creation.
+
+  - type: exercise
+    heading: "Exercise 1 — setup_engine"
+    prompt: >
+      Implement `setup_engine(url='sqlite:///:memory:') -> Engine`.
+      Create an engine with `connect_args={'check_same_thread': False}` and
+      `poolclass=StaticPool`. Call `Base.metadata.create_all(engine)` to create
+      all tables. Return the engine.
+    hint: >
+      The `StaticPool` import is from `sqlalchemy.pool`. Passing
+      `connect_args={'check_same_thread': False}` is a SQLite-specific option that
+      allows the same connection to be used from multiple threads — needed because
+      SQLAlchemy may use the connection from a worker thread internally.
+      `Base.metadata.create_all(engine)` only creates tables that don't exist yet;
+      running it multiple times is safe.
+    narration: >
+      Check 2 verifies the return value is a SQLAlchemy Engine instance.
+      Check 3 inspects the engine with `sa_inspect(engine).get_table_names()`
+      to verify the 'items' table was created. Check 4 verifies that a Session
+      can be opened without error. Check 5 inspects the columns of 'items' to
+      verify id, name, category, price, quantity are all present.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ORM maps Python classes to SQL tables and objects to rows"
+      - "SQLAlchemy 2.x: Engine → Session → Model (three layers)"
+      - "URL format: 'sqlite:///:memory:' (RAM) vs 'sqlite:///file.db' (disk)"
+      - "DeclarativeBase — subclass it to register models in Base.metadata"
+      - "Mapped[T] + mapped_column() — define columns with type annotations"
+      - "Base.metadata.create_all(engine) — CREATE TABLE IF NOT EXISTS for all models"
+      - "StaticPool — makes all connections share one in-memory DB (essential for exercises)"
+    narration: >
+      Lesson 2 defines the five CRUD functions in detail, starting with
+      add_item — the ORM equivalent of an INSERT statement.

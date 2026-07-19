@@ -1,0 +1,178 @@
+day: "044"
+lesson: "04"
+title: "Updating Records — update_price"
+slides:
+  - type: title
+    heading: "Updating Records — update_price"
+    subheading: "session.get(), attribute mutation, commit() — the ORM UPDATE pattern"
+    narration: >
+      Raw sqlite3 UPDATE: `cur.execute("UPDATE items SET price=? WHERE id=?",
+      (new_price, item_id))`. SQLAlchemy ORM UPDATE: fetch the object with
+      `session.get(Item, item_id)`, set `item.price = new_price`, call
+      `session.commit()`. No SQL string needed. The Session's dirty-tracking
+      detects the attribute change and generates the UPDATE statement
+      automatically. Lesson 4 explains how dirty-tracking works and introduces
+      `session.get()` — the efficient primary key lookup.
+
+  - type: concept
+    label: "session.get() — primary key lookup"
+    heading: "The fastest way to fetch one row"
+    body: >
+      `session.get(Item, item_id)` retrieves a single Item by primary key.
+      It is more efficient than `select(Item).where(Item.id == item_id)`
+      because SQLAlchemy checks the session's identity map first (in-memory
+      cache of already-loaded objects). If the item with that id was already
+      loaded in this session, no SQL is issued — the cached object is returned.
+      If not in the cache, one SELECT is issued. Returns `None` if the row
+      does not exist — never raises a "not found" exception.
+      This makes it ideal for update and delete functions that need to handle
+      the "id doesn't exist" case gracefully.
+    bullets:
+      - "`session.get(Item, pk)` → Item or None — primary key lookup"
+      - "Checks session identity map first — may return without SQL"
+      - "Returns None if row doesn't exist — never raises NotFound"
+      - "Use for any fetch-by-id before update or delete"
+      - "For non-PK lookups: use `select().where()` + `.all()` or `.scalar_one_or_none()`"
+      - "`.scalar_one_or_none()` → Item or None — for WHERE clause lookups"
+    narration: >
+      `session.get(Item, item_id)` is a method on the Session that exists
+      specifically for primary key lookups. It takes the model class as the
+      first argument and the primary key value as the second. For composite
+      primary keys (tables with multiple PK columns), you pass a tuple:
+      `session.get(Item, (pk_col1, pk_col2))`. For the single-column PK in
+      today's exercises, a plain integer is sufficient. The identity map cache
+      means that if you call `session.get(Item, 1)` twice in the same session,
+      the second call returns the same Python object without hitting the database.
+
+  - type: concept
+    label: "Dirty tracking"
+    heading: "How SQLAlchemy detects attribute changes"
+    body: >
+      After `item = session.get(Item, item_id)`, the item is in the "persistent"
+      state — it exists in both the database and the session's identity map.
+      When you assign `item.price = new_price`, SQLAlchemy's attribute
+      instrumentation detects the change and marks the object as "dirty".
+      Dirty means: this object has been modified and needs an UPDATE on the
+      next commit. On `session.commit()`, SQLAlchemy collects all dirty
+      objects, generates UPDATE statements for each, executes them, and clears
+      the dirty flags. You never write the UPDATE yourself.
+    bullets:
+      - "Persistent object: loaded from DB, tracked by session"
+      - "`item.price = new_price` — attribute instrumentation detects change"
+      - "Object becomes 'dirty' — flagged for UPDATE on next commit"
+      - "`session.commit()` — generates UPDATE for all dirty objects"
+      - "Only changed columns are included in the UPDATE — not the whole row"
+      - "Uncommitted changes are visible within the same session (via identity map)"
+    narration: >
+      SQLAlchemy's attribute instrumentation works by replacing normal Python
+      attribute access with descriptors that intercept assignments. When you
+      assign `item.price = 99`, the descriptor fires an event that marks the
+      `price` attribute as changed and records the old value. This is how
+      SQLAlchemy knows which columns changed. If you change only `price`, the
+      UPDATE will be `UPDATE items SET price=? WHERE id=?` — not
+      `UPDATE items SET name=?, category=?, price=?, quantity=? WHERE id=?`.
+      This column-level change tracking is more efficient than re-writing the
+      entire row.
+
+  - type: code
+    label: "update_price implementation"
+    heading: "get → check None → mutate → commit → refresh → return"
+    code: |
+      def update_price(session, item_id, new_price):
+          item = session.get(Item, item_id)
+          if item is None:
+              return None
+          item.price = new_price
+          session.commit()
+          session.refresh(item)
+          return item
+
+      # --- Examples ---
+      engine  = setup_engine()
+      session = Session(engine)
+      laptop  = add_item(session, 'Laptop', 'Electronics', 999.99, 5)
+      chair   = add_item(session, 'Desk Chair', 'Furniture', 349.00, 3)
+
+      # Normal update
+      updated = update_price(session, laptop.id, 849.99)
+      print(updated)            # Item(id=1, name='Laptop', price=849.99)
+      print(updated.price)      # 849.99
+
+      # Verify persisted
+      re_fetched = session.get(Item, laptop.id)
+      print(re_fetched.price)   # 849.99
+
+      # Missing id → None
+      result = update_price(session, 99999, 1.0)
+      print(result)             # None
+    narration: >
+      The `if item is None: return None` check uses `is None` (identity check),
+      not `if not item` (truthiness check). An ORM object with all-zero or
+      all-empty attributes would be falsy in a truthiness check but is a valid
+      persistent object. Always use `is None` when checking whether `session.get()`
+      found a row. This is the same rule applied in Day 42's dynamic WHERE builder
+      and in Lesson 3's `if category is not None:` guard.
+
+  - type: how_it_works
+    label: "update vs raw SQL"
+    heading: "What SQLAlchemy generates under the hood"
+    body: >
+      The raw sqlite3 equivalent of `update_price(session, 1, 849.99)` is:
+      `cur.execute("UPDATE items SET price=? WHERE id=?", (849.99, 1))`.
+      SQLAlchemy generates exactly this SQL — but you don't write it. The
+      difference in a real application: if the Item model gains ten more
+      columns, the ORM update code (`item.price = new_price`) doesn't change.
+      The raw SQL code would still work too — but every function that touches
+      the table would need to be updated if columns are renamed or reordered.
+      The ORM couples the schema to the model class, not to scattered SQL strings.
+    bullets:
+      - "Raw: `cur.execute('UPDATE items SET price=? WHERE id=?', (new_p, id))`"
+      - "ORM: `item.price = new_p; session.commit()` — same effect"
+      - "ORM advantage: schema changes → update model class, not every SQL string"
+      - "ORM generates correct parameterized SQL — no injection risk from attribute access"
+      - "To see generated SQL: `engine.echo = True` before running"
+      - "Echo mode prints every SQL statement SQLAlchemy sends to the DB"
+    narration: >
+      `engine = create_engine(url, echo=True)` turns on SQL echo mode, which
+      prints every SQL statement to stdout as it is executed. This is the most
+      useful debugging tool in SQLAlchemy. During learning, try running the
+      exercises with echo=True to see exactly what SQL is generated by each
+      session.add(), session.commit(), select(), and session.get() call.
+      In production, echo=True would be too verbose — but it's invaluable
+      for understanding what the ORM is doing.
+
+  - type: exercise
+    heading: "Exercise 4 — update_price"
+    prompt: >
+      Implement `update_price(session, item_id, new_price) -> Item | None`.
+      Six steps: (1) `item = session.get(Item, item_id)`,
+      (2) `if item is None: return None`,
+      (3) `item.price = new_price`,
+      (4) `session.commit()`,
+      (5) `session.refresh(item)`,
+      (6) `return item`.
+    hint: >
+      Use `if item is None:` (not `if not item:`). The `session.get(Item, item_id)`
+      call returns None if the row doesn't exist — check for this before
+      mutating the price. Call `session.refresh(item)` after commit so the
+      returned item has current attributes from the database. The check verifies
+      both the returned item's price and the persisted price (via a second get).
+    narration: >
+      Check 2 verifies the return is an Item. Check 3 verifies the returned
+      item's price matches new_price. Check 4 re-fetches the item from the
+      database and verifies the price is persisted. Check 5 calls update_price
+      with id=99999 and verifies the return is None.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "`session.get(Item, pk)` → Item or None — PK lookup with identity map cache"
+      - "`if item is None:` — always use `is None`, not falsy check, for ORM objects"
+      - "`item.price = new_price` — attribute mutation triggers dirty-tracking"
+      - "Dirty objects generate UPDATE on the next session.commit()"
+      - "Only changed columns appear in the generated UPDATE"
+      - "`session.refresh(item)` — reload from DB after commit to get current state"
+      - "`engine = create_engine(url, echo=True)` — prints all generated SQL"
+    narration: >
+      Lesson 5 covers delete_item — the ORM DELETE pattern — and wraps up
+      by showing the five functions working together as a complete inventory app.

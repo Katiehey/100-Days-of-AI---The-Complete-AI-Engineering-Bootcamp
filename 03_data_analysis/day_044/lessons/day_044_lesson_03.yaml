@@ -1,0 +1,177 @@
+day: "044"
+lesson: "03"
+title: "Querying with select() — get_items"
+slides:
+  - type: title
+    heading: "Querying with select() — get_items"
+    subheading: "SELECT without SQL strings: select(Model).where(...).scalars().all()"
+    narration: >
+      Day 42 used `cur.execute("SELECT ...")` with raw SQL strings and then
+      manually decoded rows with `dict(zip(cols, row))`. SQLAlchemy ORM replaces
+      this with a composable query API: `select(Item)` builds a SELECT statement
+      as a Python object. `.where(Item.category == category)` appends a WHERE
+      clause using Python attribute comparison. `session.execute(stmt).scalars().all()`
+      runs the query and returns a list of fully-populated Item objects.
+      No string formatting, no row unpacking.
+
+  - type: concept
+    label: "select() — the ORM query builder"
+    heading: "Building queries as Python objects"
+    body: >
+      `select(Item)` returns a `Select` object — a SQL SELECT statement
+      represented as a Python data structure. It hasn't run yet; it's a recipe.
+      You compose it by chaining methods:
+      `select(Item)` — SELECT * FROM items (all columns, all rows)
+      `.where(Item.category == 'Electronics')` — appends WHERE category = 'Electronics'
+      `.order_by(Item.price.desc())` — appends ORDER BY price DESC
+      `.limit(10)` — appends LIMIT 10
+      The `Item.category == 'Electronics'` expression uses Python's `==` operator,
+      but SQLAlchemy overloads it on column attributes to produce a SQL comparison
+      object, not a Python boolean. This is how type-safe queries are built
+      without string interpolation.
+    bullets:
+      - "`select(Item)` → SELECT * FROM items — base query, no filters yet"
+      - "`.where(Item.category == val)` → WHERE category = ? (parameterized)"
+      - "`.order_by(Item.price.desc())` → ORDER BY price DESC"
+      - "`.limit(n)` → LIMIT n"
+      - "`Item.category == val` → SQL comparison object, not Python bool"
+      - "Conditions can be chained: `.where(A).where(B)` → WHERE A AND B"
+    narration: >
+      The `Item.category == 'Electronics'` expression looks like a Python
+      comparison that would return True or False. But because `Item.category`
+      is a SQLAlchemy `Mapped` attribute (not a plain Python attribute), the
+      `==` operator is overloaded to return a `BinaryExpression` — a SQLAlchemy
+      object representing the SQL condition `category = ?`. This is called
+      operator overloading. The actual string 'Electronics' is passed as a
+      parameterized value, so it is safe from SQL injection.
+
+  - type: how_it_works
+    label: "session.execute().scalars().all()"
+    heading: "Three methods that turn a query into a list of objects"
+    body: >
+      `session.execute(stmt)` runs the query and returns a `CursorResult` —
+      the raw result set. Each row is a tuple of values. To get ORM objects
+      instead of tuples, call `.scalars()` which returns a `ScalarResult` —
+      it interprets each row as a single value (the Item object) rather than
+      a tuple of values. `.all()` materializes the iterator into a Python list.
+      The full chain: `session.execute(stmt).scalars().all()` → `list[Item]`.
+      Short form: `session.scalars(stmt).all()` does the same thing in one call.
+    bullets:
+      - "`session.execute(stmt)` → CursorResult (rows as tuples)"
+      - "`.scalars()` → ScalarResult (rows as single ORM objects)"
+      - "`.all()` → list — materializes the iterator"
+      - "Full chain: `session.execute(stmt).scalars().all()` → list[Item]"
+      - "Short form: `session.scalars(stmt).all()` — equivalent, less verbose"
+      - "`session.execute(stmt).scalar_one()` — expects exactly 1 row, raises if 0 or 2+"
+    narration: >
+      `CursorResult` is the same object returned when you call `session.execute()`
+      with a raw SQL string instead of a `select()` statement. The `.scalars()`
+      method is needed because `select(Item)` queries all columns and wraps each
+      row in an Item object — but the CursorResult still sees a row with multiple
+      columns. `.scalars()` tells it: "each row maps to a single Python object,
+      take the first column (the ORM entity) from each row." This is why the
+      short form `session.scalars(stmt).all()` is preferred in production code —
+      it makes the "I want ORM objects, not tuples" intent explicit.
+
+  - type: code
+    label: "get_items implementation"
+    heading: "select, optional where, scalars, all"
+    code: |
+      from sqlalchemy import select
+
+      def get_items(session, category=None):
+          stmt = select(Item)
+          if category is not None:
+              stmt = stmt.where(Item.category == category)
+          return list(session.execute(stmt).scalars().all())
+
+      # --- Examples ---
+      engine  = setup_engine()
+      session = Session(engine)
+      add_item(session, 'Laptop',     'Electronics', 999.99, 5)
+      add_item(session, 'Headphones', 'Electronics', 149.99, 12)
+      add_item(session, 'Desk Chair', 'Furniture',   349.00, 3)
+      add_item(session, 'Bookcase',   'Furniture',   199.00, 8)
+      add_item(session, 'Pen Set',    'Stationery',   12.99, 50)
+
+      all_items = get_items(session)
+      print(f'All: {len(all_items)}')          # All: 5
+
+      elec = get_items(session, category='Electronics')
+      print(f'Electronics: {len(elec)}')       # Electronics: 2
+      print([i.name for i in elec])            # ['Laptop', 'Headphones']
+
+      empty = get_items(session, category='NonExistent')
+      print(empty)                              # []
+    narration: >
+      The `if category is not None` guard (not `if category:`) is important.
+      An empty string `''` would be falsy, so `if category:` would skip the
+      filter for an empty-string category, which is probably not the intended
+      behavior. `is not None` is the correct guard for optional parameters
+      that have a meaningful non-None falsy value. This is the same rule
+      applied in Day 42's dynamic WHERE clause builder.
+
+  - type: concept
+    label: "Reading one vs many"
+    heading: "scalar_one(), get(), all() — choosing the right fetch method"
+    body: >
+      Three common read patterns in SQLAlchemy 2.x:
+      `session.execute(stmt).scalars().all()` — for queries that may return
+      zero or many rows. Returns a list (possibly empty).
+      `session.execute(stmt).scalar_one()` — for queries guaranteed to return
+      exactly one row. Raises `NoResultFound` if zero rows, `MultipleResultsFound`
+      if two or more.
+      `session.get(Item, pk)` — for primary key lookup. Returns the Item or None.
+      Does not require a `select()` statement — the most efficient PK fetch
+      because it checks the session's identity map first (in-memory cache of
+      loaded objects). Used in update_price and delete_item.
+    bullets:
+      - "`.all()` → list — zero or many rows, never raises"
+      - "`.scalar_one()` → one object — raises if not exactly 1 row"
+      - "`session.get(Item, pk)` → Item or None — PK lookup, checks identity map"
+      - "Identity map: session caches loaded objects — get() hits cache first"
+      - "For filtered queries (not PK), use select().where() + all()"
+      - "For PK lookups in update/delete functions, always use session.get()"
+    narration: >
+      The identity map is SQLAlchemy's in-memory cache of objects within a
+      session. When you call `session.get(Item, 1)`, SQLAlchemy first checks
+      whether an Item with id=1 is already in the session's identity map.
+      If yes, it returns the cached object without hitting the database. If no,
+      it issues a SELECT. This optimization is transparent to you but can cause
+      surprising behavior: if you modify an item's attributes and then call
+      `session.get(Item, item.id)` on the same session, you get back the same
+      modified Python object (from the identity map), not a fresh copy from
+      the database. This is why `session.refresh(item)` is needed after commit.
+
+  - type: exercise
+    heading: "Exercise 3 — get_items"
+    prompt: >
+      Implement `get_items(session, category=None) -> list[Item]`.
+      Build `stmt = select(Item)`. If `category is not None`, append
+      `.where(Item.category == category)`. Return
+      `list(session.execute(stmt).scalars().all())`.
+    hint: >
+      Use `if category is not None:` (not `if category:`) to handle the filter.
+      The `select` function is imported from `sqlalchemy` — it's already in the
+      setup code. Chain `.where()` onto the existing `stmt` variable:
+      `stmt = stmt.where(Item.category == category)`. The `==` here is a
+      SQLAlchemy comparison expression, not a Python equality check.
+    narration: >
+      Check 2 verifies the return is a list. Check 3 verifies no-filter returns
+      all 5 seeded items. Check 4 verifies category='Electronics' returns exactly
+      2 items, all with category == 'Electronics'. Check 5 verifies that a
+      non-existent category returns an empty list (not None or an error).
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "`select(Item)` builds a SELECT query — no SQL string needed"
+      - "`.where(Item.col == val)` — appends WHERE with parameterized value"
+      - "`Item.col == val` is a SQLAlchemy comparison object, not a Python bool"
+      - "`session.execute(stmt).scalars().all()` → list of ORM objects"
+      - "`session.get(Item, pk)` → Item or None — efficient PK lookup"
+      - "`if category is not None:` — correct guard for optional filter parameters"
+      - "Chain .where().order_by().limit() to compose complex queries"
+    narration: >
+      Lesson 4 covers update_price — the ORM UPDATE pattern: session.get() to
+      fetch, attribute mutation to mark dirty, commit() to flush the UPDATE.

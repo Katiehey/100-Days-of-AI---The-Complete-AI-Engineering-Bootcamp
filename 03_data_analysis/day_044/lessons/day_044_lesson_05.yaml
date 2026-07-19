@@ -1,0 +1,219 @@
+day: "044"
+lesson: "05"
+title: "Deleting Records and the Full CRUD Loop"
+slides:
+  - type: title
+    heading: "Deleting Records and the Full CRUD Loop"
+    subheading: "session.delete(), commit(), and ORM vs raw sqlite3 comparison"
+    narration: >
+      Lesson 5 completes the CRUD set. Delete follows the same fetch-then-act
+      pattern as Update: `session.get()` to fetch the object, `session.delete(obj)`
+      to mark it for deletion, `session.commit()` to flush the DELETE SQL.
+      After this lesson you have all five functions working together as a
+      complete inventory management system — and a mental model of how the
+      ORM pattern compares to raw sqlite3.
+
+  - type: concept
+    label: "ORM delete pattern"
+    heading: "Fetch → mark for deletion → commit"
+    body: >
+      Deleting in SQLAlchemy ORM is two steps: mark the object for deletion with
+      `session.delete(obj)`, then flush with `session.commit()`. But before
+      `session.delete()`, you need the object — so the full pattern is three steps:
+      (1) `item = session.get(Item, item_id)` — fetch by PK, returns None if missing.
+      (2) `session.delete(item)` — marks the item for deletion; no SQL yet.
+      (3) `session.commit()` — flushes the DELETE to the database.
+      The raw sqlite3 equivalent: `cur.execute("DELETE FROM items WHERE id=?", (id,))`.
+      The ORM version is longer but does not require a SQL string, and the None
+      check on `session.get()` makes the "does not exist" path explicit.
+    bullets:
+      - "`session.delete(item)` — marks the object for deletion (no SQL yet)"
+      - "`session.commit()` — flushes DELETE to the database"
+      - "Pattern: get → if None return False → delete → commit → return True"
+      - "After delete+commit, the object is in 'detached' state — no longer tracked"
+      - "Accessing attributes on a detached object raises DetachedInstanceError"
+      - "`session.get(Item, deleted_id)` after commit → None (row is gone)"
+    narration: >
+      After `session.delete(item)` and `session.commit()`, the item object is
+      in the "detached" state. It still exists as a Python object in memory,
+      but the session no longer tracks it. Accessing `item.name` on a detached
+      object will raise `DetachedInstanceError` if the attribute hasn't been
+      loaded yet (because there's no session to issue the lazy load). This is
+      usually fine for delete functions since you return True/False rather than
+      the deleted object. If you need to return the deleted object's data,
+      read its attributes before calling `session.commit()`.
+
+  - type: code
+    label: "delete_item implementation"
+    heading: "get → if None return False → delete → commit → return True"
+    code: |
+      def delete_item(session, item_id):
+          item = session.get(Item, item_id)
+          if item is None:
+              return False
+          session.delete(item)
+          session.commit()
+          return True
+
+      # --- Examples ---
+      engine  = setup_engine()
+      session = Session(engine)
+      item_a = add_item(session, 'Widget',   'Parts',  5.99, 100)
+      item_b = add_item(session, 'Gadget',   'Parts', 19.99,  50)
+      item_c = add_item(session, 'Doohickey','Parts',  3.49, 200)
+
+      print(f'Before: {len(get_items(session))} items')    # Before: 3 items
+
+      result = delete_item(session, item_a.id)
+      print(result)                                         # True
+
+      gone = session.get(Item, item_a.id)
+      print(gone)                                           # None
+
+      print(f'After: {len(get_items(session))} items')     # After: 2 items
+
+      # Missing id
+      print(delete_item(session, 99999))                    # False
+    narration: >
+      The bool return type makes `delete_item` easy to use in conditional logic:
+      `if not delete_item(session, item_id): print('Item not found')`. Returning
+      True/False rather than the object or None is a common convention for
+      delete functions — it signals "the operation succeeded / failed" rather
+      than "here is the deleted object." If the caller needs to act on the
+      deleted item's data, they should fetch it with `session.get()` before
+      calling delete_item.
+
+  - type: how_it_works
+    label: "ORM vs sqlite3 comparison"
+    heading: "When to use each approach"
+    body: >
+      You now know three approaches to SQLite in Python:
+      (1) raw sqlite3 (Day 42) — full SQL control, explicit row unpacking,
+      best for ad-hoc queries, data analysis, and when you need full SQL power.
+      (2) NL→SQL with text-to-SQL (Day 43) — LLM generates SQL from English,
+      best for interactive exploration and non-technical users.
+      (3) SQLAlchemy ORM (Day 44) — Python objects, no SQL strings, best for
+      application development where the schema is owned by your code and evolves
+      over time. Used in Day 52 (FastAPI) and Day 54 (Databases for Apps).
+      The approaches are complementary. Real apps often use ORM for CRUD
+      and raw SQL for complex analytics queries that are harder to express in ORM.
+    bullets:
+      - "sqlite3 — raw SQL, manual row unpacking, full control, verbose for CRUD"
+      - "NL→SQL — English questions → SQL → results, ideal for exploration"
+      - "SQLAlchemy ORM — Python objects, no SQL strings, schema in model classes"
+      - "ORM for CRUD, raw SQL for complex analytics — mix as needed"
+      - "SQLAlchemy Core (between ORM and raw) — SQL expression language without models"
+      - "All three share SQLite as the database engine — the underlying SQL is identical"
+    narration: >
+      In production Python applications, SQLAlchemy ORM is the dominant choice
+      for application-layer data access. FastAPI's documentation recommends
+      SQLModel (built on SQLAlchemy 2.x). Django uses its own ORM (very similar
+      concepts). The patterns you learned today — model class, session, add,
+      commit, refresh, get, delete, select, where — are the same patterns you'll
+      use in every Python web app you build. Day 54 (Databases for Apps) extends
+      this to file-backed SQLite and more complex queries in a FastAPI app.
+
+  - type: code
+    label: "Full CRUD demo"
+    heading: "All five functions working together"
+    code: |
+      # Full inventory app demo
+      engine  = setup_engine()
+      session = Session(engine)
+
+      # CREATE — add five items
+      laptop  = add_item(session, 'Laptop',     'Electronics', 999.99, 5)
+      phones  = add_item(session, 'Headphones', 'Electronics', 149.99, 12)
+      chair   = add_item(session, 'Desk Chair', 'Furniture',   349.00, 3)
+      book    = add_item(session, 'Bookcase',   'Furniture',   199.00, 8)
+      pens    = add_item(session, 'Pen Set',    'Stationery',   12.99, 50)
+      print(f'Stocked: {len(get_items(session))} items')  # 5
+
+      # READ — all items and filtered
+      all_items = get_items(session)
+      elec      = get_items(session, category='Electronics')
+      print(f'Electronics: {[i.name for i in elec]}')   # ['Laptop', 'Headphones']
+
+      # UPDATE — price change
+      updated = update_price(session, laptop.id, 849.99)
+      print(f'Updated laptop: {updated.price}')          # 849.99
+
+      # DELETE — remove one item
+      deleted = delete_item(session, pens.id)
+      print(f'Deleted pens: {deleted}')                  # True
+      print(f'Remaining: {len(get_items(session))}')     # 4
+
+      session.close()
+    narration: >
+      `session.close()` at the end releases the connection back to the pool.
+      For in-memory SQLite with StaticPool, the connection is not actually
+      destroyed — it returns to the pool and can be reused. For file-backed
+      SQLite or PostgreSQL, closing the session releases a real network
+      connection. In production apps, sessions are typically managed with
+      a context manager (`with Session(engine) as session: ...`) which calls
+      `close()` automatically on exit, even if an exception is raised.
+
+  - type: concept
+    label: "Context manager sessions"
+    heading: "with Session(engine) as session — the production pattern"
+    body: >
+      The `with Session(engine) as session:` context manager is the recommended
+      way to manage sessions in production. It calls `session.close()` automatically
+      when the block exits, whether normally or due to an exception. It does NOT
+      auto-commit — you still call `session.commit()` explicitly inside the block.
+      If the block exits via an exception after a partial commit, the session is
+      closed but the already-committed changes remain in the database (commits are
+      permanent). This is why transactions and careful error handling matter.
+    bullets:
+      - "`with Session(engine) as session:` — auto-closes on block exit"
+      - "Still requires explicit `session.commit()` — not auto-commit"
+      - "Exception in block → session.close() still called (via __exit__)"
+      - "Already-committed changes are permanent even if exception follows"
+      - "In exercises: `session = Session(engine)` is fine — close() at end"
+      - "In FastAPI: session is provided per-request as a dependency injection"
+    narration: >
+      In Day 52 (FastAPI) you will see the session managed as a FastAPI
+      dependency: `def get_session() -> Generator[Session, None, None]: with
+      Session(engine) as session: yield session`. This creates one session per
+      HTTP request and closes it automatically after the response is sent.
+      The `yield` in the dependency generator is the point at which the route
+      handler runs — before yield is setup (open session), after yield is
+      teardown (close session). For today's exercises, the simple
+      `session = Session(engine)` form is sufficient.
+
+  - type: exercise
+    heading: "Exercise 5 — delete_item"
+    prompt: >
+      Implement `delete_item(session, item_id) -> bool`.
+      Five steps: (1) `item = session.get(Item, item_id)`,
+      (2) `if item is None: return False`,
+      (3) `session.delete(item)`,
+      (4) `session.commit()`,
+      (5) `return True`.
+    hint: >
+      Do not call `session.refresh()` after delete — the object is detached
+      after commit and refreshing a deleted row would raise an error (the row
+      no longer exists in the database). The function returns a bool (True/False),
+      not the deleted object, so no refresh is needed. Check 3 verifies that
+      `session.get(Item, deleted_id)` returns None after deletion.
+    narration: >
+      Check 2 verifies delete_item returns True for an existing item. Check 3
+      verifies the item is gone from the database (session.get returns None).
+      Check 4 verifies get_items returns 2 items (3 seeded minus 1 deleted).
+      Check 5 verifies delete_item returns False for a non-existent id.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "`session.delete(item)` — marks object for deletion, no SQL yet"
+      - "`session.commit()` — flushes DELETE to database"
+      - "Pattern: get → if None return False → delete → commit → return True"
+      - "After delete+commit, object is 'detached' — do not access lazy attributes"
+      - "Full CRUD: setup_engine → add_item → get_items → update_price → delete_item"
+      - "ORM for CRUD, raw SQL or NL→SQL for complex analytics — complementary"
+      - "`with Session(engine) as session:` — production pattern for auto-close"
+    narration: >
+      Day 44 is complete. You can now build Python applications backed by a
+      real database without writing SQL strings. Day 45 extends this to ETL
+      pipelines — automating the movement of data between sources, transforming
+      it in Python, and writing it to a SQLAlchemy-backed database.
