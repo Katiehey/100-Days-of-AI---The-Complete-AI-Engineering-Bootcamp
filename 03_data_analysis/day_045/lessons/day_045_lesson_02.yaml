@@ -1,0 +1,177 @@
+day: "045"
+lesson: "02"
+title: "Validate — Guarding the Pipeline"
+slides:
+  - type: title
+    heading: "Validate — Guarding the Pipeline"
+    subheading: "validate_record(): required fields, float coercion, bool gate"
+    narration: >
+      Raw data extracted from a CSV can be anything: empty strings, text where
+      numbers are expected, missing fields, stray whitespace. If bad data reaches
+      the Load step, it either causes an error (if the column is NOT NULL) or
+      silently corrupts the database. validate_record is the gate: it inspects
+      one raw record and returns True if it should flow through, False if it
+      should be skipped. Lesson 2 covers what to check, how to check it safely,
+      and why the bool return pattern is correct.
+
+  - type: concept
+    label: "What to validate"
+    heading: "Required fields and type-coercibility"
+    body: >
+      Two classes of validation cover almost all real-world ETL quality issues:
+      (1) Required field presence — fields that must be non-empty for the row
+      to make sense. For a sales record: `date`, `product`, and `amount` are
+      required. `category` and `region` are optional — an empty string is
+      acceptable. Check: `not record.get(field, '').strip()` — if any required
+      field is empty after stripping whitespace, reject the record.
+      (2) Type coercibility — numeric fields delivered as strings must be
+      convertible to the target type. Check: `float(record['amount'])` inside
+      `try/except (ValueError, TypeError)`. If conversion fails, reject.
+      These two checks together handle the most common real-world data quality
+      failures: missing data and data entry errors in numeric columns.
+    bullets:
+      - "Required field: `not record.get(field, '').strip()` → reject if True"
+      - "Type check: `float(record['amount'])` in try/except → reject on ValueError"
+      - "Optional fields: skip validation for fields that can be empty"
+      - "Check required fields first — avoid calling float() on a missing field"
+      - "Returns bool — never raises; caller counts skipped vs loaded"
+      - "`record.get(field, '')` — safe even if field is missing from the dict"
+    narration: >
+      The `record.get(field, '').strip()` pattern is important: `record.get(field, '')`
+      returns an empty string if the field key does not exist (rather than raising
+      KeyError). `.strip()` removes whitespace. `not ...` inverts: if the result
+      is empty or whitespace-only, the condition is True and the record is rejected.
+      This handles three cases: missing key, empty string, and whitespace-only string.
+
+  - type: how_it_works
+    label: "try/except for type checking"
+    heading: "Why try/except is the right pattern for type-coercibility checks"
+    body: >
+      Python's idiomatic approach to checking whether a string can be converted
+      to a number is "try and catch the exception" (EAFP: Easier to Ask
+      Forgiveness than Permission), not "check first then convert" (LBYL:
+      Look Before You Leap). The LBYL approach would be a regex check:
+      `re.match(r'^[0-9.]+$', record['amount'])`. But regex misses edge cases
+      (scientific notation `1e5`, negative values `-10.5`, localized numbers
+      `1,000`). `float()` handles all valid Python float representations.
+      `try: float(amount)` is the correct, comprehensive check.
+    bullets:
+      - "EAFP: try float(x), except ValueError → Pythonic and complete"
+      - "LBYL: regex check first → misses valid floats, rejects others wrongly"
+      - "`float('1e5')` → valid; `float('1,000')` → ValueError (correct rejection)"
+      - "`float('')` → ValueError (caught — empty amount is invalid)"
+      - "`float('twelve')` → ValueError (caught — text in number field)"
+      - "Catch both `ValueError` (bad value) and `TypeError` (None, not a string)"
+    narration: >
+      `except (ValueError, TypeError)` catches two exceptions: `ValueError` is
+      raised by `float('twelve')`, `float('')`, and similar bad string inputs.
+      `TypeError` is raised by `float(None)`. If a CSV field is missing entirely
+      from the dict, `record.get('amount', '')` returns `''`, which raises
+      `ValueError` on `float('')` — caught. If somehow `None` slipped in,
+      `TypeError` is caught. The two-exception tuple covers all realistic
+      failure modes.
+
+  - type: code
+    label: "validate_record implementation"
+    heading: "Required field check + float coercibility"
+    code: |
+      def validate_record(record: dict) -> bool:
+          required = ['date', 'product', 'amount']
+          for field in required:
+              if not record.get(field, '').strip():
+                  return False
+          try:
+              float(record['amount'])
+          except (ValueError, TypeError):
+              return False
+          return True
+
+      # Valid record
+      r = {'date':'2024-01-15','product':'Laptop','category':'Electronics',
+           'amount':'999.99','region':'East'}
+      print(validate_record(r))                           # True
+
+      # Invalid: empty product
+      print(validate_record({**r, 'product': ''}))        # False
+
+      # Invalid: non-numeric amount
+      print(validate_record({**r, 'amount': 'twelve'}))   # False
+
+      # Invalid: empty amount
+      print(validate_record({**r, 'amount': ''}))         # False
+
+      # Valid: category and region are optional
+      print(validate_record({**r, 'category': '', 'region': ''}))  # True
+    narration: >
+      The last example is important: a record with empty `category` and `region`
+      is still valid, because those fields are not in the `required` list.
+      An empty string is a valid string value for optional fields — it just
+      means the category or region is unknown. The transform step will store
+      an empty string in the database, which is acceptable. For production
+      systems, you might want to distinguish between "unknown" and "not provided",
+      which would require a nullable column (`Mapped[Optional[str]]`) and None
+      instead of empty string.
+
+  - type: concept
+    label: "Validate before transform"
+    heading: "Why the order extract → validate → transform is important"
+    body: >
+      `transform_record` calls `float(record['amount'])` without a try/except,
+      because it assumes the record has already been validated. If you called
+      `transform_record` on an invalid record (e.g., amount='twelve'), it would
+      raise a ValueError and crash the pipeline. The `validate → transform`
+      order is a precondition contract: validate_record is the precondition
+      check; transform_record is the function that runs after the check passes.
+      In `run_pipeline`, this is enforced by the list comprehension:
+      `[transform_record(r) for r in valid]` where `valid` only contains
+      records that passed `validate_record`.
+    bullets:
+      - "transform_record assumes valid input — no try/except inside"
+      - "validate_record is the guard — runs first, filters bad records"
+      - "Precondition pattern: if validate(x): transform(x)"
+      - "Only call transform on records that passed validate"
+      - "This keeps each function single-responsibility"
+      - "Crash in transform = bug (invalid record passed through); crash in validate = bug (wrong check)"
+    narration: >
+      This is the "parse, don't validate" principle applied to ETL: at the
+      boundary of your system (the Extract step), you receive raw untrusted
+      strings. The Validate step is the boundary check. After Validate, you
+      are working with "trusted" data — data you know is structured correctly.
+      The Transform step can then assume structure and focus on cleaning,
+      not on checking. Keeping these responsibilities separate makes each
+      function simpler and the pipeline easier to debug.
+
+  - type: exercise
+    heading: "Exercise 2 — validate_record"
+    prompt: >
+      Implement `validate_record(record: dict) -> bool`.
+      Loop over `required = ['date', 'product', 'amount']` and check
+      `if not record.get(field, '').strip(): return False`.
+      Then `try: float(record['amount'])` / `except (ValueError, TypeError): return False`.
+      Return `True` at the end.
+    hint: >
+      The `try/except` block comes after the required-field loop — you only
+      try to convert `amount` to float if the earlier loop confirmed it is
+      non-empty. If `amount` is empty, the loop returns False before the
+      try block is reached. `except (ValueError, TypeError)` catches both
+      bad string values and None. The function never raises — it always
+      returns True or False.
+    narration: >
+      Check 2 verifies a valid record returns True. Check 3 verifies an empty
+      product returns False. Check 4 verifies a non-numeric amount returns False.
+      Check 5 verifies an empty amount returns False. All checks are deterministic
+      with hardcoded inputs — no Ollama or database needed.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "validate_record → bool: True = valid, False = skip"
+      - "Required field check: `not record.get(field, '').strip()` → return False"
+      - "Type check: `try: float(record['amount'])` / `except (ValueError, TypeError):`"
+      - "EAFP: try/except is the Pythonic way to check type-coercibility"
+      - "Optional fields: not in required list, empty string is acceptable"
+      - "Precondition: only call transform_record on records that passed validate"
+      - "Pipeline order: extract → validate → transform (not validate → extract → transform)"
+    narration: >
+      Lesson 3 covers transform_record — the cleaning step that produces a
+      new dict with correct types, stripped strings, and normalized values.

@@ -1,0 +1,192 @@
+day: "045"
+lesson: "05"
+title: "run_pipeline — Composing the ETL Steps"
+slides:
+  - type: title
+    heading: "run_pipeline — Composing the ETL Steps"
+    subheading: "Orchestrate extract → validate → transform → load; return a stats dict"
+    narration: >
+      The four functions from lessons 1-4 are useful in isolation but only
+      solve the full problem when composed in the right order. run_pipeline
+      is the orchestrator: it calls extract, filters with validate_record,
+      cleans with transform_record, and persists with load — all in five lines.
+      The function returns a stats dict so the caller can see exactly how
+      many records were extracted, how many were loaded, and how many were
+      skipped, without inspecting the database or reading intermediate lists.
+
+  - type: concept
+    label: "Pipeline as function composition"
+    heading: "Five lines that wire four functions together"
+    body: >
+      `run_pipeline` is a composer, not a doer. It does not extract, validate,
+      transform, or load — those four functions do. `run_pipeline` decides the
+      order and passes results from one to the next. This is function composition:
+      the output of `extract` becomes the input of the `validate_record` filter;
+      the filtered list becomes the input of `transform_record`; the transformed
+      list becomes the input of `load`. Each step's output is the next step's
+      input. The composition is expressed as five assignment statements — no
+      loops, no branches, no try/except. Those concerns live in the functions
+      being composed.
+    bullets:
+      - "run_pipeline composes, the four functions do"
+      - "raw_records  = extract(csv_text) — all records as raw strings"
+      - "valid        = [r for r in raw_records if validate_record(r)] — filter"
+      - "transformed  = [transform_record(r) for r in valid] — clean each"
+      - "loaded_count = load(session, transformed) — persist to DB"
+      - "return {'extracted': N, 'loaded': M, 'skipped': K} — audit trail"
+    narration: >
+      The list comprehension `[r for r in raw_records if validate_record(r)]`
+      is a filter expression: it keeps only the records for which `validate_record`
+      returns True. The separate comprehension `[transform_record(r) for r in valid]`
+      applies the transformation to every valid record. You could combine them
+      into one comprehension: `[transform_record(r) for r in raw_records if validate_record(r)]`.
+      But keeping them separate makes the counts easier to compute: `len(raw_records)`
+      is the extracted count, `len(valid)` is the valid count (same as `loaded_count`),
+      and `len(raw_records) - loaded_count` is the skipped count.
+
+  - type: how_it_works
+    label: "Stats dict"
+    heading: "Why return a dict instead of void"
+    body: >
+      `run_pipeline` returns a dict instead of printing or returning None because:
+      (1) The caller controls presentation — they can print, log, or store the
+      stats in a database for auditing. A print inside the function would force
+      output even when the caller doesn't want it.
+      (2) Tests can check the stats programmatically: `assert stats['loaded'] == 7`.
+      (3) The stats dict is extensible: you can add keys like `'duration_ms'`,
+      `'skipped_records'`, or `'errors'` without changing the function signature.
+      This pattern — return a dict of results instead of void — is idiomatic
+      for functions that have multiple meaningful outputs.
+    bullets:
+      - "Returns dict: caller controls what to do with stats"
+      - "'extracted' = total records from source (raw_records count)"
+      - "'loaded' = records that passed validate and were inserted (load count)"
+      - "'skipped' = extracted - loaded (bad records filtered out)"
+      - "Extensible: add 'duration_ms', 'skipped_records' without changing signature"
+      - "Testable: `assert stats['extracted'] == 10` — no parsing print output"
+    narration: >
+      The three keys 'extracted', 'loaded', 'skipped' form a minimal audit
+      trail. A key invariant: `extracted == loaded + skipped`. This holds because
+      every raw record either passes validate (loaded) or fails it (skipped).
+      The check `stats['extracted'] == stats['loaded'] + stats['skipped']` is a
+      useful assertion to add in production: if it fails, there is a bug in the
+      pipeline (a record was neither loaded nor counted as skipped). Today's
+      implementation satisfies this invariant by construction:
+      `skipped = len(raw_records) - loaded_count` and `loaded_count = len(valid)`.
+
+  - type: code
+    label: "run_pipeline implementation"
+    heading: "Five assignment statements — one per step"
+    code: |
+      def run_pipeline(csv_text: str, session) -> dict:
+          raw_records  = extract(csv_text)
+          valid        = [r for r in raw_records if validate_record(r)]
+          transformed  = [transform_record(r) for r in valid]
+          loaded_count = load(session, transformed)
+          return {
+              'extracted': len(raw_records),
+              'loaded':    loaded_count,
+              'skipped':   len(raw_records) - loaded_count,
+          }
+
+      # --- Demo with CSV_SOURCE (10 rows, 3 invalid) ---
+      engine  = setup_engine()
+      session = Session(engine)
+      stats   = run_pipeline(CSV_SOURCE, session)
+      print(stats)
+      # {'extracted': 10, 'loaded': 7, 'skipped': 3}
+
+      # Invariant check
+      assert stats['extracted'] == stats['loaded'] + stats['skipped']
+
+      # Query loaded data
+      from sqlalchemy import select
+      sales = session.execute(select(Sale)).scalars().all()
+      print(f'{len(sales)} Sale rows in DB')   # 7
+
+      # Category summary using text SQL
+      from sqlalchemy import text
+      rows = session.execute(text(
+          'SELECT category, COUNT(*) as c, ROUND(SUM(amount),2) as t '
+          'FROM sales GROUP BY category ORDER BY t DESC'
+      )).mappings().all()
+      for row in rows:
+          print(f"  {row['category']}: {row['c']} sales, ${row['t']:.2f}")
+      # Electronics: 4 sales, $1829.96
+      # Furniture: 2 sales, $394.99
+      # Stationery: 1 sales, $8.99
+    narration: >
+      The category summary at the bottom uses `session.execute(text(sql))` to
+      run a raw SQL query with GROUP BY and SUM. `.mappings().all()` returns
+      rows as dict-like objects, accessed with `row['category']`. This combines
+      the SQLAlchemy session from Day 44 with the raw SQL query pattern from
+      Day 42 — two tools from the same session, used for different purposes:
+      ORM for CRUD, raw SQL for analytics.
+
+  - type: concept
+    label: "When to split functions further"
+    heading: "validate + transform as one step vs two"
+    body: >
+      In today's pipeline, validate and transform are separate functions.
+      An alternative is to combine them into a single `validate_and_transform`
+      function that returns `dict | None` — None if invalid, the clean dict
+      if valid. This is a common pattern in functional pipelines:
+      `results = [r for r in (validate_and_transform(rec) for rec in raw) if r is not None]`.
+      The separate approach is more testable: you can unit-test validate_record
+      and transform_record independently. The combined approach reduces the
+      number of functions. Both are correct. Today's exercises use separate
+      functions to teach the two concepts distinctly.
+    bullets:
+      - "Two functions: validate_record (bool) + transform_record (dict)"
+      - "One function: validate_and_transform (dict | None)"
+      - "Separate: easier to unit-test each concern independently"
+      - "Combined: fewer functions, simpler pipeline expression"
+      - "Both are correct — choose based on how much you need to test each"
+      - "Day 45 uses separate for clarity; real pipelines often combine"
+    narration: >
+      The `dict | None` return type for `validate_and_transform` is Python 3.10+
+      union type syntax. In Python 3.9, you'd write `Optional[dict]` from typing.
+      Since the course kernel is Python 3.11, `dict | None` is fine. But the
+      concept works in any Python: return None to signal "skip this record",
+      return a dict to signal "this record is clean and ready to load".
+      This is a common pattern in functional-style Python code.
+
+  - type: exercise
+    heading: "Exercise 5 — run_pipeline"
+    prompt: >
+      Implement `run_pipeline(csv_text: str, session) -> dict` in five steps:
+      (1) `raw_records = extract(csv_text)`,
+      (2) `valid = [r for r in raw_records if validate_record(r)]`,
+      (3) `transformed = [transform_record(r) for r in valid]`,
+      (4) `loaded_count = load(session, transformed)`,
+      (5) `return {'extracted': len(raw_records), 'loaded': loaded_count,
+      'skipped': len(raw_records) - loaded_count}`.
+    hint: >
+      The three counts must satisfy: extracted == loaded + skipped. Use
+      `len(raw_records)` for extracted (not `len(valid)` — valid is already
+      filtered). Use `loaded_count` (the return value of load()) for loaded
+      rather than `len(transformed)` — they are equal but using the return
+      value of load() makes it explicit that you're counting what actually
+      reached the database.
+    narration: >
+      Check 2 verifies the return is a dict with the correct keys. Check 3
+      verifies extracted == 10 (all 10 CSV rows). Check 4 verifies loaded == 7
+      and skipped == 3 (matching the 3 invalid rows in CSV_SOURCE). Check 5
+      verifies 7 Sale rows are in the database.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "run_pipeline composes extract → validate → transform → load"
+      - "Filter: `[r for r in raw if validate_record(r)]` — keep only valid records"
+      - "Map: `[transform_record(r) for r in valid]` — clean each valid record"
+      - "Stats dict: {'extracted', 'loaded', 'skipped'} — minimal audit trail"
+      - "Invariant: extracted == loaded + skipped — always true by construction"
+      - "session.execute(text(sql)).mappings().all() — raw SQL via SQLAlchemy session"
+      - "Full pipeline: CSV string → validated + transformed rows → SQLite DB → queryable"
+    narration: >
+      Day 45 is complete. You have a working ETL pipeline: a CSV string in,
+      a populated database out, with a stats dict showing what happened.
+      Day 46 applies time-series analysis to the date column of the data
+      you loaded today — resampling, rolling windows, and trend detection
+      over the sales amounts.

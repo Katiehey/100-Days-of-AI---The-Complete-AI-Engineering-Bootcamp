@@ -1,0 +1,177 @@
+day: "045"
+lesson: "01"
+title: "What is ETL? The Pipeline Pattern"
+slides:
+  - type: title
+    heading: "What is ETL? The Pipeline Pattern"
+    subheading: "Extract, Transform, Load — moving data from sources to destinations"
+    narration: >
+      Every data-backed application eventually needs to move data: from a CSV
+      file into a database, from an API into a data warehouse, from a legacy
+      system into a new one. ETL — Extract, Transform, Load — is the pattern
+      that structures this movement. Day 45 builds a complete ETL pipeline
+      using what you already know: csv.DictReader for extraction,
+      Python dicts for the intermediate representation, and SQLAlchemy ORM
+      from Day 44 for loading. The pipeline is five functions, each doing
+      one job.
+
+  - type: concept
+    label: "ETL — three steps, one pipeline"
+    heading: "Extract → Transform → Load"
+    body: >
+      ETL structures data movement into three distinct phases:
+      **Extract** — read raw data from the source. Sources can be CSV files,
+      JSON APIs, another database, a spreadsheet, or a web scrape. After
+      extraction, data is in a Python-native format (list of dicts). All values
+      are strings if the source is a CSV — type conversion has not happened yet.
+      **Transform** — validate, clean, and reshape the raw data. Strip whitespace,
+      coerce types, filter invalid records, normalize values like region names.
+      **Load** — write the cleaned data to the destination: a database, a file,
+      or another API. In today's pipeline, the destination is a SQLAlchemy
+      in-memory SQLite database.
+    bullets:
+      - "Extract — raw data from source → list[dict] with string values"
+      - "Transform — validate + clean + normalize → list[dict] with correct types"
+      - "Load — write to destination → database rows, files, or API calls"
+      - "Intermediate format: list[dict] — passes between any step"
+      - "Each step is a pure function: takes input, returns output, no side effects"
+      - "Pipeline = compose(extract, transform, load) — small functions, big power"
+    narration: >
+      The ETL pattern predates Python by decades — it originated in data
+      warehousing in the 1970s. But the concept applies equally to a five-line
+      Python script reading a CSV and inserting rows into SQLite. The key insight
+      is the separation of concerns: extract does not clean, transform does not
+      read, load does not validate. This makes each step testable in isolation,
+      replaceable without touching the other steps, and debuggable independently.
+      If bad data reaches the database, you know it bypassed the transform step.
+
+  - type: concept
+    label: "Staging area"
+    heading: "list[dict] as the universal intermediate format"
+    body: >
+      Between Extract and Transform, and between Transform and Load, data lives
+      in a Python list of dicts: `list[dict]`. This is the "staging area" — a
+      Python-native, serializable format that any step can produce and consume.
+      It maps naturally to tabular data (one dict = one row), JSON (list of
+      objects), and CSV rows (DictReader produces this format automatically).
+      Using a common format between steps means you can swap any step without
+      changing the others: replace CSV extraction with an API call, as long as
+      the output is still `list[dict]`.
+    bullets:
+      - "list[dict] — one dict per row, string keys from column names"
+      - "After extract: all values are strings (CSV gives you strings)"
+      - "After transform: typed values (float, int, str, datetime)"
+      - "Why dicts, not objects: dicts are generic; objects require a defined schema"
+      - "Dicts flow through any step; ORM objects only exist at the Load step"
+      - "Staging area concept: data lands in Python before going to the destination"
+    narration: >
+      The `list[dict]` format is the lingua franca of Python data engineering.
+      `csv.DictReader` produces it. `json.loads` of a JSON array produces it.
+      `pd.DataFrame.to_dict(orient='records')` produces it. A database query
+      with `cur.description` and `dict(zip(cols, row))` produces it.
+      The SQLAlchemy load step consumes it: `Sale(**record)` unpacks a dict
+      into an ORM constructor call. If you always think in terms of
+      "what does my step produce and consume?", the interfaces between steps
+      write themselves.
+
+  - type: how_it_works
+    label: "Pipeline composition"
+    heading: "Five functions, one run_pipeline"
+    body: >
+      The five functions in today's pipeline have a simple dependency chain:
+      `extract(csv_text)` → `list[dict]` (raw, all strings)
+      `validate_record(record)` → `bool` (filter raw records)
+      `transform_record(record)` → `dict` (clean one valid record)
+      `load(session, records)` → `int` (persist list of clean dicts)
+      `run_pipeline(csv_text, session)` → `dict` (compose all four, return stats)
+      Each function takes the output of the previous step as input.
+      `run_pipeline` is the orchestrator — it calls the others in order,
+      accumulates counts (extracted, loaded, skipped), and returns a stats dict.
+    bullets:
+      - "extract → raw list[dict] with string values"
+      - "validate_record → bool gate: True = let through, False = skip"
+      - "transform_record → clean dict with correct types"
+      - "load → int (count of rows inserted)"
+      - "run_pipeline → {'extracted': N, 'loaded': M, 'skipped': K}"
+      - "skipped = extracted - loaded (invalid records filtered out)"
+    narration: >
+      The stats dict returned by `run_pipeline` is a simple audit trail.
+      In production ETL systems, this grows into a full log: which records
+      were skipped, why they were invalid (what field failed), when the pipeline
+      ran, and how long it took. For Day 45, the three-key dict is sufficient.
+      If you want to extend it, you could add a list of skipped records to the
+      stats dict: `'skipped_records': [r for r in raw if not validate_record(r)]`.
+
+  - type: code
+    label: "End-to-end preview"
+    heading: "What the pipeline looks like in use"
+    code: |
+      import csv, io
+      from sqlalchemy import create_engine, String, select, text
+      from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
+      from sqlalchemy.pool import StaticPool
+
+      class Base(DeclarativeBase): pass
+
+      class Sale(Base):
+          __tablename__ = 'sales'
+          id:       Mapped[int]   = mapped_column(primary_key=True)
+          date:     Mapped[str]   = mapped_column(String(20))
+          product:  Mapped[str]   = mapped_column(String(100))
+          category: Mapped[str]   = mapped_column(String(50))
+          amount:   Mapped[float] = mapped_column()
+          region:   Mapped[str]   = mapped_column(String(50))
+
+      # After building the five functions:
+      engine  = setup_engine()
+      session = Session(engine)
+      stats   = run_pipeline(CSV_SOURCE, session)
+
+      # stats = {'extracted': 10, 'loaded': 7, 'skipped': 3}
+      print(f"Loaded {stats['loaded']} rows, skipped {stats['skipped']}")
+
+      # Query loaded data
+      electronics = session.execute(
+          select(Sale).where(Sale.category == 'Electronics')
+      ).scalars().all()
+      print(f"Electronics: {len(electronics)} items")
+      # Electronics: 3 items
+    narration: >
+      The pipeline calls are at the bottom: setup_engine, Session, run_pipeline.
+      The five functions built across exercises 1-5 power those three lines.
+      The query at the end shows that after the pipeline runs, the database
+      is queryable using all the SQLAlchemy select() patterns from Day 44.
+      The ETL pipeline and the ORM query API are complementary: ETL gets
+      data in, ORM queries get data out.
+
+  - type: exercise
+    heading: "Exercise 1 — extract"
+    prompt: >
+      Implement `extract(csv_text: str) -> list`. Use `csv.DictReader(io.StringIO(csv_text))`
+      to parse the CSV string. Return `list(reader)`. The returned list has one
+      dict per data row (header row is consumed as keys). All values are strings.
+    hint: >
+      `io.StringIO(csv_text)` wraps the string as a file-like object —
+      `csv.DictReader` expects a file, not a string. `list(reader)` materializes
+      the iterator into a list. Do not add any type conversion here — that
+      is the transform step's job. The check verifies that `result[0]['amount']`
+      equals the string `'999.99'`, not the float `999.99`.
+    narration: >
+      Check 2 verifies the return is a list. Check 3 verifies the count is 10
+      (header row excluded — DictReader consumes it as keys). Check 4 verifies
+      all rows are dicts with the 5 expected keys. Check 5 verifies that amount
+      is a string (not float) — confirming no premature type conversion.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "ETL = Extract + Transform + Load — three steps, each a pure function"
+      - "Extract: source → list[dict] with string values"
+      - "Transform: validate + coerce + normalize → typed list[dict]"
+      - "Load: list[dict] → database rows (SQLAlchemy ORM)"
+      - "Intermediate format list[dict] — universal staging area between steps"
+      - "run_pipeline composes all steps and returns {'extracted', 'loaded', 'skipped'}"
+      - "csv.DictReader(io.StringIO(text)) — parse CSV string without a file"
+    narration: >
+      Lesson 2 covers validate_record — the filter that separates valid records
+      from bad ones before transformation begins.

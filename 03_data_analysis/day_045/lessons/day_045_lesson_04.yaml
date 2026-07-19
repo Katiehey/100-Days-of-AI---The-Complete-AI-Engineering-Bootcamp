@@ -1,0 +1,177 @@
+day: "045"
+lesson: "04"
+title: "Load — Bulk Insert with session.add_all()"
+slides:
+  - type: title
+    heading: "Load — Bulk Insert with session.add_all()"
+    subheading: "list[dict] → ORM objects → committed to the database"
+    narration: >
+      The Load step is where the Python world meets the database. After extract
+      and transform, you have a `list[dict]` of clean, typed records. The Load
+      step converts each dict into a Sale ORM object with `Sale(**record)`,
+      stages all of them with `session.add_all()`, and writes them to the
+      database with a single `session.commit()`. The function returns the count
+      of rows loaded, which `run_pipeline` uses to calculate the skipped count.
+
+  - type: concept
+    label: "session.add_all() vs session.add()"
+    heading: "Bulk staging — one call for many objects"
+    body: >
+      Day 44's `add_item` used `session.add(item)` once per item. For bulk
+      inserts in an ETL pipeline, `session.add_all(list_of_objects)` stages all
+      objects in one call. Under the hood, `add_all` iterates the list and calls
+      `add()` on each — the SQL generation is the same. The practical difference:
+      `add_all` makes the intent explicit ("I am adding many objects at once")
+      and reduces the number of Python method calls. Both approaches use a single
+      `session.commit()` to flush all pending objects, which is efficient —
+      SQLAlchemy batches the INSERTs into one transaction.
+    bullets:
+      - "`session.add_all([Sale(**r) for r in records])` — stage all objects"
+      - "`session.add_all([])` is valid — empty list, no SQL, commit does nothing"
+      - "One `session.commit()` after `add_all` — one database transaction"
+      - "SQLAlchemy batches the INSERTs — efficient for large record counts"
+      - "Equivalent to calling `session.add(obj)` N times + one `session.commit()`"
+      - "After commit, all Sale objects are persistent but in expired state"
+    narration: >
+      The expired-after-commit behavior from Day 44 applies here too: after
+      `session.commit()`, all the Sale objects in the `sales` list are expired.
+      Accessing their attributes (like `sales[0].id`) would trigger a lazy
+      load. But in the `load` function, we don't access the objects after
+      commit — we just return the count. So there is no need for `session.refresh()`
+      in the load function. If the caller needs the objects, they should use
+      `select(Sale)` to query them.
+
+  - type: how_it_works
+    label: "Sale(**record) — dict unpacking into ORM constructor"
+    heading: "How a dict becomes an ORM object"
+    body: >
+      `Sale(**record)` uses Python's keyword argument unpacking: the `**` operator
+      expands the dict into keyword arguments for the `Sale` constructor.
+      `Sale(**{'date': '2024-01-15', 'product': 'Laptop', 'category': 'Electronics',
+      'amount': 999.99, 'region': 'East'})` becomes
+      `Sale(date='2024-01-15', product='Laptop', category='Electronics',
+      amount=999.99, region='East')`. The auto-generated ORM `__init__` accepts
+      all mapped columns as keyword arguments. The `id` column is omitted — the
+      database assigns it. The transformed dict has exactly the right keys because
+      the transform step was designed with this in mind.
+    bullets:
+      - "`Sale(**r)` = `Sale(date=r['date'], product=r['product'], ...)` "
+      - "`**` dict unpacking passes all key-value pairs as keyword arguments"
+      - "Keys must match Sale column names exactly — no extra or missing keys"
+      - "Omit 'id' from the dict — auto-assigned by the database"
+      - "TypeError if keys don't match: caught early in testing"
+      - "List comprehension: `[Sale(**r) for r in records]` — one Sale per dict"
+    narration: >
+      The `**record` unpacking pattern is the bridge between the dict-based
+      staging area and the object-based ORM layer. This is why the transform
+      step returns dicts (not Sale objects) — dicts are the portable, generic
+      format. The Load step is the only place where the specific ORM model class
+      (`Sale`) is referenced. This means that if you swap the destination from
+      SQLAlchemy to pandas or a CSV file, you only change the load function —
+      extract and transform are unchanged.
+
+  - type: code
+    label: "load implementation"
+    heading: "Four lines: create objects → stage → commit → return count"
+    code: |
+      def load(session, records: list) -> int:
+          sales = [Sale(**r) for r in records]
+          session.add_all(sales)
+          session.commit()
+          return len(sales)
+
+      # --- Demo ---
+      engine  = setup_engine()
+      session = Session(engine)
+
+      clean_records = [
+          {'date': '2024-01-15', 'product': 'Laptop',
+           'category': 'Electronics', 'amount': 999.99, 'region': 'East'},
+          {'date': '2024-01-16', 'product': 'Headphones',
+           'category': 'Electronics', 'amount': 149.99, 'region': 'West'},
+          {'date': '2024-01-17', 'product': 'Desk Chair',
+           'category': 'Furniture', 'amount': 349.00, 'region': 'East'},
+      ]
+
+      count = load(session, clean_records)
+      print(f'Loaded: {count}')    # 3
+
+      # Query to verify
+      from sqlalchemy import select
+      all_sales = session.execute(select(Sale)).scalars().all()
+      print(f'In DB: {len(all_sales)}')         # 3
+      print(f'First: {all_sales[0].product}')   # Laptop
+      print(f'Type:  {type(all_sales[0].amount)}')  # <class 'float'>
+
+      # Empty list is safe
+      print(load(session, []))     # 0
+    narration: >
+      The `load(session, [])` call at the bottom shows idempotency for the
+      empty case: an empty list produces no SQL and returns 0. This is important
+      for `run_pipeline`: if every record is invalid, `run_pipeline` calls
+      `load(session, [])` which does nothing and returns 0, giving stats of
+      {'extracted': N, 'loaded': 0, 'skipped': N}. No error, just an empty
+      result. The caller can inspect the stats to understand what happened.
+
+  - type: concept
+    label: "Idempotency concern"
+    heading: "What happens if you run the pipeline twice?"
+    body: >
+      Running `run_pipeline` twice on the same CSV and same session will insert
+      duplicate rows. There is no deduplication in today's implementation. This
+      is intentional — keep it simple. For production pipelines, deduplication
+      strategies include: using `INSERT OR IGNORE` with a UNIQUE constraint on
+      `(date, product)` (raw sqlite3); or checking before inserting with
+      `session.execute(select(Sale).where(Sale.date == r['date'],
+      Sale.product == r['product'])).first()`. The Bonus Challenge in the project
+      asks you to implement this. For in-memory SQLite (used in exercises), each
+      engine creates a fresh empty database, so double-run isn't an issue.
+    bullets:
+      - "Today's load has no deduplication — running twice inserts duplicates"
+      - "Acceptable for one-shot ETL pipelines with a fresh DB each run"
+      - "Production fix 1: UNIQUE constraint + INSERT OR IGNORE (sqlite3)"
+      - "Production fix 2: query before insert — skip existing (date, product) pairs"
+      - "Production fix 3: truncate + reload — acceptable if source is full snapshot"
+      - "Bonus Challenge: make run_pipeline idempotent"
+    narration: >
+      Idempotency is a key property of production ETL pipelines: running the
+      pipeline multiple times should produce the same result as running it once.
+      The simplest approach in SQLAlchemy is to add a `UniqueConstraint` to the
+      model:
+      `__table_args__ = (UniqueConstraint('date', 'product', name='uq_date_product'),)`
+      and then catch `IntegrityError` in the load function to skip duplicates.
+      This is out of scope for Day 45 but is a natural extension in Day 54
+      (Databases for Apps).
+
+  - type: exercise
+    heading: "Exercise 4 — load"
+    prompt: >
+      Implement `load(session, records: list) -> int`.
+      Four steps: (1) `sales = [Sale(**r) for r in records]`,
+      (2) `session.add_all(sales)`,
+      (3) `session.commit()`,
+      (4) `return len(sales)`.
+    hint: >
+      Do not call `session.refresh()` on the sales after commit — the load
+      function returns a count, not the Sale objects. The check verifies that
+      `len(sales)` equals the number of records passed and that the rows
+      appear in the database via `session.execute(select(Sale)).scalars().all()`.
+      `session.add_all([])` with an empty list is valid and safe.
+    narration: >
+      Check 2 verifies the return is an int. Check 3 verifies the count matches
+      the number of records passed. Check 4 verifies the rows are in the database.
+      Check 5 verifies the stored amount is a float (not a string).
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "`session.add_all([Sale(**r) for r in records])` — bulk stage ORM objects"
+      - "`Sale(**r)` — dict unpacking into ORM constructor (keys must match columns)"
+      - "One session.commit() for all records — efficient single transaction"
+      - "Return len(records) — caller uses this count to compute skipped"
+      - "Empty list is safe: add_all([]) + commit() = no SQL, returns 0"
+      - "No deduplication in today's load — running twice inserts duplicates"
+      - "No session.refresh() needed — load returns count, not objects"
+    narration: >
+      Lesson 5 assembles all four functions into run_pipeline and covers
+      the stats dict pattern that makes pipeline runs auditable.

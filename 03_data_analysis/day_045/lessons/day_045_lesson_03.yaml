@@ -1,0 +1,178 @@
+day: "045"
+lesson: "03"
+title: "Transform — Clean, Coerce, Normalize"
+slides:
+  - type: title
+    heading: "Transform — Clean, Coerce, Normalize"
+    subheading: "transform_record(): strip, float(), .title() — a pure function that cleans one row"
+    narration: >
+      The Transform step has one job: take a validated raw record (all string
+      values) and return a new dict with clean, typed, normalized values ready
+      for the database. No validation (that's already done), no database access
+      (that's the Load step's job). transform_record is a pure function: it
+      takes a dict and returns a new dict, never mutates its input, never raises
+      on valid input. Lesson 3 covers the three types of transformation applied
+      in today's pipeline: string stripping, type coercion, and value normalization.
+
+  - type: concept
+    label: "Three types of transformation"
+    heading: "Strip, coerce, normalize — three distinct operations"
+    body: >
+      Real-world ETL transformations fall into three categories:
+      (1) **Strip** — remove leading and trailing whitespace from string fields.
+      A CSV cell containing `' Laptop '` should become `'Laptop'` in the database.
+      Use `str.strip()`. Apply to all string fields: date, product, category.
+      (2) **Coerce** — convert string values to the target type.
+      `'999.99'` → `float('999.99')` = `999.99`. Wrap in `round(..., 2)` to
+      avoid floating-point precision artifacts like `999.9900000000001`.
+      (3) **Normalize** — standardize values so equivalent data is stored
+      consistently. Region names from CSV may arrive as `'east'`, `'East'`, `'EAST'`.
+      `.title()` converts to title case: `'East'`. Without normalization, a
+      GROUP BY query would return three rows instead of one.
+    bullets:
+      - "Strip: `record['date'].strip()` — removes leading/trailing whitespace"
+      - "Coerce: `round(float(record['amount']), 2)` — string → float, 2 decimals"
+      - "Normalize: `.strip().title()` — 'east' / 'EAST' / 'East' → 'East'"
+      - "Order: strip first, then coerce (strip before float avoids ValueError on ' 9.99 ')"
+      - "Return new dict — never mutate the input record"
+      - "Category and region: use `record.get('col', '')` — optional fields may be absent"
+    narration: >
+      `round(float(record['amount']), 2)` is the correct order: `float()` first
+      to convert the string to a float, then `round(..., 2)` to limit to 2
+      decimal places. `float('999.99')` gives `999.99` exactly in IEEE 754 for
+      this value, but `float('0.1') + float('0.2')` gives `0.30000000000000004`.
+      Using `round(..., 2)` after the conversion prevents this precision artifact
+      from reaching the database. For financial data where precision matters,
+      you would use `decimal.Decimal(record['amount']).quantize(Decimal('0.01'))`
+      instead of float — but for this course, float with round is sufficient.
+
+  - type: how_it_works
+    label: "Pure function contract"
+    heading: "Why transform_record must not mutate the input"
+    body: >
+      `transform_record` returns a **new** dict rather than modifying the input.
+      This is the pure function contract: given the same input, always return the
+      same output, with no side effects. Why it matters: `run_pipeline` filters
+      raw records and passes valid ones to `transform_record`. If `transform_record`
+      mutated the input dict in place, the original `valid` list would be silently
+      changed — potentially confusing if you need to log or inspect the raw
+      records that were loaded. Returning a new dict avoids this entirely.
+      The pattern `return {'key': record['key'].strip(), ...}` always creates
+      a fresh dict.
+    bullets:
+      - "Pure function: same input → same output, no side effects"
+      - "Return a new dict — never `record['key'] = ...; return record`"
+      - "Why: mutating input hides bugs when raw records are reused elsewhere"
+      - "`return {'date': record['date'].strip(), ...}` — explicit new dict"
+      - "Idempotent: calling transform_record(transform_record(r)) is safe"
+      - "Only called on valid records — no try/except needed inside"
+    narration: >
+      Idempotency — calling a function on its own output produces the same
+      result — is a useful property. `transform_record(transform_record(r))`
+      should give the same result as `transform_record(r)` for any valid r.
+      After the first call, strings are already stripped and floats are already
+      floats. `float(999.99)` = `999.99` (float of a float is a no-op).
+      `'East'.strip()` = `'East'`. `'East'.title()` = `'East'`. So the
+      function is idempotent on its own output. This property makes pipelines
+      safe to re-run on partially processed data.
+
+  - type: code
+    label: "transform_record implementation"
+    heading: "Five fields, three operations"
+    code: |
+      def transform_record(record: dict) -> dict:
+          return {
+              'date':     record['date'].strip(),
+              'product':  record['product'].strip(),
+              'category': record.get('category', '').strip(),
+              'amount':   round(float(record['amount']), 2),
+              'region':   record.get('region', '').strip().title(),
+          }
+
+      # Raw record from csv.DictReader (all strings, possible whitespace)
+      raw = {'date': ' 2024-01-15 ', 'product': ' Laptop ',
+             'category': ' Electronics ', 'amount': '999.99', 'region': 'east'}
+
+      t = transform_record(raw)
+      print(t)
+      # {'date': '2024-01-15', 'product': 'Laptop',
+      #  'category': 'Electronics', 'amount': 999.99, 'region': 'East'}
+
+      # The original is unchanged
+      print(raw['product'])    # ' Laptop ' (not mutated)
+      print(type(t['amount'])) # <class 'float'>
+      print(t['region'])       # 'East'  (not 'east')
+
+      # Chaining: strip before title — matters if region has leading whitespace
+      # ' east '.strip().title() == 'East'   ✓
+      # ' east '.title()         == ' East'  ✗ (leading space preserved)
+    narration: >
+      The chaining order `.strip().title()` matters: if region is `' east '`,
+      calling `.title()` first gives `' East '` (the leading/trailing spaces
+      are preserved, and only the first non-space character is title-cased).
+      Calling `.strip()` first removes the spaces, then `.title()` produces
+      `'East'`. In the implementation, `record.get('region', '').strip().title()`
+      applies in order: get → strip → title. This is the correct order.
+
+  - type: concept
+    label: "Field selection in the output dict"
+    heading: "Only include fields the ORM model expects"
+    body: >
+      The output dict of `transform_record` must match the columns of the `Sale`
+      ORM model: `date`, `product`, `category`, `amount`, `region`. The `id`
+      column is omitted — the database assigns it automatically. If the raw
+      dict had extra fields (say, a `source_file` column that isn't in the model),
+      you would exclude it from the returned dict. `Sale(**record)` in the
+      load step would raise a TypeError if the dict contained keys that don't
+      match any column. The transform step is also a field selection step:
+      keep only what the model expects.
+    bullets:
+      - "Output dict keys must match Sale model columns: date, product, category, amount, region"
+      - "Omit 'id' — database auto-assigns it on INSERT"
+      - "Extra keys in the dict → TypeError in `Sale(**record)` at load time"
+      - "Missing required keys → TypeError in `Sale(**record)` at load time"
+      - "Transform is also field selection: rename, reorder, drop unwanted columns"
+      - "Rename example: `'product_name': record['prod'].strip()` if CSV uses 'prod'"
+    narration: >
+      In real ETL, source systems rarely have exactly the same column names as
+      your destination schema. The transform step is where renaming happens.
+      If the CSV has `'product_name'` but the Sale model has `'product'`, the
+      transform dict uses `'product': record['product_name'].strip()`. Similarly,
+      if the CSV has redundant columns you don't need, just omit them from the
+      returned dict — they won't reach the database.
+
+  - type: exercise
+    heading: "Exercise 3 — transform_record"
+    prompt: >
+      Implement `transform_record(record: dict) -> dict`. Return a new dict with:
+      `'date': record['date'].strip()`,
+      `'product': record['product'].strip()`,
+      `'category': record.get('category', '').strip()`,
+      `'amount': round(float(record['amount']), 2)`,
+      `'region': record.get('region', '').strip().title()`.
+      Do not mutate the input.
+    hint: >
+      Use `record.get('category', '')` and `record.get('region', '')` (not
+      `record['category']`) so the function handles missing optional fields
+      gracefully. Call `.strip()` before `.title()` for region — strip removes
+      leading/trailing spaces that would otherwise survive the title-case conversion.
+      Call `round(..., 2)` after `float(...)`, not before — you can only round
+      a number, not a string.
+    narration: >
+      Check 2 verifies the return is a dict. Check 3 verifies amount is a float,
+      not a string. Check 4 verifies all string fields are stripped. Check 5
+      verifies region is title-cased from 'east' to 'East'.
+
+  - type: summary
+    heading: "What you learned"
+    bullets:
+      - "Transform = strip + coerce + normalize — three distinct operations"
+      - "`record['field'].strip()` — removes leading/trailing whitespace"
+      - "`round(float(record['amount']), 2)` — string → float, 2 decimal places"
+      - "`.strip().title()` — normalize region: 'east' / 'EAST' → 'East'"
+      - "Pure function: return new dict, never mutate input"
+      - "Field selection: output keys must match ORM model columns (omit 'id')"
+      - "Only call transform on records that passed validate — no try/except needed inside"
+    narration: >
+      Lesson 4 covers load — the final step: creating Sale ORM objects from
+      the clean dicts and bulk-inserting them with session.add_all().
