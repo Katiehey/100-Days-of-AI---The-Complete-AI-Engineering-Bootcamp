@@ -1,0 +1,121 @@
+day: "046"
+lesson: "04"
+title: "Measuring Change — diff, pct_change, cumsum"
+slides:
+  - type: title
+    heading: "Measuring Change"
+    subheading: "diff(), pct_change(), cumsum() — the three change lenses"
+    narration: >
+      Lesson 4 is about measuring change over time. Rolling windows give you a smoothed
+      view; change metrics tell you exactly how much moved from one period to the next.
+      These three pandas methods — diff, pct_change, and cumsum — are fundamental tools
+      for answering questions like 'is this metric growing?', 'how fast?', and 'how
+      much has accumulated so far?'
+
+  - type: concept
+    label: "Three Lenses"
+    heading: "Absolute Change, Relative Change, Cumulative Total"
+    body: >
+      Three different ways to measure the same movement:
+      - **diff()** → absolute change (₂₅ - ₁₀₀ = -₇₅ units)
+      - **pct_change()** → relative change (-75% fall)
+      - **cumsum()** → running total (useful for sales, revenue)
+    bullets:
+      - "First row of diff() and pct_change() is always NaN — no previous period"
+      - "cumsum() starts from the first value and accumulates"
+      - "All three produce same-length Series as the input"
+    narration: >
+      Imagine daily revenue figures. Today's revenue was 25, yesterday's was 100.
+      The absolute change is minus 75 — that's diff(). The percentage change is
+      minus 75 percent — that's pct_change() times 100. And the cumulative sum is
+      the running total revenue since day one — that's cumsum(). Each lens answers
+      a different question. Absolute change tells you the size of the movement.
+      Percentage change normalises it so you can compare across different scales.
+      Cumulative sum tells you the total throughput over time. You'll use all three
+      in real analysis.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "diff() → pct_change() → cumsum()"
+    body: >
+      ```
+      s = pd.Series([100, 110, 95, 120])
+      s.diff()         # NaN,  10,  -15,  25
+      s.pct_change()   # NaN, 0.1, -0.136, 0.263
+      s.pct_change() * 100  # NaN, 10.0, -13.6, 26.3  (as %)
+      s.cumsum()       # 100, 210,  305, 425
+      ```
+      First row of diff/pct_change is always NaN.
+      Multiply pct_change by 100 to get percentages.
+    narration: >
+      Let's trace through a small example. We have the series 100, 110, 95, 120.
+      diff() gives NaN for the first row because there's nothing before it, then
+      10 because 110 minus 100 is 10, then minus 15 because 95 minus 110 is minus 15,
+      then 25. pct_change() does the same calculation but divides by the previous
+      value, giving fractions — multiply by 100 to get percentages. cumsum() just
+      keeps a running total: 100, 210, 305, 425. In the exercise you'll package all
+      three into a single DataFrame called period_changes.
+
+  - type: code
+    label: "Change Analysis in Practice"
+    heading: "period_changes returns a 4-column DataFrame"
+    code: |
+      def period_changes(series):
+          return pd.DataFrame({
+              'value':      series,
+              'change':     series.diff(),
+              'pct_change': series.pct_change() * 100,
+              'cumulative': series.cumsum(),
+          })
+
+      # One function, four views of the same data:
+      # pc['value']      — original
+      # pc['change']     — absolute Δ vs previous period
+      # pc['pct_change'] — % Δ vs previous period
+      # pc['cumulative'] — running total
+      #
+      # pc['change'].mean()  → average daily gain/loss
+      # pc['change'].max()   → best single day
+      # pc['change'].min()   → worst single day
+    narration: >
+      period_changes is a thin but powerful wrapper. One DataFrame, four analytical
+      views. The 'value' column is the original for reference; 'change' is the
+      raw movement; 'pct_change' normalises it for comparison; 'cumulative' is the
+      running total. Once you have this DataFrame you can ask 'what was the worst
+      single-day drop?' with pc['change'].min(), or 'what day had the highest gain?'
+      with pc['change'].idxmax(). The first row of change and pct_change will always
+      be NaN — that's correct, not a bug.
+
+  - type: exercise
+    heading: "Exercise 4: Change Analysis"
+    prompt: >
+      Implement `period_changes(series) -> pd.DataFrame` with columns:
+      value, change, pct_change (× 100), cumulative. The checks verify
+      column names, that the first row of change is NaN, and that
+      cumulative matches series.cumsum().
+    hint: >
+      `series.diff()` gives absolute period-over-period change.
+      `series.pct_change() * 100` gives percentage change.
+      `series.cumsum()` gives the running total.
+      Build the DataFrame with all four columns in one return statement.
+    narration: >
+      Open exercise_04.ipynb. The checks are designed to catch common mistakes:
+      forgetting to multiply pct_change by 100, using the wrong column names,
+      or using cumsum incorrectly. Once all five checks pass, you're ready for
+      Lesson 5 where you'll compose everything into the TrendAnalyzer class.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`series.diff()` → absolute period-over-period change; first row is NaN"
+      - "`series.pct_change() * 100` → percentage change; first row is NaN"
+      - "`series.cumsum()` → running total; no NaN"
+      - "All three return same-length Series as the input"
+      - "Together they answer: how much? how fast? how much total?"
+    narration: >
+      These three operations are complementary. diff gives you the raw movement,
+      pct_change normalises it, and cumsum accumulates it. In Section 7 when you
+      work with financial data, you'll use all three constantly — daily returns are
+      pct_change, position sizes come from cumsum, and drawdowns come from diff on
+      the cumulative series. In the next and final lesson you'll compose everything
+      you've learned today into the TrendAnalyzer class.

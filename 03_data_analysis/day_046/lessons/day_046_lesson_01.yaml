@@ -1,0 +1,114 @@
+day: "046"
+lesson: "01"
+title: "What Is a Time Series?"
+slides:
+  - type: title
+    heading: "What Is a Time Series?"
+    subheading: "DatetimeIndex — pandas' clock for your data"
+    narration: >
+      Welcome to Day 46. Today you start working with time series data — and time series
+      analysis is one of the most practical skills an AI engineer can have. Sales trends,
+      website traffic, stock prices, sensor readings: they're all time series. Let's
+      understand what makes them special and how pandas handles them.
+
+  - type: concept
+    label: "The Core Idea"
+    heading: "A Time Series Is an Ordered Sequence"
+    body: >
+      A time series is data where each observation is tagged with a timestamp,
+      and the order of those timestamps carries meaning. Shuffling the rows
+      would destroy the signal.
+    bullets:
+      - "Each row = one observation at one point in time"
+      - "Order matters — row 5 happened after row 4"
+      - "pandas represents this with a DatetimeIndex"
+    narration: >
+      A regular DataFrame doesn't care about row order — you can sort by any column
+      and the data is still valid. A time series is different. The fact that Tuesday
+      comes after Monday is part of the data. If you shuffle a time series you
+      destroy the information in it. pandas signals this special status by using a
+      DatetimeIndex as the row index — a special index type that knows about dates,
+      frequencies, and gaps.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "From String Column to DatetimeIndex"
+    body: >
+      Three operations convert a raw DataFrame into a proper time series:
+      1. `pd.to_datetime(col, errors='coerce')` — parse strings into Timestamps
+      2. `df.set_index(date_col)` — promote the column to the row index
+      3. `df.sort_index()` — ensure chronological order
+    narration: >
+      When your data arrives from a CSV or database, the date column is usually a
+      string — something like "2024-01-15". You need to do three things. First,
+      convert those strings to actual Timestamp objects using pd.to_datetime with
+      errors='coerce', which turns any unparseable value into NaT — Not a Timestamp —
+      rather than crashing. Second, promote that column to the DataFrame index with
+      set_index. Third, sort_index to guarantee chronological order, because
+      real-world data often arrives out of order. After these three steps, every
+      time-series operation in pandas — resample, rolling, diff — knows exactly
+      what it's working with.
+
+  - type: code
+    label: "DatetimeIndex in Practice"
+    heading: "parse_time_series + date_features"
+    code: |
+      import pandas as pd
+
+      def parse_time_series(df, date_col):
+          df = df.copy()
+          df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
+          df = df.dropna(subset=[date_col])
+          df = df.set_index(date_col).sort_index()
+          return df
+
+      def date_features(df):
+          idx = df.index           # DatetimeIndex
+          return pd.DataFrame({
+              'year':        idx.year,
+              'month':       idx.month,
+              'day':         idx.day,
+              'day_of_week': idx.dayofweek,  # 0=Mon, 6=Sun
+              'quarter':     idx.quarter,
+          }, index=idx)
+    narration: >
+      Here's the code you'll write in Exercise 1. parse_time_series does the three
+      steps: copy to avoid mutating the original, convert the date column, drop NaT
+      rows, set index, sort. date_features shows you the DatetimeIndex's built-in
+      calendar properties. Notice we access them through df.index — not a column.
+      idx.year gives you the year for every row, idx.dayofweek gives 0 for Monday
+      and 6 for Sunday, and idx.quarter gives 1 through 4. These are fast vectorised
+      operations — no apply, no lambda.
+
+  - type: exercise
+    heading: "Exercise 1: Build a DatetimeIndex"
+    prompt: >
+      Implement `parse_time_series(df, date_col) -> pd.DataFrame` and
+      `date_features(df) -> pd.DataFrame`. The checks verify the index type,
+      sort order, and that 2024-01-01 correctly maps to Monday, Q1.
+    hint: >
+      `df.set_index(date_col)` promotes the column to the index.
+      `df.index.dayofweek` returns 0 for Monday. Remember to sort_index()
+      after set_index so the chronological order is guaranteed.
+    narration: >
+      Open exercise_01.ipynb and implement the two functions. The provided helper
+      make_sample_ts generates 90 days of daily data starting on 2024-01-01, which
+      is a Monday — so your date_features check can verify dayofweek equals 0.
+      Once both functions pass all five checks, move on to Lesson 2 where you'll
+      learn how to aggregate your time series at different granularities.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Time series = data where row order carries meaning"
+      - "`pd.to_datetime(col, errors='coerce')` → Timestamps; unparseable → NaT"
+      - "`df.set_index(date_col).sort_index()` → DatetimeIndex, chronological"
+      - "`df.index.year / .month / .day / .dayofweek / .quarter` — no apply needed"
+      - "All pandas time-series ops (resample, rolling) require a DatetimeIndex"
+    narration: >
+      The key takeaway from this lesson is that a DatetimeIndex is not just a label —
+      it's a clock that unlocks all of pandas' time-series machinery. Without it,
+      resample and rolling don't know what 'weekly' or '7 days' means. With it,
+      you can ask questions like 'what was the monthly average?' or 'what's the
+      7-day trend?' in a single line of code. In the next lesson, we'll use that
+      power to resample our data at different time frequencies.

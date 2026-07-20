@@ -1,0 +1,123 @@
+day: "046"
+lesson: "05"
+title: "TrendAnalyzer — Composing It All"
+slides:
+  - type: title
+    heading: "TrendAnalyzer — Composing It All"
+    subheading: "One class, one call, full trend report"
+    narration: >
+      Lesson 5 ties everything together. You've built four reusable functions:
+      parse_time_series, resample_series, rolling_stats, and period_changes. Now
+      you'll compose them into a single TrendAnalyzer class that runs the full
+      analysis pipeline from raw DataFrame to a complete report with one method call.
+
+  - type: concept
+    label: "The Design"
+    heading: "A Class That Composes Functions"
+    body: >
+      `TrendAnalyzer` is a thin composition layer, not a new algorithm.
+      It wires the four functions together behind a clean interface:
+      - `load(df, date_col, value_col)` — parse and store the series
+      - `summary()` — run all analyses, return a single dict
+    bullets:
+      - "load() returns self — enables fluent chaining"
+      - "summary() is pure computation — no side effects"
+      - "No new logic — just composition of what you've already built"
+    narration: >
+      The TrendAnalyzer class is a composition pattern, not a new algorithm. Its job
+      is to wire together parse_time_series, resample_series, rolling_stats, and
+      period_changes behind a clean, reusable interface. load() takes the raw DataFrame
+      and stores the parsed series. summary() runs all four analyses and packs the
+      results into a single dict. Returning self from load() enables fluent chaining:
+      TrendAnalyzer().load(df, 'date', 'value').summary() in one line. This is the
+      same pattern as DigestPipeline from Day 35.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "load → store series → summary → run everything"
+    body: >
+      ```
+      class TrendAnalyzer:
+          def load(self, df, date_col, value_col):
+              self._series = parse_time_series(df, date_col)[value_col]
+              return self   # fluent
+
+          def summary(self):
+              s = self._series
+              total_pct = (s.iloc[-1] - s.iloc[0]) / abs(s.iloc[0]) * 100
+              direction = 'up' if total_pct > 1 else ('down' if total_pct < -1 else 'flat')
+              return {
+                  'n_periods': len(s),
+                  'trend_direction': direction, ...
+              }
+      ```
+    narration: >
+      The load method does exactly what parse_time_series does plus indexing the value
+      column. It stores the cleaned, indexed series as self._series and returns self.
+      summary() then reads that stored series and computes everything: n_periods is
+      just len(s), the trend direction comes from comparing first to last value, and
+      the rolling mean and period changes come from calling the functions you already
+      built. The trend_direction logic is deliberately simple: if the total percentage
+      change is more than 1 percent positive, it's 'up'; more than 1 percent negative,
+      it's 'down'; otherwise 'flat'.
+
+  - type: code
+    label: "TrendAnalyzer in Practice"
+    heading: "Full implementation"
+    code: |
+      ta = TrendAnalyzer()
+      report = ta.load(df_raw, 'date', 'value').summary()
+
+      print(f"Periods:  {report['n_periods']}")
+      print(f"Range:    {report['start_date']} → {report['end_date']}")
+      print(f"Change:   {report['total_pct_change']:+.2f}%")
+      print(f"Trend:    {report['trend_direction']}")
+
+      # Pre-computed views available from the report:
+      weekly_avg  = report['weekly_avg']       # resample W mean
+      roll_mean   = report['rolling_mean_7d']  # 7-day rolling mean
+      changes     = report['daily_changes']    # period_changes DataFrame
+    narration: >
+      Here's what using the finished TrendAnalyzer looks like. You create an instance,
+      chain load and summary, and you get back a comprehensive dict. The report contains
+      scalar values like n_periods, start_date, and total_pct_change that you can
+      print directly, plus Series and DataFrames like rolling_mean_7d and daily_changes
+      that you can pass to matplotlib for visualisation. The project notebook asks you
+      to do exactly that — run the analyzer and plot the raw series plus its 7-day
+      rolling mean in a saved PNG.
+
+  - type: exercise
+    heading: "Exercise 5: TrendAnalyzer Class"
+    prompt: >
+      Implement the `TrendAnalyzer` class with `__init__`, `load`, and `summary`.
+      load() must return self. summary() must return a dict with n_periods,
+      start_date, end_date, first_value, last_value, total_pct_change,
+      trend_direction, weekly_avg, rolling_mean_7d, and daily_changes.
+    hint: >
+      `load()` stores `parse_time_series(df, date_col)[value_col].dropna()` as
+      `self._series` and returns `self`. In `summary()`, compute `total_pct` as
+      `(last - first) / abs(first) * 100`. Direction logic: > 1 → 'up',
+      < -1 → 'down', else 'flat'.
+    narration: >
+      Open exercise_05.ipynb. All four helper functions are provided — your job is
+      to write the class that calls them. The checks test fluent chaining, the dict
+      keys, n_periods correctness, and that trend_direction is one of the three
+      valid strings. Once all five checks pass, move to the project notebook and
+      build the full trend analysis report with a saved chart.
+
+  - type: summary
+    heading: "Lesson 5 + Day 46 Takeaways"
+    bullets:
+      - "`TrendAnalyzer.load()` returns self — fluent chaining pattern"
+      - "`summary()` composes parse, resample, rolling, and change into one dict"
+      - "Trend direction: > 1% = 'up', < -1% = 'down', else = 'flat'"
+      - "Classes as composition layers — no new logic, just wiring"
+      - "Full pipeline: raw DataFrame → DatetimeIndex → report in 2 lines"
+    narration: >
+      Today you built the full time-series toolkit: DatetimeIndex parsing, resampling,
+      rolling windows, and change analysis — then wrapped it all in TrendAnalyzer.
+      These tools will reappear in Section 7 when you work with financial market data:
+      OHLCV prices are time series, moving averages are rolling means, returns are
+      pct_change. You just built the foundations. In the next lesson, Day 47, you'll
+      add statistical reasoning on top of this foundation — distributions, correlation,
+      and significance testing.

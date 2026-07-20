@@ -1,0 +1,111 @@
+day: "046"
+lesson: "02"
+title: "Resampling — Changing the Clock"
+slides:
+  - type: title
+    heading: "Resampling — Changing the Clock"
+    subheading: "Group by time frequency: daily → weekly → monthly"
+    narration: >
+      Lesson 2 is about resampling — the pandas operation that changes the granularity
+      of your time series. You have daily data but want monthly totals? That's a
+      resample. You have hourly sensor readings but want daily averages? Resample again.
+      It's one of the most frequently used operations in time-series analysis.
+
+  - type: concept
+    label: "The Core Idea"
+    heading: "Resampling = groupby for time"
+    body: >
+      `df.resample(freq)` groups rows by a time bucket, then you apply
+      an aggregation. It's exactly like `groupby` — but the grouping key
+      is a time frequency, not a column value.
+    bullets:
+      - "'D' = daily  |  'W' = week ending Sunday  |  'ME' = month-end"
+      - "Downsample: many rows → fewer rows (daily → weekly)"
+      - "Aggregation: sum, mean, min, max, count, or custom"
+    narration: >
+      Think of resample as a clock-aware groupby. Instead of grouping by a category
+      like 'region', you group by a time bucket like 'all rows in January'. The
+      frequency string controls the bucket size: 'D' means one bucket per day,
+      'W' means one bucket per week, and 'ME' means one bucket per month, aligned
+      to the month-end. After resample you call an aggregation — sum, mean, or agg
+      with a custom function — and you get back a new, coarser Series. The result
+      has a DatetimeIndex aligned to the end of each bucket.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "resample → agg → Series"
+    body: >
+      ```
+      series.resample('W').sum()   # weekly totals
+      series.resample('D').mean()  # daily averages
+      series.resample('ME').agg('mean')  # month-end means
+      ```
+      The result is always a new Series with a coarser DatetimeIndex.
+      Missing buckets get NaN (fill with .fillna(0) if needed).
+    narration: >
+      The mechanics are straightforward. You call .resample() on a Series or DataFrame
+      with a DatetimeIndex, passing the frequency string. That returns a Resampler
+      object — which is lazy, like a groupby object. Then you chain an aggregation:
+      .sum() for totals, .mean() for averages, .agg('count') for counts. The key
+      frequency aliases to know are 'D' for daily, 'W' for weekly ending on Sunday,
+      and 'ME' for month-end. In older pandas you'd see 'M', but pandas 2.2 onwards
+      prefers 'ME' — month-end — which is unambiguous.
+
+  - type: code
+    label: "Resampling in Practice"
+    heading: "resample_series + multi_freq_summary"
+    code: |
+      def resample_series(series, freq, agg='sum'):
+          return series.resample(freq).agg(agg)
+
+      def multi_freq_summary(series):
+          return {
+              'daily':  resample_series(series, 'D'),
+              'weekly': resample_series(series, 'W'),
+          }
+
+      # Usage:
+      # df_ts = parse_time_series(df_raw, 'date')
+      # series = df_ts['value']
+      # weekly_sum  = resample_series(series, 'W')
+      # monthly_avg = resample_series(series, 'ME', agg='mean')
+      # summary = multi_freq_summary(series)
+    narration: >
+      resample_series is a thin but flexible wrapper. Because you pass both the
+      frequency and the aggregation as strings, one function handles daily sums,
+      weekly means, monthly counts — whatever you need. multi_freq_summary calls it
+      at two granularities and returns a dict. In Exercise 2 you'll implement these
+      and verify that a weekly resample of 28 days of data returns fewer rows than
+      the daily version. That's the downsampling check — fewer, larger buckets.
+
+  - type: exercise
+    heading: "Exercise 2: Resample at Multiple Frequencies"
+    prompt: >
+      Implement `resample_series(series, freq, agg='sum') -> pd.Series` and
+      `multi_freq_summary(series) -> dict`. The checks test daily (28 rows),
+      weekly (fewer rows), and that the summary dict has both keys.
+    hint: >
+      `series.resample(freq).agg(agg)` is the one-liner. For multi_freq_summary,
+      call resample_series with 'D' and 'W'. Remember: resample only works on
+      a Series or DataFrame with a DatetimeIndex.
+    narration: >
+      Open exercise_02.ipynb. The provided cells already include parse_time_series,
+      so your implementation just needs the two resampling functions. The check
+      harness uses a 28-day series to verify that daily resampling gives 28 rows
+      and weekly gives fewer. Once you pass all five checks, move to Lesson 3 where
+      you'll learn rolling windows — a different way to smooth and analyse trends.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`series.resample(freq).agg(agg)` — one-line resampling"
+      - "Frequency aliases: 'D' daily, 'W' weekly, 'ME' month-end"
+      - "Downsampling reduces row count; aggregation fills each bucket"
+      - "Result has a DatetimeIndex aligned to bucket boundaries"
+      - "Missing buckets become NaN — fill with .fillna(0) if needed"
+    narration: >
+      Resampling is the pandas equivalent of SQL's date_trunc + GROUP BY. You change
+      the clock resolution of your data in one line. The key gotcha is that resample
+      only works on a DatetimeIndex — which is exactly why Lesson 1 was about building
+      one first. In the next lesson you'll learn rolling windows, which smooth data
+      without changing its resolution — a complement to resampling, not a replacement.

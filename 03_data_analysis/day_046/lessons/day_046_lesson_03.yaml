@@ -1,0 +1,114 @@
+day: "046"
+lesson: "03"
+title: "Rolling Windows — Smoothing the Noise"
+slides:
+  - type: title
+    heading: "Rolling Windows — Smoothing the Noise"
+    subheading: "Moving averages, volatility bands, and min_periods"
+    narration: >
+      Lesson 3 is about rolling windows — the technique that smooths noisy time series
+      and reveals the underlying trend. Every financial chart you've ever seen with a
+      moving average line uses exactly this. And it's two lines of pandas code.
+
+  - type: concept
+    label: "The Core Idea"
+    heading: "A Rolling Window Slides Forward"
+    body: >
+      A rolling window of size N looks at the last N observations at each point
+      and computes a statistic. The window slides forward one step at a time,
+      giving a new value at every position.
+    bullets:
+      - "Window N=7: at row 10, look at rows 4–10"
+      - "Result has the same length as the input"
+      - "First N-1 rows: smaller window (unless min_periods forces NaN)"
+    narration: >
+      Imagine a magnifying glass that covers the last 7 days of data as it moves
+      along the timeline. At each position you compute the mean — or standard deviation,
+      or min — of whatever's in the window. The result is a new series, same length
+      as the original, that gives you the local trend at every point. At the start of
+      the series the window is smaller than N because there aren't enough prior points.
+      You can either return NaN for those first positions, or use min_periods=1 to
+      compute with whatever's available — even a window of size 1.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: ".rolling(N, min_periods=1) → aggregation"
+    body: >
+      ```
+      r = series.rolling(window=7, min_periods=1)
+      r.mean()   # 7-day moving average (no NaN at start)
+      r.std()    # 7-day rolling standard deviation
+      r.min()    # 7-day rolling minimum
+      r.max()    # 7-day rolling maximum
+      ```
+      Chain `.rolling()` with any aggregation. `min_periods=1`
+      prevents NaN in early rows by computing on partial windows.
+    narration: >
+      The API mirrors resample in structure: call .rolling() to get a Rolling object,
+      then chain an aggregation. The window parameter is the look-back size in periods.
+      min_periods=1 is the key ergonomic choice — it means the first row's rolling mean
+      is just the first value, the second row's is the mean of the first two values,
+      and so on. Without it, the first N-1 rows would all be NaN, which makes charts
+      ugly and causes downstream division-by-zero errors. rolling().std() gives you
+      the rolling standard deviation — a measure of volatility. When it spikes, the
+      data became unusually variable in that window.
+
+  - type: code
+    label: "Rolling Windows in Practice"
+    heading: "rolling_mean + rolling_stats"
+    code: |
+      def rolling_mean(series, window, min_periods=1):
+          return series.rolling(
+              window=window, min_periods=min_periods
+          ).mean()
+
+      def rolling_stats(series, window):
+          r = series.rolling(window=window, min_periods=1)
+          return pd.DataFrame({
+              'mean': r.mean(),
+              'std':  r.std(),
+              'min':  r.min(),
+              'max':  r.max(),
+          })
+
+      # The rolling_stats mean column equals rolling_mean for same window:
+      # (rolling_stats(s, 7)['mean'] == rolling_mean(s, 7)).all()  → True
+    narration: >
+      rolling_mean is a one-liner wrapper with min_periods defaulting to 1. rolling_stats
+      creates the Rolling object once and calls four aggregations on it — more efficient
+      than four separate .rolling() calls. The result is a DataFrame where each column
+      tells a different story: mean shows the trend, std shows volatility, and the
+      min-max band gives you the range of values in each window. In Exercise 3 one of
+      the checks verifies that rolling_stats['mean'] equals rolling_mean for the same
+      window — so the two functions must be consistent.
+
+  - type: exercise
+    heading: "Exercise 3: Rolling Windows"
+    prompt: >
+      Implement `rolling_mean(series, window, min_periods=1) -> pd.Series` and
+      `rolling_stats(series, window) -> pd.DataFrame`. The checks verify length
+      preservation, no leading NaN, and that rolling_stats['mean'] == rolling_mean.
+    hint: >
+      `series.rolling(window=window, min_periods=1)` returns a Rolling object.
+      Chain `.mean()`, `.std()`, `.min()`, `.max()` to get each statistic.
+      For rolling_stats, create the Rolling object once and reuse it for all four.
+    narration: >
+      Open exercise_03.ipynb. The key insight to verify with the checks is that
+      rolling_mean and rolling_stats produce the same mean column — they use the same
+      rolling logic, just packaged differently. Once all five checks pass, move to
+      Lesson 4 where you'll measure how values change from one period to the next.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`series.rolling(N, min_periods=1)` → Rolling object"
+      - "Chain `.mean() / .std() / .min() / .max()` for each statistic"
+      - "Result is same length as input — the window slides, doesn't shrink"
+      - "`min_periods=1` prevents leading NaN — usually the right default"
+      - "Rolling std = volatility; rolling mean = trend smoothing"
+    narration: >
+      Rolling windows are the Swiss army knife of time-series smoothing. A 7-day
+      rolling mean filters out the day-to-day noise; a 30-day rolling mean shows
+      the monthly trend; rolling std spikes tell you where the data got volatile.
+      In the next lesson you'll complement these smoothed views with something
+      sharper: measuring exactly how much each period changed from the previous one.
