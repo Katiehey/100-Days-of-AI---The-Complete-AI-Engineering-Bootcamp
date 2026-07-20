@@ -1,0 +1,141 @@
+day: "048"
+lesson: "01"
+title: "ML Foundations — Features, Targets, and Train/Test Split"
+slides:
+  - type: title
+    heading: "ML Foundations — Features, Targets, and Train/Test Split"
+    subheading: "X, y, and the golden rule: test data stays locked away"
+    narration: >
+      Lesson 1 introduces the three concepts at the base of every supervised ML
+      workflow: the feature matrix X, the target vector y, and the train/test split.
+      These ideas are simple but their correct application prevents the single biggest
+      mistake in applied ML — training a model that looks good in development but fails
+      in production because it accidentally saw the data it was evaluated on.
+
+  - type: concept
+    label: "X, y, and the Split"
+    heading: "Supervised Learning: One Formula"
+    body: >
+      Every supervised ML pipeline starts with the same three pieces:
+      - **X** — feature matrix: 2D DataFrame, shape `(n_samples, n_features)`.
+        Each row is one observation; each column is one variable the model can use.
+      - **y** — target vector: 1D Series, shape `(n_samples,)`.
+        The value you want to predict.
+      - **Train/test split** — 80% of data trains the model; 20% evaluates it.
+        The test set is a held-out proxy for future, unseen data.
+    bullets:
+      - "Golden rule: fit on train data only — never on test data"
+      - "X and y must have the same row order — sklearn relies on this"
+      - "`test_size=0.2` means 20% test; `random_state=42` makes the split reproducible"
+      - "Stratified splits (for classification) keep class ratios balanced — out of scope today"
+    narration: >
+      The core intuition is this: you're trying to build a function that maps inputs
+      (X) to outputs (y) for data it has never seen. If the model has already seen the
+      test data during training, the evaluation score is meaningless — it tells you
+      nothing about how the model will perform in production. This is called data
+      leakage, and it's the most common way to accidentally build a model that looks
+      great in development and fails immediately in the real world. The train/test split
+      is the mechanism that prevents this by reserving 20% of your data as a sealed
+      envelope that the model never touches until evaluation time.
+
+  - type: how_it_works
+    label: "sklearn API"
+    heading: "train_test_split from sklearn.model_selection"
+    body: >
+      ```python
+      from sklearn.model_selection import train_test_split
+
+      X = df.drop(columns=['price'])          # 2D feature matrix
+      y = df['price']                          # 1D target vector
+
+      X_train, X_test, y_train, y_test = train_test_split(
+          X, y,
+          test_size=0.2,     # 20% held out for evaluation
+          random_state=42,   # reproducible shuffle
+      )
+      # X_train: 80% rows, all feature columns
+      # X_test:  20% rows, same columns — never seen during training
+      ```
+    narration: >
+      train_test_split from sklearn.model_selection takes X and y together and shuffles
+      them before splitting, so train and test represent the same underlying distribution.
+      The random_state parameter seeds the shuffle — using the same seed produces the
+      same split every run, which is essential for reproducible experiments. Without a
+      seed, re-running the notebook would produce a different split and potentially
+      different metrics. The result is four objects: X_train, X_test, y_train, and
+      y_test. You pass X_train and y_train to the model's fit() method. You pass X_test
+      to predict() and compare against y_test to measure performance.
+
+  - type: code
+    label: "prepare_features + split_data"
+    heading: "Wrapping the split in reusable functions"
+    code: |
+      def prepare_features(df, target_col, numeric_only=True):
+          X = df.drop(columns=[target_col])
+          if numeric_only:
+              X = X.select_dtypes(include='number')
+          y = df[target_col]
+          return X, y
+
+      def split_data(X, y, test_size=0.2, random_state=42):
+          X_train, X_test, y_train, y_test = train_test_split(
+              X, y, test_size=test_size, random_state=random_state
+          )
+          return {
+              'X_train': X_train, 'X_test': X_test,
+              'y_train': y_train, 'y_test': y_test,
+              'n_train': len(X_train),
+              'n_test':  len(X_test),
+              'n_features': X_train.shape[1],
+          }
+
+      df = make_regression_data(200)
+      X, y = prepare_features(df, 'price')  # numeric_only=True drops 'neighborhood'
+      split = split_data(X, y)
+      print(split['n_train'], 'train,', split['n_test'], 'test,', split['n_features'], 'features')
+      # 160 train, 40 test, 3 features (area, bedrooms, age)
+    narration: >
+      prepare_features keeps the X/y separation explicit and avoids accidentally
+      leaving the target column in X. select_dtypes with numeric_only=True drops
+      string columns like neighborhood — you'll learn to handle those in lesson 2.
+      split_data wraps train_test_split and returns a labelled dict rather than four
+      positional variables, which makes it clear which array is which in downstream
+      code. The dict also carries useful metadata: n_train, n_test, and n_features
+      tell you the shape of what you're working with without having to call .shape
+      on each array separately.
+
+  - type: exercise
+    heading: "Exercise 1: prepare_features + split_data"
+    prompt: >
+      Implement `prepare_features(df, target_col, numeric_only=True) -> (X, y)` and
+      `split_data(X, y, test_size=0.2, random_state=42) -> dict`. The dict must have
+      7 keys: X_train, X_test, y_train, y_test, n_train, n_test, n_features.
+      n_train + n_test must equal len(X).
+    hint: >
+      `prepare_features`: `X = df.drop(columns=[target_col])`, then
+      `X = X.select_dtypes(include='number')` if numeric_only is True.
+      `split_data`: `X_train, X_test, y_train, y_test = train_test_split(...)`,
+      then return a dict with `n_features = X_train.shape[1]`.
+    narration: >
+      Open exercise_01.ipynb. The make_regression_data helper is provided — it
+      generates a 5-column housing dataset with area, bedrooms, age, neighborhood,
+      and price. The numeric_only parameter means the neighborhood string column
+      is excluded when you call prepare_features with the default. Check 5 verifies
+      that no rows are lost by the split: n_train + n_test must equal the original
+      row count. Once all five checks pass, move to lesson 2 to learn how to handle
+      the neighborhood column.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "X (features) is 2D; y (target) is 1D — every sklearn model expects this"
+      - "`train_test_split(X, y, test_size=0.2, random_state=42)` — reproducible split"
+      - "Fit on train data only — evaluating on train data gives an optimistically biased score"
+      - "`select_dtypes(include='number')` — exclude string columns (handle in lesson 2)"
+      - "Return a labelled dict from split_data — avoids positional variable confusion"
+    narration: >
+      The X/y split and the train/test boundary are the two foundational concepts
+      in supervised ML. Everything else — encoding, scaling, hyperparameter tuning —
+      is built on top of these two ideas. In lesson 2 you'll fix the biggest gap:
+      the neighborhood string column is excluded by numeric_only. One-hot encoding
+      converts it into numeric dummy columns so the model can use it.

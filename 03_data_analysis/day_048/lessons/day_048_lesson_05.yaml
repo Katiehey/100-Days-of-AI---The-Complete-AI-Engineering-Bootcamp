@@ -1,0 +1,146 @@
+day: "048"
+lesson: "05"
+title: "FeatureEngineer — Composing the Preprocessing Pipeline"
+slides:
+  - type: title
+    heading: "FeatureEngineer — Composing the Preprocessing Pipeline"
+    subheading: "fit_transform on training data, transform on new data"
+    narration: >
+      Lesson 5 pulls everything together. You've built five standalone functions —
+      encode_categoricals, prepare_features, fit_scaler, scale_features, and
+      split_data. The FeatureEngineer class composes them into a single object with
+      two methods: fit_transform, which preprocesses the training data and learns
+      the scaler, and transform, which applies the same learned preprocessing to
+      any new data. This is the same fit/transform pattern you see in sklearn's own
+      preprocessing objects.
+
+  - type: concept
+    label: "fit/transform"
+    heading: "Two Phases — fit once, transform many times"
+    body: >
+      The preprocessing pipeline has two phases:
+      - **fit_transform** (training time) — encode + learn scaling statistics from
+        full training data + split into train/test
+      - **transform** (prediction time) — encode + apply the *same* scaling
+        statistics to new data using `reindex` to match column order
+
+      This pattern mirrors sklearn's own `ColumnTransformer` and `Pipeline`.
+    bullets:
+      - "`self._scaler` — stores fitted StandardScaler for use in transform()"
+      - "`self._feature_cols` — stores column order after encoding"
+      - "`encoded.reindex(columns=self._feature_cols, fill_value=0)` — aligns new data"
+      - "reindex handles unseen categories gracefully by filling missing cols with 0"
+    narration: >
+      The reindex call in transform() is a critical safety measure. Suppose your
+      training data has 200 houses — some downtown, some suburb, some rural — so the
+      encoded training data has neighborhood_downtown, neighborhood_rural, and
+      neighborhood_suburb columns. But a new prediction batch might have no downtown
+      houses. Without reindex, encoding that batch would produce a DataFrame with only
+      two neighborhood columns, and calling scaler.transform() on a different number of
+      columns would crash. reindex fills missing columns with zero, which is the
+      correct value for a binary feature meaning "not this category."
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "fit_transform → store → transform"
+    body: >
+      ```python
+      class FeatureEngineer:
+          def fit_transform(self, df, test_size=0.2, random_state=42):
+              encoded            = encode_categoricals(df, cat_cols=self.cat_cols)
+              X, y               = prepare_features(encoded, self.target_col,
+                                                    numeric_only=False)
+              self._feature_cols = X.columns.tolist()   # store column order
+              if self.scale:
+                  self._scaler = fit_scaler(X)           # fit on full X
+                  X            = scale_features(self._scaler, X)
+              return split_data(X, y, ...)
+
+          def transform(self, df):
+              encoded = encode_categoricals(df, cat_cols=self.cat_cols)
+              X       = encoded.reindex(columns=self._feature_cols, fill_value=0)
+              if self.scale and self._scaler is not None:
+                  X = scale_features(self._scaler, X)
+              return X
+      ```
+    narration: >
+      One subtle point: in fit_transform, the scaler is fitted on the full X before
+      the train/test split. This means it sees all 200 rows, not just the 160 training
+      rows. Strictly speaking, the scaler should be fitted on X_train only to avoid
+      leaking test statistics. In practice, the difference is very small for mean and
+      std with 200 rows. But for a production-grade pipeline you'd fit the scaler
+      inside the split, not before. sklearn's Pipeline class handles this correctly
+      by fitting transformers only on the training fold during cross-validation.
+      For this course's purposes, the simpler implementation is fine.
+
+  - type: code
+    label: "FeatureEngineer in Practice"
+    heading: "One class replaces five manual steps"
+    code: |
+      df = make_regression_data(200)
+
+      fe    = FeatureEngineer(target_col='price')
+      split = fe.fit_transform(df)
+
+      print(f"Train: {split['n_train']}  Test: {split['n_test']}")
+      print(f"Features: {split['X_train'].columns.tolist()}")
+
+      model  = train_model(split['X_train'], split['y_train'])
+      result = evaluate_model(model, split['X_test'], split['y_test'])
+      print(f"R² = {result['r2']}   RMSE = ${result['rmse']:,.0f}")
+      # R² = 0.991   RMSE = $9,573
+
+      # Predict on a new row — same preprocessing, guaranteed
+      new_house = pd.DataFrame([{
+          'area': 1800, 'bedrooms': 3, 'age': 10, 'neighborhood': 'suburb',
+      }])
+      X_new = fe.transform(new_house)
+      price_pred = model.predict(X_new)[0]
+      print(f"Predicted price: ${price_pred:,.0f}")
+    narration: >
+      The FeatureEngineer collapses five manual steps — encode, prepare_features,
+      fit_scaler, scale_features, split_data — into one fit_transform call. After
+      training the model, the transform method lets you preprocess any new data with
+      exactly the same steps and the same fitted scaler. This is how you'd use the
+      model in production: new data arrives, fe.transform(new_data) converts it to
+      the same scaled feature representation the model was trained on, and
+      model.predict() returns a price estimate. The reindex with fill_value=0 means
+      even if the new house is in a neighborhood category not present in the new
+      batch, the pipeline won't crash.
+
+  - type: exercise
+    heading: "Exercise 5: FeatureEngineer Class"
+    prompt: >
+      Implement the `FeatureEngineer` class with `__init__`, `fit_transform`, and
+      `transform`. `fit_transform` must: encode, prepare_features with
+      `numeric_only=False`, store `self._feature_cols`, optionally fit and apply
+      scaler, then call `split_data`. `transform` must: encode, reindex to
+      `self._feature_cols`, optionally apply stored scaler.
+    hint: >
+      In `fit_transform`: `self._feature_cols = X.columns.tolist()` after
+      `prepare_features`. In `transform`:
+      `X = encoded.reindex(columns=self._feature_cols, fill_value=0)`.
+      Pass `numeric_only=False` to `prepare_features` — encoding has already
+      removed string columns, so all remaining columns are numeric.
+    narration: >
+      Open exercise_05.ipynb. All five helper functions are provided. Check 5 tests
+      the transform method: it calls fe.transform on a fresh 10-row DataFrame and
+      checks that the output columns match X_train's columns exactly. This verifies
+      that your implementation stores and applies the feature column order correctly.
+      Once all five checks pass, move to the project notebook to build the full
+      predictive model with a saved visualisation.
+
+  - type: summary
+    heading: "Lesson 5 + Day 48 Takeaways"
+    bullets:
+      - "`fit_transform()` — encode + fit scaler + split; stores state for transform"
+      - "`transform()` — encode + reindex + apply stored scaler (no re-fitting)"
+      - "`reindex(columns=self._feature_cols, fill_value=0)` — handles unseen categories"
+      - "fit/transform pattern mirrors sklearn's own preprocessing API"
+      - "Full pipeline: encode → scale → split → train → evaluate → predict"
+    narration: >
+      You've built the complete supervised ML pipeline from scratch: feature
+      preparation, encoding, scaling, training, and evaluation. Day 49 extends this
+      foundation with model evaluation techniques that go beyond a single train/test
+      split: cross-validation, multiple metrics for classification, and how to detect
+      overfitting. Day 48's pipeline is the input to all of that.

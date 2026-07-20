@@ -1,0 +1,136 @@
+day: "048"
+lesson: "03"
+title: "Feature Scaling — StandardScaler"
+slides:
+  - type: title
+    heading: "Feature Scaling — StandardScaler"
+    subheading: "Fit on train, transform both — why order matters"
+    narration: >
+      Lesson 3 addresses scale. After encoding, your feature matrix has columns like
+      area (500–3000), age (0–50), and neighborhood_downtown (0 or 1). Linear models
+      compute a weighted sum of all features, so a unit change in area has 60 times
+      more influence on the weighted sum than a unit change in neighborhood_downtown
+      — purely because of scale, not because area is 60 times more predictive.
+      StandardScaler fixes this by transforming each feature to have mean 0 and
+      standard deviation 1.
+
+  - type: concept
+    label: "Why Scale?"
+    heading: "Equal Scale, Equal Opportunity"
+    body: >
+      StandardScaler transforms each column `x` to `(x - mean) / std`:
+      - After scaling, each column has **mean = 0, std = 1**
+      - A coefficient of 2 on `area_scaled` means the same as a coefficient of 2
+        on `bedrooms_scaled` — both represent a 1 std-unit increase
+      - Without scaling, `area` dominates just because its values are 600× bigger
+        than `neighborhood_downtown`
+    bullets:
+      - "**Fit on training data only** — scaler learns mean and std from train set"
+      - "**Transform both train and test** with the same fitted scaler"
+      - "Fitting on test data would leak test information into the training pipeline"
+      - "After scaling: `X_train.mean()` ≈ 0, `X_train.std()` ≈ 1 per column"
+    narration: >
+      The rule — fit on train data only — applies to every data-dependent transformation,
+      not just scaling. If you compute the mean and standard deviation on the full
+      dataset before splitting, you've allowed information from the test set to
+      influence how the training features are transformed. This is a subtle form of
+      data leakage. It usually doesn't matter much for the mean and std, but it's
+      the wrong habit. The correct pattern is always: split first, fit the scaler
+      on X_train, then transform X_train and X_test with the same fitted scaler.
+
+  - type: how_it_works
+    label: "StandardScaler API"
+    heading: "fit on train → transform both"
+    body: >
+      ```python
+      from sklearn.preprocessing import StandardScaler
+
+      scaler = StandardScaler()
+      scaler.fit(X_train)           # learns mean_ and scale_ from train
+
+      X_train_scaled = scaler.transform(X_train)   # (x - mean) / std
+      X_test_scaled  = scaler.transform(X_test)    # same mean/std from train
+
+      # Result is a numpy array — wrap in DataFrame to keep column names
+      X_train_df = pd.DataFrame(X_train_scaled,
+                                columns=X_train.columns,
+                                index=X_train.index)
+      ```
+    narration: >
+      StandardScaler stores the per-column mean and standard deviation in scaler.mean_
+      and scaler.scale_ after fit. These are numpy arrays with one value per feature
+      column. transform uses exactly these stored values — it doesn't re-compute anything.
+      When you call transform on X_test, you're applying the training-set statistics,
+      which is correct: you're asking "how many standard deviations away from the
+      training mean is this test value?" The result of transform is a numpy array.
+      Wrapping it in pd.DataFrame with the original column names and index preserves
+      metadata that makes downstream inspection easier.
+
+  - type: code
+    label: "fit_scaler + scale_features in Practice"
+    heading: "Fit once, transform twice"
+    code: |
+      from sklearn.preprocessing import StandardScaler
+
+      def fit_scaler(X_train):
+          scaler = StandardScaler()
+          scaler.fit(X_train)
+          return scaler
+
+      def scale_features(scaler, X):
+          scaled = scaler.transform(X)
+          return pd.DataFrame(scaled, columns=X.columns, index=X.index)
+
+      df      = make_regression_data(200)
+      encoded = encode_categoricals(df)
+      X, y    = prepare_features(encoded, 'price', numeric_only=False)
+      split   = split_data(X, y)
+
+      scaler      = fit_scaler(split['X_train'])
+      X_train_s   = scale_features(scaler, split['X_train'])
+      X_test_s    = scale_features(scaler, split['X_test'])
+
+      print(X_train_s.mean().round(10))  # ≈ 0 for every column
+      print(X_train_s.std(ddof=0).round(4))  # ≈ 1 for every column
+    narration: >
+      The reason std(ddof=0) is approximately 1 but not exactly is numerical precision.
+      StandardScaler uses ddof=0 (population std) internally, so X_train_s.std(ddof=0)
+      will match exactly to floating-point precision. If you check with ddof=1 (sample
+      std), it will be slightly above 1. The check in the exercise uses ddof=0 and
+      a tolerance of 1e-9 — essentially requiring exact equality. This is the right
+      check for scaled training data; it confirms the scaler is working as expected.
+
+  - type: exercise
+    heading: "Exercise 3: fit_scaler + scale_features"
+    prompt: >
+      Implement `fit_scaler(X_train) -> StandardScaler` — create, fit, and return a
+      fitted StandardScaler. Implement `scale_features(scaler, X) -> pd.DataFrame` —
+      call `scaler.transform(X)` and wrap the result in a DataFrame with the same
+      column names and index as X.
+    hint: >
+      `fit_scaler`: `scaler = StandardScaler(); scaler.fit(X_train); return scaler`.
+      `scale_features`: `scaled = scaler.transform(X);
+      return pd.DataFrame(scaled, columns=X.columns, index=X.index)`.
+      The `index=X.index` preserves the original row labels after transform.
+    narration: >
+      Open exercise_03.ipynb. Check 3 verifies that scaled train column means are
+      essentially 0 — closer than 1e-9. Check 4 verifies that population standard
+      deviations are essentially 1. Check 5 verifies that the same scaler can transform
+      X_test with identical column structure. The key thing you're demonstrating is
+      the fit-on-train-only discipline — once you pass all checks, you've proven your
+      implementation respects it.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`StandardScaler().fit(X_train)` — learns mean and std from training data only"
+      - "`scaler.transform(X)` — applies `(x - mean) / std` using stored statistics"
+      - "Wrap output in `pd.DataFrame(scaled, columns=X.columns, index=X.index)`"
+      - "**Never fit on test data** — leaks test statistics into the training pipeline"
+      - "After scaling: train col means ≈ 0, train col stds ≈ 1 (pop std, ddof=0)"
+    narration: >
+      You now have all the preprocessing pieces: encoding categoricals and scaling
+      numerics. In lesson 4 you'll use these to train a LinearRegression model and
+      measure its performance with two metrics: R² tells you how much variance is
+      explained, and RMSE tells you the typical dollar error in the same units as
+      the house price.

@@ -1,0 +1,146 @@
+day: "048"
+lesson: "04"
+title: "Linear Regression — fit, predict, R², RMSE"
+slides:
+  - type: title
+    heading: "Linear Regression — fit, predict, R², RMSE"
+    subheading: "Training your first model and measuring how good it is"
+    narration: >
+      Lesson 4 gets to the model itself. LinearRegression is the simplest supervised
+      ML model — it learns a straight line through the data by finding the coefficients
+      that minimise the sum of squared errors. After training with fit(), you predict
+      new outputs with predict(). R² tells you how much of the target's variance the
+      model explains, and RMSE tells you the typical prediction error in the same
+      units as the target — for house prices, that means dollars.
+
+  - type: concept
+    label: "LinearRegression"
+    heading: "One Line in Feature Space"
+    body: >
+      LinearRegression finds coefficients `w` and intercept `b` such that:
+      ```
+      y_pred = X @ w + b
+      ```
+      It minimises the sum of squared residuals: `sum((y - y_pred)²)`.
+      After scaling, `w[i]` tells you: "a 1 standard-deviation increase in feature i
+      is associated with a `w[i]`-dollar change in price." The sign and magnitude of
+      each coefficient is directly interpretable as feature importance.
+    bullets:
+      - "Two evaluation metrics: **R²** (variance explained) and **RMSE** (typical error)"
+      - "R² = 1 − (SS_residual / SS_total) — 1.0 is perfect, 0.0 = predict-mean baseline"
+      - "RMSE = sqrt(mean((y − ŷ)²)) — in the same units as y"
+      - "`model.coef_` — one coefficient per feature after fitting"
+    narration: >
+      After scaling, the LinearRegression coefficients become directly comparable.
+      A coefficient of 108,000 on area means: a 1 standard-deviation increase in
+      area (about 722 sqft) is associated with a $108,000 increase in price. A
+      coefficient of -15,000 on age means: a 1 standard-deviation increase in age
+      (about 14 years) is associated with a $15,000 decrease in price. This
+      interpretability is one of the main advantages of linear models: you can
+      read off the model's learned relationships directly from its coefficients.
+      R² above 0.9 on this dataset tells you the model has captured most of the
+      systematic variation in price.
+
+  - type: how_it_works
+    label: "sklearn LinearRegression"
+    heading: "fit → predict → evaluate"
+    body: >
+      ```python
+      from sklearn.linear_model import LinearRegression
+      from sklearn.metrics import mean_squared_error, r2_score
+
+      model = LinearRegression()
+      model.fit(X_train, y_train)   # learns coef_ and intercept_
+
+      y_pred = model.predict(X_test)         # apply learned function to test X
+
+      r2   = r2_score(y_test, y_pred)        # ∈ (-∞, 1]; higher = better
+      rmse = np.sqrt(mean_squared_error(y_test, y_pred))   # same units as y
+      ```
+    narration: >
+      model.fit(X_train, y_train) is one call that sets model.coef_ and
+      model.intercept_. After that, model.predict(X_test) applies the learned
+      function to the test features and returns a numpy array of predicted values.
+      mean_squared_error returns the average of squared differences between actual
+      and predicted — taking the square root gives RMSE in the original units.
+      r2_score returns the coefficient of determination: it's 1 minus the ratio of
+      residual variance to total variance. A value above 0.9 means the model explains
+      more than 90% of the variation in house prices, which is very good for a linear
+      model on this synthetic dataset.
+
+  - type: code
+    label: "train_model + evaluate_model in Practice"
+    heading: "Full end-to-end: encode, scale, train, evaluate"
+    code: |
+      from sklearn.linear_model import LinearRegression
+      from sklearn.metrics import mean_squared_error, r2_score
+
+      def train_model(X_train, y_train):
+          model = LinearRegression()
+          model.fit(X_train, y_train)
+          return model
+
+      def evaluate_model(model, X_test, y_test):
+          y_pred = model.predict(X_test)
+          r2     = r2_score(y_test, y_pred)
+          rmse   = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+          return {
+              'r2': round(float(r2), 4), 'rmse': round(rmse, 2),
+              'n_test': len(y_test), 'predictions': y_pred,
+          }
+
+      # Full pipeline (numerical features only)
+      df    = make_regression_data(200)
+      X, y  = prepare_features(df, 'price')          # numeric only
+      split = split_data(X, y)
+      scaler = fit_scaler(split['X_train'])
+      X_tr_s = scale_features(scaler, split['X_train'])
+      X_te_s = scale_features(scaler, split['X_test'])
+      model  = train_model(X_tr_s, split['y_train'])
+      result = evaluate_model(model, X_te_s, split['y_test'])
+      print(f"R² = {result['r2']}   RMSE = ${result['rmse']:,.0f}")
+      # With 3 features (no neighborhood): R² ≈ 0.96, RMSE ≈ $17,000
+      # With 6 features (with neighborhood): R² ≈ 0.99, RMSE ≈ $9,500
+    narration: >
+      Notice the R² difference with and without the neighborhood column: from about
+      0.96 to 0.99. That improvement shows how much predictive value is locked in the
+      categorical column. When you encode neighborhood and include it as three binary
+      features, the model can learn that downtown houses are worth $50,000 more than
+      rural ones — information it had no access to when neighborhood was excluded.
+      This is a concrete demonstration of why encoding categorical features matters.
+
+  - type: exercise
+    heading: "Exercise 4: train_model + evaluate_model"
+    prompt: >
+      Implement `train_model(X_train, y_train) -> LinearRegression` — create, fit,
+      and return a LinearRegression model. Implement
+      `evaluate_model(model, X_test, y_test) -> dict` with keys: r2, rmse, n_test,
+      predictions. Compute rmse as `np.sqrt(mean_squared_error(y_test, y_pred))`.
+    hint: >
+      `train_model`: `model = LinearRegression(); model.fit(X_train, y_train);
+      return model`. `evaluate_model`: `y_pred = model.predict(X_test)`,
+      then `r2 = r2_score(y_test, y_pred)`,
+      `rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))`.
+      Cast to Python float before rounding.
+    narration: >
+      Open exercise_04.ipynb. The check uses a clean synthetic dataset where y equals
+      5 times a plus 2 times b plus tiny noise. With this near-perfectly linear data,
+      R² must exceed 0.99. Check 5 verifies rmse is positive — if rmse were exactly
+      zero, something would be wrong (identically perfect prediction is physically
+      impossible with any noise). Once all five checks pass, proceed to lesson 5 where
+      you'll compose everything into the FeatureEngineer class.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`LinearRegression().fit(X_train, y_train)` — learns `coef_` and `intercept_`"
+      - "`model.predict(X_test)` — applies learned function, returns numpy array"
+      - "`r2_score(y_test, y_pred)` — variance explained; 1.0 perfect, 0.0 = mean baseline"
+      - "`np.sqrt(mean_squared_error(y_test, y_pred))` — RMSE in same units as y"
+      - "After scaling: `coef_[i]` = change in y per 1 std increase in feature i"
+    narration: >
+      You now have a complete toolkit: prepare features, split data, encode
+      categoricals, scale features, train a model, and evaluate it. In lesson 5
+      you'll wrap the preprocessing steps into a single FeatureEngineer class that
+      stores the fitted scaler and column order, so the same transformations can be
+      applied to new data at prediction time.

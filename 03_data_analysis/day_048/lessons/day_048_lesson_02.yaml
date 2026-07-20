@@ -1,0 +1,145 @@
+day: "048"
+lesson: "02"
+title: "Feature Engineering — One-Hot Encoding"
+slides:
+  - type: title
+    heading: "Feature Engineering — One-Hot Encoding"
+    subheading: "pd.get_dummies — turning text categories into numbers"
+    narration: >
+      Lesson 2 addresses the most common feature engineering problem: what do you do
+      with a column that contains strings? Most ML models can only work with numbers.
+      One-hot encoding converts a column like neighborhood — with values downtown,
+      suburb, and rural — into three binary columns where each row has exactly one 1
+      and two 0s. After encoding, the model can learn a separate coefficient for each
+      neighborhood category.
+
+  - type: concept
+    label: "Why One-Hot?"
+    heading: "You Can't Do Math on Strings"
+    body: >
+      If you encode `downtown=1, suburb=2, rural=3`, the model would interpret
+      `rural` as three times `downtown`, which is meaningless. One-hot encoding
+      avoids this by creating a separate binary column per category:
+
+      ```
+      neighborhood  →  downtown  suburb  rural
+      downtown             1        0      0
+      suburb               0        1      0
+      rural                0        0      1
+      ```
+
+      Each column asks "is this observation in this category?" — no ordinal assumption.
+    bullets:
+      - "`pd.get_dummies(df, columns=['neighborhood'])` — auto-creates the binary cols"
+      - "pandas 2.x returns bool dtype — convert to int for sklearn compatibility"
+      - "`drop_first=True` drops one column per category (avoids multicollinearity)"
+      - "Auto-detect categoricals with `df.select_dtypes(include='object').columns`"
+    narration: >
+      The critical concern with pandas 2.x is dtype. By default, pd.get_dummies now
+      returns boolean columns (True/False) instead of integers (1/0). While sklearn
+      can usually handle booleans internally, it's cleaner and safer to convert to int
+      explicitly so there's no ambiguity about what the values mean. After converting,
+      every column in the DataFrame is a plain Python integer, which StandardScaler
+      and LinearRegression handle without surprises.
+
+  - type: how_it_works
+    label: "pd.get_dummies"
+    heading: "pd.get_dummies + bool → int conversion"
+    body: >
+      ```python
+      df = pd.DataFrame({
+          'neighborhood': ['downtown', 'suburb', 'rural'],
+          'price':         [300_000,   200_000,  150_000],
+      })
+
+      encoded = pd.get_dummies(df, columns=['neighborhood'])
+      # pandas 2.x: dummy cols are bool dtype
+      # neighborhood_downtown  neighborhood_rural  neighborhood_suburb
+
+      # Convert bool → int for sklearn
+      bool_cols = encoded.select_dtypes(include='bool').columns.tolist()
+      for c in bool_cols:
+          encoded[c] = encoded[c].astype(int)
+
+      print(encoded.dtypes)
+      # price                    int64
+      # neighborhood_downtown    int64
+      # neighborhood_rural       int64
+      # neighborhood_suburb      int64
+      ```
+    narration: >
+      get_dummies takes the original column name and each unique value to build the
+      new column names, so neighborhood_downtown tells you exactly what it encodes.
+      The columns parameter specifies which columns to encode; anything else passes
+      through unchanged. The bool_cols loop is the compatibility shim: selecting all
+      bool columns and converting them to int makes the output safe to pass directly
+      to StandardScaler and LinearRegression. If you pass bool columns to some sklearn
+      versions, you'll get a DataConversionWarning — converting explicitly silences it.
+
+  - type: code
+    label: "encode_categoricals in Practice"
+    heading: "Auto-detect, encode, and convert"
+    code: |
+      def encode_categoricals(df, cat_cols=None, drop_first=False):
+          if cat_cols is None:
+              cat_cols = df.select_dtypes(include='object').columns.tolist()
+          if not cat_cols:
+              return df.copy()
+          encoded = pd.get_dummies(df, columns=cat_cols, drop_first=drop_first)
+          # pandas 2.x returns bool dtype for dummy columns
+          bool_cols = encoded.select_dtypes(include='bool').columns.tolist()
+          for c in bool_cols:
+              encoded[c] = encoded[c].astype(int)
+          return encoded
+
+      df = make_regression_data(200)
+      encoded = encode_categoricals(df)
+      print('Before:', df.columns.tolist())
+      # ['area', 'bedrooms', 'age', 'neighborhood', 'price']
+      print('After: ', encoded.columns.tolist())
+      # ['area', 'bedrooms', 'age', 'price',
+      #  'neighborhood_downtown', 'neighborhood_rural', 'neighborhood_suburb']
+      print(encoded.dtypes)
+    narration: >
+      The guard `if not cat_cols: return df.copy()` is important — if no categorical
+      columns exist, the function returns a copy rather than calling get_dummies with
+      an empty list, which would return the same DataFrame without making a copy.
+      Always return a copy to prevent callers from accidentally mutating the original.
+      The auto-detection path using select_dtypes with include='object' catches all
+      string columns — pandas stores strings as object dtype. If you want to encode
+      only specific columns, pass them as cat_cols.
+
+  - type: exercise
+    heading: "Exercise 2: encode_categoricals"
+    prompt: >
+      Implement `encode_categoricals(df, cat_cols=None, drop_first=False)`.
+      Auto-detect string columns with `select_dtypes(include='object')` when
+      cat_cols is None. Use `pd.get_dummies`. Convert bool dummy columns to int.
+      Return a DataFrame with cat_cols removed and their dummies added.
+    hint: >
+      `encoded = pd.get_dummies(df, columns=cat_cols, drop_first=drop_first)`.
+      Then: `bool_cols = encoded.select_dtypes(include='bool').columns.tolist();
+      for c in bool_cols: encoded[c] = encoded[c].astype(int)`.
+      Guard the no-cat-cols case: `if not cat_cols: return df.copy()`.
+    narration: >
+      Open exercise_02.ipynb. Check 3 verifies that exactly 3 dummy columns start
+      with 'neighborhood_' (one per unique value: downtown, rural, suburb). Check 4
+      verifies that the dummy columns are numeric (int), not bool. Check 5 verifies
+      that drop_first=True produces one fewer column than drop_first=False. Once all
+      five checks pass, proceed to lesson 3 where you'll learn why the scale of these
+      columns matters.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`pd.get_dummies(df, columns=['col'])` — one-hot encode specific columns"
+      - "pandas 2.x returns bool dtype — always convert to int for sklearn"
+      - "`select_dtypes(include='object')` — auto-detect string columns"
+      - "`drop_first=True` — drop one dummy per category to avoid multicollinearity"
+      - "Column names `cat_value` encode both the original column and the category"
+    narration: >
+      After encoding, your DataFrame contains only numeric columns — the same interface
+      that every sklearn estimator expects. In lesson 3 you'll add StandardScaler to
+      address a different problem: area ranges from 500 to 3000, while bedrooms ranges
+      from 1 to 5. Without scaling, the model weights area too heavily just because
+      of its larger numerical range.
