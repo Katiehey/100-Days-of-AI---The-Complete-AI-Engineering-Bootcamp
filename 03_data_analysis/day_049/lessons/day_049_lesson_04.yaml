@@ -1,0 +1,132 @@
+day: "049"
+lesson: "04"
+title: "Precision, Recall, F1, and the Confusion Matrix"
+slides:
+  - type: title
+    heading: "Precision, Recall, F1, and the Confusion Matrix"
+    subheading: "Four numbers that tell you *where* the model is right and wrong"
+    narration: >
+      Lesson 4 is about the four metrics that matter more than accuracy when classes
+      are imbalanced or when the cost of different errors is unequal. The confusion
+      matrix breaks down every prediction into one of four buckets: true positive,
+      false positive, true negative, false negative. From those four buckets you
+      can derive precision, recall, and F1 — each emphasising a different type of
+      correctness.
+
+  - type: concept
+    label: "confusion matrix"
+    heading: "The Confusion Matrix — Four Buckets"
+    body: >
+      For binary classification with positive class = 1 (pass):
+
+      |  | Predicted 0 (Fail) | Predicted 1 (Pass) |
+      |---|---|---|
+      | **Actual 0 (Fail)** | TN — True Negative | FP — False Positive |
+      | **Actual 1 (Pass)** | FN — False Negative | TP — True Positive |
+
+      - **Precision** = TP / (TP + FP) — of all predicted passes, how many actually passed?
+      - **Recall** = TP / (TP + FN) — of all actual passes, how many did we catch?
+      - **F1** = 2 × (P × R) / (P + R) — harmonic mean; balances precision and recall
+    bullets:
+      - "High precision + low recall: model is conservative (misses real positives)"
+      - "Low precision + high recall: model casts a wide net (too many false alarms)"
+      - "F1 rewards balance — neither precision nor recall alone is enough"
+      - "`zero_division=0` in sklearn — avoids ZeroDivisionError when a class has no predictions"
+    narration: >
+      Consider a cancer screener: a false negative (missing a real cancer) is far
+      worse than a false positive (an unnecessary follow-up test). In that case you
+      optimise for recall, accepting lower precision. For a spam filter, a false
+      positive (blocking a legitimate email) is worse, so you optimise for precision.
+      F1 is the default when you don't have a strong preference — it's the harmonic
+      mean, which is lower than the arithmetic mean and penalises imbalance between
+      precision and recall.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "sklearn metrics — precision, recall, F1, confusion_matrix"
+    body: >
+      ```python
+      from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                                    f1_score, confusion_matrix, classification_report)
+
+      y_pred = model.predict(X_test)
+
+      print(accuracy_score(y_test, y_pred))    # 0.9000
+      print(precision_score(y_test, y_pred,
+                            zero_division=0))   # 0.9615
+      print(recall_score(y_test, y_pred,
+                         zero_division=0))      # 0.8889
+      print(f1_score(y_test, y_pred,
+                     zero_division=0))          # 0.9231
+      print(confusion_matrix(y_test, y_pred))
+      # [[ 9  5]   → TN=9  FP=5
+      #  [ 3 23]]  → FN=3  TP=23
+      print(classification_report(y_test, y_pred))
+      ```
+    narration: >
+      On our exam dataset: precision 0.96 means 96% of students predicted to pass
+      actually did pass. Recall 0.89 means 89% of students who actually passed were
+      correctly identified. The 3 false negatives are students who actually passed
+      but the model predicted fail — students who studied and slept enough but
+      whose particular combination of features sat on the wrong side of the decision
+      boundary. The confusion matrix makes these errors visible in a way that accuracy
+      — which reports 90% — does not.
+
+  - type: code
+    label: "classification_metrics in Practice"
+    heading: "Full metrics dict from one function call"
+    code: |
+      result = classification_metrics(clf, X_test_s, y_test)
+
+      for k in ('accuracy', 'precision', 'recall', 'f1'):
+          print(f"  {k}: {result[k]:.4f}")
+      # accuracy: 0.9000
+      # precision: 0.9615
+      # recall: 0.8889
+      # f1: 0.9231
+
+      print("Confusion matrix:")
+      print(result['confusion_matrix'])
+      # [[ 9  5]   ← 9 correct fails, 5 false alarms
+      #  [ 3 23]]  ← 3 missed passes, 23 correct passes
+
+      print(result['report'])
+      # Full per-class breakdown + support
+    narration: >
+      The `report` key contains sklearn's classification_report — a multi-line string
+      showing precision, recall, F1, and support (number of actual instances) for
+      each class separately. This is especially useful for multi-class problems where
+      per-class performance varies widely. For binary problems, the report shows
+      performance for class 0 and class 1 separately, plus macro and weighted averages.
+
+  - type: exercise
+    heading: "Exercise 4: classification_metrics"
+    prompt: >
+      Implement `classification_metrics(model, X_test, y_test) -> dict` returning a
+      dict with keys: `accuracy`, `precision`, `recall`, `f1`, `confusion_matrix`,
+      `report`. Use `zero_division=0` in precision_score, recall_score, and f1_score.
+      Round all scalar metrics to 4 decimal places.
+    hint: >
+      `y_pred = model.predict(X_test)` then one call per metric. The `confusion_matrix`
+      value is a numpy array (no rounding needed). The `report` value is a string
+      from `classification_report(y_test, y_pred)`.
+    narration: >
+      Open exercise_04.ipynb. Check 4 verifies that confusion_matrix has shape (2, 2)
+      and that its sum equals the number of test samples — every prediction lands in
+      exactly one bucket. Check 5 verifies that report is a non-empty string. Once all
+      five checks pass, move to lesson 5 where you'll wrap everything into the
+      ModelEvaluator class.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Confusion matrix: TN / FP / FN / TP — every prediction in one of four buckets"
+      - "Precision = TP / (TP + FP) — correctness among positive predictions"
+      - "Recall = TP / (TP + FN) — coverage of actual positives"
+      - "F1 = harmonic mean of precision and recall — penalises imbalance"
+      - "`classification_report()` — per-class breakdown including support"
+    narration: >
+      You now have a complete classification evaluation toolkit. Lesson 5 brings
+      everything together into the ModelEvaluator class: one object that cross-validates
+      on training data, fits the final model, and evaluates on the test set — for
+      both regression and classification tasks.

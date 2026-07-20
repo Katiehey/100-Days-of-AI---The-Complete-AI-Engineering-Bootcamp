@@ -1,0 +1,135 @@
+day: "049"
+lesson: "02"
+title: "Overfitting — Diagnosing the Train/Test Gap"
+slides:
+  - type: title
+    heading: "Overfitting — Diagnosing the Train/Test Gap"
+    subheading: "When a model memorises training data instead of learning the pattern"
+    narration: >
+      Lesson 2 introduces overfitting — the most common failure mode in machine
+      learning. A model overfits when it learns the training data so precisely,
+      including its noise, that it performs much worse on new data. Decision trees
+      make overfitting easy to see: at depth 1 the tree is too simple to fit
+      anything; at depth 20 it memorises every training row. The overfitting
+      curve — plotting train score and test score vs. model complexity — is the
+      standard diagnostic.
+
+  - type: concept
+    label: "bias-variance"
+    heading: "The Bias-Variance Tradeoff"
+    body: >
+      Every model makes two kinds of errors:
+
+      - **Bias** — systematic error from a model that is too simple to capture the
+        true pattern (underfitting: both train and test scores are low)
+      - **Variance** — sensitivity to which training data you happened to get
+        (overfitting: train score is high, test score is much lower)
+
+      The gap between train score and test score is the variance signal:
+      - Small gap + high scores → good generalisation
+      - Large gap → overfitting (model too complex for the data size)
+      - Small gap + low scores → underfitting (model too simple)
+    bullets:
+      - "`gap = train_r2 - test_r2` — the overfitting signal"
+      - "gap > 0.1 is a simple heuristic for flagging a problem"
+      - "DecisionTree at depth=1: both scores are low (underfitting)"
+      - "DecisionTree at depth=10: train=1.00, test≈0.93 (overfitting)"
+    narration: >
+      There is no free lunch: every model has some bias and some variance. The goal
+      is to find the sweet spot where the total error is lowest. For decision trees,
+      that sweet spot is usually at a depth between 3 and 8, depending on the dataset.
+      Deeper trees memorise noise; shallower trees miss real patterns.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "overfitting_report — scan depths 1 to 10"
+    body: >
+      ```python
+      from sklearn.tree import DecisionTreeRegressor
+      from sklearn.metrics import r2_score
+
+      def overfitting_report(X, y, max_depths=range(1, 11), ...):
+          X_train, X_test, y_train, y_test = train_test_split(X, y, ...)
+          records = []
+          for depth in max_depths:
+              m = DecisionTreeRegressor(max_depth=depth, random_state=42)
+              m.fit(X_train, y_train)
+              tr_r2 = float(r2_score(y_train, m.predict(X_train)))
+              te_r2 = float(r2_score(y_test,  m.predict(X_test)))
+              gap   = round(tr_r2 - te_r2, 4)
+              records.append({
+                  'max_depth': depth, 'train_r2': round(tr_r2, 4),
+                  'test_r2': round(te_r2, 4), 'gap': gap,
+                  'overfit': bool(gap > 0.1),
+              })
+          return pd.DataFrame(records)
+      ```
+
+      Key observation: `train_r2` increases monotonically with depth — deeper trees
+      can always fit the training data better. `test_r2` peaks at the optimal depth
+      then decreases as the tree overfits.
+    narration: >
+      Notice that the model is re-trained from scratch at each depth. We use the same
+      train/test split throughout (random_state=42) so the comparison is fair: the
+      only thing changing is max_depth. At depth 10, a decision tree with 3 numeric
+      features can perfectly memorise all 160 training rows — train R² = 1.00 — but
+      only achieves about 0.93 on the 40 test rows it has never seen.
+
+  - type: code
+    label: "overfitting_report in Practice"
+    heading: "Housing data — depth=1 underfits, depth=10 memorises"
+    code: |
+      df = make_regression_data(200)
+      X  = df.drop(columns=['price'])
+      y  = df['price']
+
+      report = overfitting_report(X, y)
+      print(report.to_string(index=False))
+
+      # max_depth  train_r2  test_r2    gap  overfit
+      #         1    0.7270   0.5672  0.1598     True
+      #         2    0.8792   0.8564  0.0228    False
+      #         3    0.9459   0.9118  0.0341    False
+      #         5    0.9948   0.9393  0.0555    False
+      #        10    1.0000   0.9258  0.0742    False
+    narration: >
+      At depth=1 the gap is 0.16 — flagged as overfit by our heuristic, but in this
+      case it is actually underfitting: both train and test scores are low. The
+      heuristic works best at higher depths where the gap comes from train score
+      being artificially inflated by memorisation. At depth=10 the tree achieves
+      train R² = 1.00 but test R² = 0.93. The optimal depth for this dataset is
+      around 3-5, where test R² peaks and the gap is small.
+
+  - type: exercise
+    heading: "Exercise 2: overfitting_report"
+    prompt: >
+      Implement `overfitting_report(X, y, max_depths=range(1, 11), test_size=0.2,
+      random_state=42) -> pd.DataFrame`. For each depth, fit a
+      `DecisionTreeRegressor(max_depth=depth, random_state=42)`, compute `train_r2`
+      and `test_r2` using `r2_score`, set `gap = round(train_r2 - test_r2, 4)`, and
+      flag `overfit = bool(gap > 0.1)`. Return a DataFrame with all 5 columns.
+    hint: >
+      Use a single `train_test_split` call before the loop — the split should be the
+      same for every depth so the comparison is fair. Append a dict per depth to a
+      list, then `pd.DataFrame(records)` at the end.
+    narration: >
+      Open exercise_02.ipynb. Check 5 verifies that at depth=10, train_r2 exceeds
+      0.99 — confirming the tree memorised the training data. Check 4 verifies that
+      test_r2 is always below train_r2, which must be true for any model on any
+      real dataset. Once all five checks pass, move to lesson 3 where you shift from
+      regression to classification.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Overfitting: train score >> test score — model memorised rather than generalised"
+      - "Underfitting: both scores are low — model too simple for the pattern"
+      - "`gap = train_r2 - test_r2` — the diagnostic signal"
+      - "DecisionTree depth controls bias/variance; deeper = lower bias, higher variance"
+      - "Optimal depth: where test score peaks and gap is small"
+    narration: >
+      The overfitting curve is the most important diagnostic plot in supervised
+      machine learning. Lesson 3 shifts to classification — a different task where
+      the target is a category (pass/fail) rather than a continuous value. The same
+      bias-variance concept applies, but the metrics change from R² and RMSE to
+      accuracy, precision, recall, and F1.

@@ -1,0 +1,141 @@
+day: "049"
+lesson: "05"
+title: "ModelEvaluator — Unified Evaluation"
+slides:
+  - type: title
+    heading: "ModelEvaluator — Unified Evaluation"
+    subheading: "One class for regression and classification: CV + fit + test metrics"
+    narration: >
+      Lesson 5 builds the ModelEvaluator class — the capstone of Day 49. Every ML
+      project follows the same three-step evaluation loop: cross-validate on training
+      data to get a reliable estimate, fit the final model on the full training set,
+      then measure final performance on the held-out test set. ModelEvaluator encodes
+      that loop in a reusable object that handles both regression and classification.
+
+  - type: concept
+    label: "ModelEvaluator"
+    heading: "Evaluation Loop as a Reusable Object"
+    body: >
+      The class has three methods:
+
+      - `__init__(task='regression')` — store task type, initialise empty results
+      - `evaluate(model, X_train, X_test, y_train, y_test, cv=5)` — full loop:
+        1. cross_validate_model on (X_train, y_train) with appropriate scoring
+        2. model.fit(X_train, y_train) — fit final model on all training data
+        3. compute test metrics (regression: r2/rmse/mae, classification: classification_metrics)
+        4. store and return results dict
+      - `summary() -> str` — human-readable multi-line summary
+
+      Storing results in `self._results` lets you call `summary()` after `evaluate()`
+      without re-running the expensive CV step.
+    bullets:
+      - "`task='regression'` → scoring='r2', metrics = {r2, rmse, mae}"
+      - "`task='classification'` → scoring='accuracy', metrics = classification_metrics result"
+      - "CV is run on X_train only — X_test is never seen during CV"
+      - "`summary()` returns 'No evaluation run yet.' if evaluate() hasn't been called"
+    narration: >
+      The key design decision is running CV on X_train only. The test set must stay
+      completely unseen until the final evaluation — otherwise you would be leaking
+      information from the test set into the model selection process. Cross-validation
+      on the training set gives you a reliable performance estimate while the test set
+      gives you the final, unbiased evaluation of the model you chose.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "evaluate() — the three-step loop"
+    body: >
+      ```python
+      class ModelEvaluator:
+          def __init__(self, task='regression'):
+              self.task     = task
+              self._results = {}
+
+          def evaluate(self, model, X_train, X_test, y_train, y_test, cv=5):
+              scoring   = 'r2' if self.task == 'regression' else 'accuracy'
+              cv_result = cross_validate_model(model, X_train, y_train,
+                                               cv=cv, scoring=scoring)
+              model.fit(X_train, y_train)          # fit on ALL training data
+              if self.task == 'regression':
+                  y_pred  = model.predict(X_test)
+                  metrics = {'r2': round(float(r2_score(y_test, y_pred)), 4),
+                             'rmse': round(float(np.sqrt(
+                                 mean_squared_error(y_test, y_pred))), 2),
+                             'mae':  round(float(
+                                 mean_absolute_error(y_test, y_pred)), 2)}
+              else:
+                  metrics = classification_metrics(model, X_test, y_test)
+              self._results = {'task': self.task, 'cv': cv_result,
+                               'metrics': metrics}
+              return self._results
+      ```
+    narration: >
+      Notice the call to model.fit after cross_validate_model. The CV call trains
+      the model 5 times internally on different subsets of X_train, but when it
+      finishes, the model object is back in its unfitted state (sklearn's
+      cross_val_score doesn't modify the original model). So we call model.fit
+      explicitly on the full X_train to get the production model. Then we evaluate
+      that production model on X_test.
+
+  - type: code
+    label: "ModelEvaluator in Practice"
+    heading: "Regression + classification in the same interface"
+    code: |
+      # ── Regression ──
+      ev_r   = ModelEvaluator(task='regression')
+      result = ev_r.evaluate(LinearRegression(), X_tr_rs, X_te_rs, y_tr_r, y_te_r)
+      print(ev_r.summary())
+      # Task: regression
+      # Cross-val r2 (5-fold): 0.9898 ± 0.0034
+      # Test  R²=0.9664  RMSE=14854.62  MAE=10711.18
+
+      # ── Classification ──
+      ev_c   = ModelEvaluator(task='classification')
+      result = ev_c.evaluate(LogisticRegression(max_iter=1000),
+                             X_tr_cs, X_te_cs, y_tr_c, y_te_c)
+      print(ev_c.summary())
+      # Task: classification
+      # Cross-val accuracy (5-fold): 0.9500 ± 0.0224
+      # Test  Acc=0.9000  F1=0.9231
+    narration: >
+      The unified interface means you can swap LinearRegression for XGBoost, or
+      LogisticRegression for a RandomForest, without changing the evaluation code.
+      This is the same principle as sklearn's consistent fit/predict interface:
+      standardise the interface, not the model. In Day 50 you'll plug ModelEvaluator
+      into the capstone Insight Engine to automatically evaluate whatever model the
+      user supplies.
+
+  - type: exercise
+    heading: "Exercise 5: ModelEvaluator Class"
+    prompt: >
+      Implement the `ModelEvaluator` class with `__init__`, `evaluate`, and `summary`.
+      In `evaluate`: call `cross_validate_model` with the correct scoring string, then
+      `model.fit(X_train, y_train)`, then compute metrics based on `self.task`. Store
+      everything in `self._results`. In `summary`: return 'No evaluation run yet.' if
+      results are empty, otherwise format a multi-line string with task, CV score,
+      and test metrics.
+    hint: >
+      In `evaluate`: `scoring = 'r2' if self.task == 'regression' else 'accuracy'`.
+      After `model.fit(X_train, y_train)`, for regression: `y_pred = model.predict(X_test)`,
+      then `r2_score`, `mean_squared_error`, `mean_absolute_error`. For classification:
+      call `classification_metrics(model, X_test, y_test)`.
+    narration: >
+      Open exercise_05.ipynb. Check 4 runs the evaluator in classification mode on the
+      exam dataset and verifies accuracy exceeds 0.80. Check 5 calls summary() and
+      verifies it returns a non-empty string. Once all five checks pass, move to the
+      project notebook to build a complete two-task evaluation report with a saved chart.
+
+  - type: summary
+    heading: "Lesson 5 + Day 49 Takeaways"
+    bullets:
+      - "`ModelEvaluator` — unified interface for regression and classification evaluation"
+      - "Three-step loop: CV on train → fit final model → evaluate on test"
+      - "CV is always on X_train only — test set must stay completely unseen"
+      - "`summary()` — human-readable report without re-running the expensive CV"
+      - "Same interface for any sklearn model: swap LinearRegression for XGBoost without changing evaluation code"
+    narration: >
+      Day 49 complete. You can now evaluate any sklearn model reliably: cross-validate
+      to get a stable performance estimate, detect overfitting with an overfitting curve,
+      and measure classification performance beyond accuracy with precision, recall, F1,
+      and the confusion matrix. Day 50 is the Section 3 capstone: an Insight Engine that
+      takes a raw dataset and produces a full AI-narrated analysis report using everything
+      you've built in days 36 through 49.

@@ -1,0 +1,124 @@
+day: "049"
+lesson: "01"
+title: "Cross-Validation — Why One Split Isn't Enough"
+slides:
+  - type: title
+    heading: "Cross-Validation — Why One Split Isn't Enough"
+    subheading: "From one lucky split to a reliable estimate of real-world performance"
+    narration: >
+      Lesson 1 starts with a problem you already have: in Day 48 you split your
+      housing data 80/20 and measured R². But what if that particular 80% happened to
+      contain all the easy houses? Your R² might look great on that split and poor on
+      a different one. Cross-validation solves this by running the train/test cycle
+      k times, each time with a different 20% held out. The mean score is a much
+      more reliable estimate of how the model will perform on data it has never seen.
+
+  - type: concept
+    label: "k-fold CV"
+    heading: "One Split vs. k-Fold Cross-Validation"
+    body: >
+      In a single split you randomly hold out 20% of data. The score depends on
+      which rows ended up in the test set. With k-fold CV:
+
+      1. Split all data into k equal groups (folds)
+      2. Train on k-1 folds, test on the remaining fold
+      3. Repeat k times — every row is in the test set exactly once
+      4. Average the k scores
+
+      The mean is lower-variance than any single split. The std tells you how
+      sensitive the score is to which data was held out.
+    bullets:
+      - "`KFold(n_splits=5, shuffle=True, random_state=42)` — deterministic 5-fold"
+      - "`cross_val_score(model, X, y, cv=kf, scoring='r2')` — returns numpy array of k scores"
+      - "5-fold is the standard default; 10-fold is more rigorous but 2× slower"
+      - "Pass an **unfitted** model — sklearn fits and evaluates it internally each fold"
+    narration: >
+      The key insight is that with k-fold, every data point appears in the test set
+      exactly once. With k=5 that means 5 train/test splits covering the whole
+      dataset. The average is lower variance than a single split, and the standard
+      deviation tells you how sensitive your model is to which fold it was trained on.
+      A high std suggests your model is unstable — maybe the dataset is small or the
+      model is complex.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "KFold + cross_val_score"
+    body: >
+      ```python
+      from sklearn.model_selection import KFold, cross_val_score
+      from sklearn.linear_model import LinearRegression
+
+      kf     = KFold(n_splits=5, shuffle=True, random_state=42)
+      scores = cross_val_score(LinearRegression(), X, y,
+                               cv=kf, scoring='r2')
+
+      print(scores)          # array of 5 R² values
+      print(scores.mean())   # mean CV R²
+      print(scores.std())    # stability of the model
+      ```
+
+      The `scoring` string follows sklearn conventions:
+      - `'r2'` — coefficient of determination (regression)
+      - `'accuracy'` — fraction correct (classification)
+      - `'neg_root_mean_squared_error'` — negative RMSE (sklearn uses negative so higher = better)
+    narration: >
+      Notice that cross_val_score takes the *model class* not a fitted model.
+      Internally, sklearn calls model.fit() on the training fold and model.predict()
+      on the test fold for each of the k iterations. This means the model is fitted
+      k times — once per fold. That's why CV is more expensive than a single split,
+      but the cost is usually worth it for the reliability gain.
+
+  - type: code
+    label: "cross_validate_model in Practice"
+    heading: "Housing data — 5-fold CV R² = 0.9898 ± 0.0034"
+    code: |
+      df = make_regression_data(200)
+      X  = df.drop(columns=['price'])
+      y  = df['price']
+
+      result = cross_validate_model(LinearRegression(), X, y, cv=5, scoring='r2')
+
+      print(f"Per-fold R²: {result['scores'].round(4)}")
+      print(f"Mean: {result['mean']:.4f}  Std: {result['std']:.4f}")
+      print(f"Min:  {result['min']:.4f}  Max: {result['max']:.4f}")
+      # Per-fold R²: [0.9922 0.9855 0.9898 0.9928 0.9889]
+      # Mean: 0.9898  Std: 0.0025
+    narration: >
+      Our housing dataset produces CV R² around 0.99 with a very low standard
+      deviation. That tells us two things: the linear model captures most of the
+      variance in house prices, and the model is stable across different subsets
+      of the data. When you see a high std — say above 0.05 for R² — it usually
+      means the dataset is small, the model is too complex, or there are outlier
+      rows that happen to land in the test fold and dominate the score.
+
+  - type: exercise
+    heading: "Exercise 1: cross_validate_model"
+    prompt: >
+      Implement `cross_validate_model(model, X, y, cv=5, scoring='r2') -> dict`
+      using `KFold(n_splits=cv, shuffle=True, random_state=42)` and
+      `cross_val_score`. Return a dict with keys: `scores`, `mean`, `std`,
+      `min`, `max`, `cv_folds`, `scoring`. Round all scalar values to 4 decimal places.
+    hint: >
+      `kf = KFold(n_splits=cv, shuffle=True, random_state=42)` then
+      `scores = cross_val_score(model, X, y, cv=kf, scoring=scoring)`.
+      Return `scores` as the raw numpy array (no rounding needed for the array itself).
+    narration: >
+      Open exercise_01.ipynb. The check runs cross_validate_model on the housing
+      dataset with LinearRegression and verifies that mean R² exceeds 0.9 and
+      std is below 0.1. Once all five checks pass, move to lesson 2 where
+      you'll use cross-validation to diagnose overfitting.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "`KFold(n_splits=5, shuffle=True, random_state=42)` — deterministic k-fold splitter"
+      - "`cross_val_score(model, X, y, cv=kf, scoring=...)` — k scores, one per fold"
+      - "Mean score = reliable performance estimate; std = model stability"
+      - "Pass an unfitted model — sklearn fits it fresh for each fold"
+      - "5-fold is standard; use 10-fold when dataset is small (<500 rows)"
+    narration: >
+      Cross-validation is the foundation of honest model evaluation. You now have a
+      function that gives you a reliable performance estimate without wasting data on
+      a single hold-out set. In lesson 2 you'll use a similar idea to diagnose
+      overfitting: train the same model at different complexities and watch the gap
+      between train and test scores widen.

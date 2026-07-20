@@ -1,0 +1,136 @@
+day: "049"
+lesson: "03"
+title: "Classification Models and Accuracy"
+slides:
+  - type: title
+    heading: "Classification Models and Accuracy"
+    subheading: "Predicting categories with LogisticRegression"
+    narration: >
+      Lesson 3 introduces classification — predicting a discrete label rather than
+      a continuous value. The dataset is a student exam: hours studied and hours slept
+      predict whether the student passed (1) or failed (0). LogisticRegression is the
+      linear model for binary classification: it learns a decision boundary in feature
+      space, and points on one side are predicted as class 1, the other as class 0.
+      Accuracy — the fraction of correct predictions — is the first metric to compute.
+
+  - type: concept
+    label: "classification"
+    heading: "Regression vs. Classification"
+    body: >
+      | | Regression | Classification |
+      |---|---|---|
+      | Target | continuous (price, temperature) | discrete label (pass/fail, spam/ham) |
+      | Model | LinearRegression | LogisticRegression, DecisionTree, … |
+      | Primary metric | R², RMSE | accuracy, F1 |
+      | predict() output | float array | integer label array |
+      | predict_proba() | n/a | probability per class |
+
+      LogisticRegression outputs a probability (via the sigmoid function) and
+      classifies as 1 if the probability ≥ 0.5. The coefficients are log-odds:
+      positive coefficient = more studying → more likely to pass.
+    bullets:
+      - "`LogisticRegression(random_state=42, max_iter=1000)` — increase max_iter to avoid ConvergenceWarning"
+      - "`model.fit(X_train, y_train)` — learns decision boundary"
+      - "`model.predict(X_test)` — returns class labels (0 or 1)"
+      - "`model.predict_proba(X_test)` — returns [[P(0), P(1)], ...] for each row"
+    narration: >
+      LogisticRegression is called logistic because it applies the logistic (sigmoid)
+      function to a linear combination of features. The output is a probability in
+      [0, 1]. If the probability of class 1 exceeds 0.5, the model predicts 1.
+      For our exam dataset, a student who studied 8 hours and slept 8 hours would
+      get a high probability of passing; a student who studied 2 hours and slept 5
+      would get a low probability. The decision boundary is the line in
+      (hours_studied, hours_sleep) space where the probability equals 0.5 exactly.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "Scaling → fit → predict → accuracy"
+    body: >
+      ```python
+      from sklearn.linear_model import LogisticRegression
+      from sklearn.preprocessing import StandardScaler
+      from sklearn.metrics import accuracy_score
+
+      scaler   = StandardScaler()
+      X_train_s = pd.DataFrame(scaler.fit_transform(X_train), columns=X.columns)
+      X_test_s  = pd.DataFrame(scaler.transform(X_test),      columns=X.columns)
+
+      model = LogisticRegression(random_state=42, max_iter=1000)
+      model.fit(X_train_s, y_train)
+
+      y_pred = model.predict(X_test_s)
+      acc    = accuracy_score(y_test, y_pred)
+      print(f"Accuracy: {acc:.4f}")   # 0.9000
+      ```
+
+      Scaling matters for LogisticRegression: the solver converges faster and the
+      coefficients are more comparable when features are on the same scale.
+    narration: >
+      The pattern is identical to regression: scale on train, apply to test, fit the
+      model, predict, evaluate. The only difference is the model class and the metric.
+      accuracy_score counts the fraction of predictions that match the true label.
+      On our exam dataset with a well-engineered signal (study time + sleep time
+      linearly predict pass/fail), LogisticRegression achieves about 90% accuracy.
+
+  - type: code
+    label: "Classification Pipeline"
+    heading: "Exam dataset: 90% accuracy"
+    code: |
+      df = make_classification_data(200)
+      print(df['passed'].value_counts())
+      # 1    130    (65% pass)
+      # 0     70    (35% fail)
+
+      X = df.drop(columns=['passed'])
+      y = df['passed']
+      X_train, X_test, y_train, y_test = train_test_split(
+          X, y, test_size=0.2, random_state=42
+      )
+      scaler    = StandardScaler()
+      X_train_s = pd.DataFrame(scaler.fit_transform(X_train), columns=X.columns)
+      X_test_s  = pd.DataFrame(scaler.transform(X_test),      columns=X.columns)
+
+      clf    = train_classifier(X_train_s, y_train)
+      y_pred = clf.predict(X_test_s)
+      acc    = accuracy_score(y_test, y_pred)
+      print(f"Accuracy: {acc:.4f}")   # 0.9000
+    narration: >
+      Notice the class imbalance: 65% of students pass. A naive model that always
+      predicts "pass" would get 65% accuracy without learning anything. Our 90%
+      accuracy is meaningfully better than that baseline, but accuracy alone is not
+      enough. If we care about identifying failing students, we need to know how many
+      fails the model correctly caught — that's recall. Lesson 4 covers precision,
+      recall, F1, and the confusion matrix.
+
+  - type: exercise
+    heading: "Exercise 3: train_classifier"
+    prompt: >
+      Implement `train_classifier(X_train, y_train, max_iter=1000) -> LogisticRegression`.
+      Create a `LogisticRegression(random_state=42, max_iter=max_iter)`, fit it on
+      the training data, and return the fitted model.
+    hint: >
+      Three lines: `model = LogisticRegression(random_state=42, max_iter=max_iter)`,
+      `model.fit(X_train, y_train)`, `return model`. Use `max_iter=1000` as default
+      to avoid the ConvergenceWarning that appears with the default 100.
+    narration: >
+      Open exercise_03.ipynb. Check 3 verifies that coef_.shape[1] equals 2 — one
+      coefficient per input feature (hours_studied and hours_sleep). Check 4 verifies
+      accuracy above 0.80. Check 5 confirms the model has predict_proba, which is a
+      feature of LogisticRegression that DecisionTree also has but SVM doesn't by
+      default. Once all five checks pass, move to lesson 4 for the full classification
+      metrics suite.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`LogisticRegression` — linear model for binary and multi-class classification"
+      - "Scale features before fitting — improves convergence and coefficient interpretability"
+      - "`model.predict()` → class labels; `model.predict_proba()` → probabilities per class"
+      - "`accuracy_score(y_test, y_pred)` — fraction of correct predictions"
+      - "Accuracy baseline: always predict the majority class (65% here) — beat that first"
+    narration: >
+      You can now train a classification model and measure its accuracy. But accuracy
+      is misleading when classes are imbalanced — it hides the model's behaviour on
+      the minority class. Lesson 4 introduces the full suite: precision, recall, F1,
+      and the confusion matrix, which together give a complete picture of where the
+      model is right and where it is wrong.
