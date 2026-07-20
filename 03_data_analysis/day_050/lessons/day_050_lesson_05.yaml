@@ -1,0 +1,153 @@
+day: "050"
+lesson: "05"
+title: "InsightEngine — Composing the Full Pipeline"
+slides:
+  - type: title
+    heading: "InsightEngine — Composing the Full Pipeline"
+    subheading: "One class that orchestrates four stages and saves a dashboard PNG"
+    narration: >
+      Lesson 5 assembles the InsightEngine class — the Section 3 capstone.
+      You've built load_and_clean, run_eda, train_and_evaluate, and narrate_insights
+      as standalone functions. InsightEngine wires them into a single object:
+      run() calls all four stages in order, save_chart() produces a 2×2 matplotlib
+      dashboard. One object, any CSV, complete insight in under ten seconds.
+
+  - type: concept
+    label: "class design"
+    heading: "InsightEngine — Thin Orchestrator Pattern"
+    body: >
+      The class has three methods and six attributes:
+
+      **Attributes:**
+      - `title` — used in the chart title and narration prompt
+      - `llm_model` — Ollama model name (default 'llama3.2')
+      - `df`, `eda`, `model_report`, `narrative` — pipeline outputs, all None until run()
+
+      **Methods:**
+      - `__init__(title, llm_model)` — store config, set outputs to None
+      - `run(source, target_col=None) -> dict` — orchestrate all 4 stages
+      - `save_chart(out_path) -> str` — 2×2 matplotlib dashboard
+
+      The class adds no logic of its own — it delegates entirely to the four helper
+      functions. This is the thin orchestrator pattern: the class owns state
+      (intermediate results) and the sequence of calls, not the computation.
+    bullets:
+      - "`run()` returns a dict AND stores results as attributes — two ways to access"
+      - "`save_chart()` raises RuntimeError if called before `run()` — fail-fast guard"
+      - "All matplotlib in save_chart: backend='Agg', savefig, close('all') — no plt.show()"
+      - "target_col is optional — engine produces full output even without a model"
+    narration: >
+      Storing results as both return values and attributes is a deliberate choice.
+      The return value is for immediate inspection in a notebook. The attributes
+      are for the save_chart method, which needs to access eda and df after run()
+      has returned. This avoids passing the same data through multiple function
+      signatures and keeps each method's signature clean.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "save_chart() — the 2×2 dashboard"
+    body: >
+      ```python
+      def save_chart(self, out_path='insight_report.png') -> str:
+          if self.df is None:
+              raise RuntimeError('Call run() before save_chart().')
+
+          fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+          fig.suptitle(f'{self.title} — Insight Report', fontsize=14)
+
+          # Top-left: histogram of first numeric column
+          num_cols = self.eda.get('numeric_cols', [])
+          if num_cols:
+              axes[0,0].hist(self.df[num_cols[0]].dropna(), bins=20, ...)
+
+          # Top-right: correlation heatmap
+          if len(num_cols) >= 2:
+              corr = self.df[num_cols].corr()
+              axes[0,1].imshow(corr, cmap='RdBu', vmin=-1, vmax=1)
+              # annotate each cell with the correlation value
+
+          # Bottom-left: category bar chart
+          # Bottom-right: scatter of first two numeric columns
+
+          plt.tight_layout()
+          fig.savefig(out_path, bbox_inches='tight', dpi=100)
+          plt.close('all')
+          return out_path
+      ```
+    narration: >
+      The four panels are deliberately generic: they work on any dataset. Panel 1
+      shows the distribution of the first numeric column. Panel 2 is the
+      correlation heatmap — the most information-dense view for a numeric dataset.
+      Panel 3 shows the most frequent category values. Panel 4 is a scatter of
+      the two most correlated features. The imshow trick for the heatmap uses
+      matplotlib's built-in image display with RdBu colormap, where red is
+      negative correlation and blue is positive, matching the standard convention.
+
+  - type: code
+    label: "InsightEngine in Practice"
+    heading: "Complete pipeline: raw data → insights in < 10 seconds"
+    code: |
+      engine = InsightEngine(title='Retail Sales 2023')
+      result = engine.run(make_sample_data(300), target_col='revenue')
+
+      # Structured outputs available as attributes
+      print(f"Rows: {engine.eda['shape']['rows']}")
+      print(f"CV R²: {engine.model_report['cv_r2']['mean']:.4f}")
+      print(f"Test R²: {engine.model_report['test_r2']:.4f}")
+
+      # AI narrative
+      print("\n=== Executive Summary ===")
+      print(engine.narrative)
+
+      # Save 2×2 dashboard
+      out = engine.save_chart('insight_report.png')
+      print(f"\nDashboard saved: {out}")
+      # All five outputs: df, eda, model_report, narrative, chart
+    narration: >
+      This is the full Section 3 journey in six lines: make data, create engine,
+      run pipeline, print EDA stats, print narrative, save chart. A user with
+      their own CSV can drop it in by replacing make_sample_data(300) with
+      load_and_clean('my_data.csv'). The engine detects the schema automatically,
+      runs the appropriate analysis, and produces the same outputs regardless of
+      the dataset's structure.
+
+  - type: exercise
+    heading: "Exercise 5: InsightEngine Class"
+    prompt: >
+      Implement the `InsightEngine` class:
+      - `__init__`: set `self.title`, `self.llm_model`, and initialise `self.df`,
+        `self.eda`, `self.model_report`, `self.narrative` to None
+      - `run`: call the four helper functions in order; only call `train_and_evaluate`
+        if `target_col` is provided and exists in `self.df`; return a dict with
+        4 keys: df, eda, model_report, narrative
+      - `save_chart`: create a 2×2 figure; raise RuntimeError if `self.df is None`;
+        save with `fig.savefig(out_path, bbox_inches='tight', dpi=100)`;
+        call `plt.close('all')`; return `out_path`
+    hint: >
+      Don't forget to import matplotlib and set `matplotlib.use('Agg')` before
+      the class definition in the exercise notebook. Check 5 verifies the PNG was
+      saved by checking `os.path.exists` and `os.path.getsize > 1000`.
+    narration: >
+      Open exercise_05.ipynb. All four helper functions are provided. Check 2 is
+      the most comprehensive: it calls engine.run() and verifies the returned dict
+      has all four keys. Check 3 verifies engine.df is clean (no numeric nulls).
+      Check 4 verifies engine.narrative is a non-empty string. Check 5 verifies
+      the PNG was actually saved to disk. Once all five pass, open the project
+      notebook to run the complete InsightEngine on the full 300-row dataset.
+
+  - type: summary
+    heading: "Lesson 5 + Day 50 + Section 3 Takeaways"
+    bullets:
+      - "InsightEngine: thin orchestrator — no logic of its own, delegates to helpers"
+      - "Attributes store pipeline outputs — both return value AND attribute access"
+      - "`if self.df is None: raise RuntimeError` — fail-fast guard before save_chart"
+      - "2×2 dashboard: histogram, correlation heatmap, category bar, scatter"
+      - "Section 3 complete: 15 days of data engineering in one auto-pilot object"
+    narration: >
+      Section 3 is done. You've built the complete data engineering stack from
+      scratch: load and clean raw CSVs, compute statistical summaries, visualise
+      data, generate AI narratives, write SQL, build ETL pipelines, analyse time
+      series, run statistical tests, engineer features, train and evaluate ML models,
+      and now assemble everything into an automated insight pipeline. Section 4
+      builds on this foundation to create deployable web applications — starting
+      with Streamlit on Day 51.

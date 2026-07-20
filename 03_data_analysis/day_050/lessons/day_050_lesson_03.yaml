@@ -1,0 +1,140 @@
+day: "050"
+lesson: "03"
+title: "Auto-Model — train_and_evaluate"
+slides:
+  - type: title
+    heading: "Auto-Model — train_and_evaluate"
+    subheading: "Stage 3: auto-select features, scale, cross-validate, evaluate"
+    narration: >
+      Lesson 3 builds the modelling stage of the InsightEngine. Unlike Days 48
+      and 49 where you specified the feature columns explicitly, train_and_evaluate
+      discovers them automatically: it takes all numeric columns, removes the
+      target, and uses the rest as features. This makes the function work on any
+      tabular dataset without prior knowledge of its schema.
+
+  - type: concept
+    label: "auto-select"
+    heading: "Auto-Feature Selection + StandardScaler"
+    body: >
+      ```python
+      def train_and_evaluate(df, target_col, test_size=0.2, random_state=42):
+          num_cols     = df.select_dtypes(include='number').columns.tolist()
+          feature_cols = [c for c in num_cols if c != target_col]
+
+          sub = df[feature_cols + [target_col]].dropna()
+          X   = sub[feature_cols]
+          y   = sub[target_col]
+
+          X_train, X_test, y_train, y_test = train_test_split(
+              X, y, test_size=test_size, random_state=random_state
+          )
+          scaler = StandardScaler()
+          X_tr_s = pd.DataFrame(scaler.fit_transform(X_train), columns=feature_cols)
+          X_te_s = pd.DataFrame(scaler.transform(X_test),      columns=feature_cols)
+          ...
+      ```
+
+      Three auto-selection rules:
+      1. Only numeric columns are eligible as features
+      2. The target column is excluded from features
+      3. Rows with any remaining NaN in selected columns are dropped
+    bullets:
+      - "`df.select_dtypes(include='number')` — auto-detect numeric columns (Day 36 pattern)"
+      - "`[c for c in num_cols if c != target_col]` — exclude target from features"
+      - "`dropna()` on the subset — safety net for any residual nulls"
+      - "`StandardScaler` — fit on X_train only, transform both splits (Day 48 rule)"
+    narration: >
+      The dropna call is a safety net, not the primary null-handling strategy.
+      load_and_clean already filled numeric nulls with the median. But if the
+      pipeline is called on a DataFrame that wasn't cleaned through load_and_clean,
+      dropna prevents sklearn from receiving NaN values and crashing. Defensive
+      coding: clean at stage 1, but don't assume stage 1 was run.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "CV + fit + evaluate — the Day 49 loop as one function"
+    body: >
+      ```python
+      model = LinearRegression()
+      kf    = KFold(n_splits=5, shuffle=True, random_state=42)
+      cv_scores = cross_val_score(model, X_tr_s, y_train, cv=kf, scoring='r2')
+
+      model.fit(X_tr_s, y_train)
+      y_pred = model.predict(X_te_s)
+
+      return {
+          'target':    target_col,
+          'features':  feature_cols,
+          'cv_r2':     {'mean': round(float(cv_scores.mean()), 4),
+                        'std':  round(float(cv_scores.std()),  4)},
+          'test_r2':   round(float(r2_score(y_test, y_pred)), 4),
+          'test_rmse': round(float(np.sqrt(mean_squared_error(y_test, y_pred))), 2),
+          'test_mae':  round(float(mean_absolute_error(y_test, y_pred)), 2),
+          'coefficients': {col: round(float(c), 4)
+                           for col, c in zip(feature_cols, model.coef_)},
+          'n_train': int(len(X_train)),
+          'n_test':  int(len(X_test)),
+      }
+      ```
+    narration: >
+      Notice that cross_val_score is called on X_tr_s and y_train — never on
+      X_te_s or y_test. The test set is completely unseen during CV. After CV,
+      model.fit is called explicitly on the full X_tr_s to get the production
+      model, which is then evaluated once on X_te_s. This is the same three-step
+      pattern as Day 49's ModelEvaluator: CV estimate, fit final model, final test.
+
+  - type: code
+    label: "train_and_evaluate in Practice"
+    heading: "Retail data: 3 features → CV R²=0.96 → RMSE≈20"
+    code: |
+      df = load_and_clean(make_sample_data(300))
+      mr = train_and_evaluate(df, 'revenue')
+
+      print(f"Target:    {mr['target']}")
+      print(f"Features:  {mr['features']}")
+      print(f"CV R²:     {mr['cv_r2']['mean']:.4f} ± {mr['cv_r2']['std']:.4f}")
+      print(f"Test R²:   {mr['test_r2']:.4f}")
+      print(f"Test RMSE: {mr['test_rmse']:.2f}")
+      print("\nCoefficients (scaled):")
+      for col, c in sorted(mr['coefficients'].items(),
+                           key=lambda kv: abs(kv[1]), reverse=True):
+          print(f"  {col}: {c:.4f}")
+    narration: >
+      The coefficients after scaling are directly comparable: price has the largest
+      magnitude because revenue = units*4 + price*1.5 and price has the highest
+      standard deviation of the three features. After scaling, a 1 standard-deviation
+      increase in price increases revenue more than a 1 standard-deviation increase
+      in units_sold. This is the strongest predictor the narration will highlight.
+
+  - type: exercise
+    heading: "Exercise 3: train_and_evaluate"
+    prompt: >
+      Implement `train_and_evaluate(df, target_col, test_size=0.2, random_state=42) -> dict`.
+      Auto-select numeric features with `df.select_dtypes(include='number')`, exclude
+      target_col. Scale with StandardScaler (fit on X_train, transform both). Run
+      5-fold CV with KFold. Fit the final model on X_train. Evaluate on X_test.
+      Return the 9-key dict.
+    hint: >
+      The CV call goes on X_tr_s (scaled training data), not raw X. Then call
+      `model.fit(X_tr_s, y_train)` explicitly — cross_val_score doesn't leave the
+      model fitted. `mean_absolute_error` is in sklearn.metrics and was introduced
+      in Day 49 alongside the ModelEvaluator.
+    narration: >
+      Open exercise_03.ipynb. Check 3 verifies test_r2 > 0.5. With the retail
+      dataset, which has a clean linear relationship between features and revenue,
+      you should get R² around 0.95-0.97. Check 4 verifies that coefficients has
+      exactly one entry per feature. Check 5 verifies n_train + n_test equals the
+      number of rows used — confirming the train/test split covered all available data.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`select_dtypes(include='number')` then exclude target — auto-feature discovery for any dataset"
+      - "dropna on feature + target subset — defensive null handling even after load_and_clean"
+      - "CV on X_train only — test set stays unseen until final evaluation"
+      - "`model.fit()` after CV — cross_val_score does not leave the model fitted"
+      - "coefficients dict sorted by abs value → strongest predictor visible at a glance"
+    narration: >
+      The modelling stage is now a single function call with no manual feature
+      specification. Lesson 4 adds the AI narration: taking the EDA dict and model
+      report dict and generating a 3-sentence plain-English summary via Ollama.

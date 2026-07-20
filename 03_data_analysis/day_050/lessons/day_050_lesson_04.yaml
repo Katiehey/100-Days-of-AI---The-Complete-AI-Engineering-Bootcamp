@@ -1,0 +1,143 @@
+day: "050"
+lesson: "04"
+title: "AI Narration — narrate_insights with Ollama"
+slides:
+  - type: title
+    heading: "AI Narration — narrate_insights with Ollama"
+    subheading: "Stage 4: structured statistics → plain-English executive summary"
+    narration: >
+      Lesson 4 builds the AI narration stage. narrate_insights takes the structured
+      output of run_eda and train_and_evaluate, formats them into a concise context
+      string, and asks llama3.2 to write a 3-sentence executive summary for a
+      non-technical stakeholder. The pattern is identical to Day 40's data
+      narration, applied now to the full InsightEngine output.
+
+  - type: concept
+    label: "narration pattern"
+    heading: "Data → Context → Prompt → Response"
+    body: >
+      The four-step narration pattern from Day 40, applied to EDA + model report:
+
+      1. **Extract** key facts from the EDA dict (shape, numeric summaries, correlations)
+      2. **Format** into a structured context string (human-readable, LLM-friendly)
+      3. **Embed** in a user prompt with clear task instructions and constraints
+      4. **Call** `ollama.chat(model, messages)` → extract `.strip()` from response
+
+      The prompt specifies three things to cover:
+      - What the data contains (shape + column names)
+      - The key pattern or insight (strongest correlation, model R²)
+      - One concrete recommendation (actionable for the stakeholder)
+    bullets:
+      - "Context string: title, shape, numeric columns, top stats, model R² + strongest predictor"
+      - "Prompt instruction: '3-sentence executive summary for a non-technical stakeholder'"
+      - "Three coverage points in the prompt prevent the LLM from drifting to generic analysis"
+      - "`try/except Exception` fallback — pipeline never fails if Ollama is down"
+    narration: >
+      The fallback string is not a placeholder — it's a real, useful output that
+      conveys the same information as the LLM summary but in a fixed format.
+      This is the same pattern as Day 43's ask_db, which returned a structured
+      error string rather than crashing. A production pipeline should never silently
+      fail; the fallback makes the failure visible and useful.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "narrate_insights — context + prompt + Ollama call"
+    body: >
+      ```python
+      def narrate_insights(eda, model_report, title='Dataset', model='llama3.2'):
+          context_parts = [
+              f"Dataset: {title}",
+              f"Shape: {eda['shape']['rows']} rows × {eda['shape']['cols']} columns",
+              f"Numeric columns: {', '.join(eda['numeric_cols'])}",
+          ]
+          for col, stats in list(eda['numeric_summary'].items())[:4]:
+              context_parts.append(
+                  f"  {col}: mean={stats['mean']:.2f}, std={stats['std']:.2f}")
+          if model_report.get('test_r2') is not None:
+              context_parts.append(
+                  f"LinearRegression → {model_report['target']}: "
+                  f"Test R²={model_report['test_r2']:.4f}, "
+                  f"RMSE={model_report['test_rmse']:.2f}")
+
+          prompt = (
+              f"You are a concise data analyst. Write a 3-sentence executive "
+              f"summary for a non-technical stakeholder based on:\n\n"
+              f"{chr(10).join(context_parts)}\n\n"
+              f"Cover: (1) what the data contains, (2) the key pattern, "
+              f"(3) one concrete recommendation."
+          )
+          try:
+              response = ollama.chat(model=model, messages=[
+                  {'role': 'user', 'content': prompt}])
+              return response['message']['content'].strip()
+          except Exception:
+              return f"Analysis of {title}: {eda['shape']['rows']} rows. ..."
+      ```
+    narration: >
+      Limiting the context to the first 4 numeric columns and the strongest model
+      stats keeps the prompt concise. A bloated prompt with all 20 correlations
+      actually makes the LLM response worse — it tends to enumerate everything
+      rather than picking the single most important insight. This is the selective
+      context principle from Day 40: give the model only what it needs to make
+      one clear observation, not everything you know.
+
+  - type: code
+    label: "Narration in Practice"
+    heading: "Retail data: EDA + R²=0.96 → 3-sentence summary"
+    code: |
+      df    = load_and_clean(make_sample_data(300))
+      eda   = run_eda(df)
+      mr    = train_and_evaluate(df, 'revenue')
+
+      narrative = narrate_insights(eda, mr, title='Retail Sales 2023')
+      print(narrative)
+      # This retail sales dataset contains 300 daily records across four regions
+      # and product categories. Price is the strongest driver of revenue
+      # (coefficient 1.5x units_sold after scaling), and the model explains
+      # 96% of revenue variance. To maximise revenue, focus promotional efforts
+      # on high-price Electronics items in the North region.
+    narration: >
+      The actual LLM output will vary between runs, but the structure is
+      consistent: sentence 1 describes the dataset, sentence 2 identifies the
+      main pattern, sentence 3 gives an actionable recommendation. This is
+      what the prompt's coverage instructions enforce. The narration is what
+      makes the InsightEngine genuinely useful — a stakeholder who sees only
+      numbers doesn't know what to do; a stakeholder who sees this summary can
+      take action immediately.
+
+  - type: exercise
+    heading: "Exercise 4: narrate_insights"
+    prompt: >
+      Implement `narrate_insights(eda, model_report, title='Dataset', model='llama3.2') -> str`.
+      Build a `context_parts` list with: title, shape, numeric columns, up to 4 numeric
+      summaries, and model R²/RMSE if available. Join with `'\\n'`, embed in a prompt
+      asking for a 3-sentence executive summary. Call `ollama.chat`, return the content.
+      Wrap the Ollama call in `try/except Exception` — the except block must also return
+      a useful string (not None, not empty).
+    hint: >
+      Build context_parts as a list of strings, then `context = '\\n'.join(context_parts)`.
+      Check `model_report.get('test_r2')` before adding model stats — model_report may
+      be an empty dict if no target_col was provided. The try/except fallback must still
+      return a non-empty string so check 2 passes even if Ollama is down.
+    narration: >
+      Open exercise_04.ipynb. Check 3 verifies that narrate_insights works with an
+      empty model_report dict — the function must handle the case where no target was
+      specified. Check 4 verifies that the function handles a minimal EDA dict without
+      crashing. Check 5 simply prints the narrative for inspection so you can verify
+      it looks reasonable. Once all five checks pass, move to exercise 5 — the
+      InsightEngine class.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Narration pattern: extract facts → format context → embed in prompt → call Ollama"
+      - "Selective context: 4 columns and top stats, not everything — focused prompts get cleaner output"
+      - "`try/except Exception` fallback — pipeline never crashes if Ollama is unavailable"
+      - "Three coverage points in prompt (what, pattern, recommendation) → structured 3-sentence output"
+      - "Empty model_report is valid — engine narrates EDA even without a predictive model"
+    narration: >
+      The narration stage is the only stage that uses an LLM. All other stages
+      are pure Python — sklearn, pandas, matplotlib. This is intentional: the LLM
+      adds value where it genuinely helps (converting numbers to natural language)
+      and is not used where deterministic code is more reliable. Lesson 5 wires
+      all four stages into the InsightEngine class with the save_chart method.

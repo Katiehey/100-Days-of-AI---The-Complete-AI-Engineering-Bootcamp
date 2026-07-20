@@ -1,0 +1,163 @@
+day: "050"
+lesson: "02"
+title: "Auto-Clean and EDA — load_and_clean + run_eda"
+slides:
+  - type: title
+    heading: "Auto-Clean and EDA — load_and_clean + run_eda"
+    subheading: "Stage 1+2: accept any CSV, produce a stats dict ready for modelling"
+    narration: >
+      Lesson 2 covers the first two pipeline stages. load_and_clean handles the
+      messiness of real data: date columns stored as strings, numeric fields with
+      nulls, and duplicate rows. run_eda computes a comprehensive stats dict that
+      downstream stages — narration, charting, and modelling — all read from.
+      Together they turn a raw CSV into a clean, well-described DataFrame.
+
+  - type: concept
+    label: "load_and_clean"
+    heading: "load_and_clean — Three Cleaning Steps"
+    body: >
+      ```python
+      def load_and_clean(source) -> pd.DataFrame:
+          # 1. Parse source into a DataFrame
+          if isinstance(source, pd.DataFrame):
+              df = source.copy()
+          elif isinstance(source, str) and ('\n' in source or ',' in source[:200]):
+              df = pd.read_csv(io.StringIO(source))
+          else:
+              df = pd.read_csv(source)
+
+          # 2. Parse date columns
+          for col in df.columns:
+              if any(kw in col.lower() for kw in ('date', 'time')):
+                  df[col] = pd.to_datetime(df[col], errors='coerce')
+
+          # 3. Fill numeric NaN with column median
+          for col in df.select_dtypes(include='number').columns:
+              df[col] = df[col].fillna(df[col].median())
+
+          # 4. Drop duplicate rows
+          return df.drop_duplicates().reset_index(drop=True)
+      ```
+
+      The function accepts a DataFrame, a CSV string, or a file path. The `io.StringIO`
+      trick from Day 36 wraps a string as a file-like object for `pd.read_csv`.
+    bullets:
+      - "Heuristic: `'\\n' in source or ',' in source[:200]` distinguishes CSV text from file path"
+      - "`pd.to_datetime(col, errors='coerce')` — bad values become NaT, not errors"
+      - "`fillna(median())` — resistant to outliers; mean would be skewed by extreme values"
+      - "`drop_duplicates().reset_index(drop=True)` — clean row numbering after dedup"
+    narration: >
+      The date-detection heuristic — looking for 'date' or 'time' in the column
+      name — is not perfect but covers the vast majority of real datasets. The
+      errors='coerce' flag is critical: without it, a single malformed date
+      would crash the entire pipeline. The median fill for numeric nulls is a
+      safe default: it preserves the centre of the distribution without being
+      pulled by outliers the way the mean is.
+
+  - type: concept
+    label: "run_eda"
+    heading: "run_eda — One Dict to Rule Them All"
+    body: >
+      ```python
+      def run_eda(df) -> dict:
+          num_cols = df.select_dtypes(include='number').columns.tolist()
+          cat_cols = df.select_dtypes(include='object').columns.tolist()
+
+          numeric_summary = {col: {
+              'mean': round(float(s.mean()), 4),
+              'std':  round(float(s.std()),  4),
+              'min':  round(float(s.min()),  4),
+              'max':  round(float(s.max()),  4),
+              'median': round(float(s.median()), 4),
+          } for col, s in ((c, df[c].dropna()) for c in num_cols)}
+
+          correlations = {}
+          if len(num_cols) >= 2:
+              cm = df[num_cols].corr()
+              correlations = {col: {other: round(float(cm.loc[col, other]), 4)
+                                    for other in num_cols if other != col}
+                              for col in num_cols}
+
+          return {
+              'shape': {'rows': df.shape[0], 'cols': df.shape[1]},
+              'numeric_summary': numeric_summary,
+              'correlations': correlations,
+              'category_counts': {col: df[col].value_counts().head(10).to_dict()
+                                   for col in cat_cols},
+              'numeric_cols': num_cols, 'cat_cols': cat_cols, ...
+          }
+      ```
+    bullets:
+      - "9 keys: shape, columns, dtypes, null_counts, numeric_summary, correlations, category_counts, numeric_cols, cat_cols"
+      - "`numeric_summary` — 5 statistics per numeric column (mean, std, min, max, median)"
+      - "`correlations` — Pearson r for every numeric pair; excludes self-correlation"
+      - "`category_counts` — top-10 value_counts for each string column"
+    narration: >
+      The run_eda dict is designed to be the single source of truth for downstream
+      stages. The narrate_insights function reads it to build the LLM prompt. The
+      save_chart method reads numeric_cols and cat_cols to decide what to plot.
+      The train_and_evaluate function reads it indirectly via df.select_dtypes.
+      Centralising the EDA in one dict means each downstream function stays simple
+      — it just reads from a well-structured object rather than re-computing stats.
+
+  - type: code
+    label: "Pipeline Stages 1+2"
+    heading: "Retail data: 300 rows → 0 nulls → EDA dict"
+    code: |
+      raw = make_sample_data(300)
+      print("Before:", raw.isnull().sum().to_dict())
+
+      df = load_and_clean(raw)
+      print("After:", df.isnull().sum().to_dict())
+      print("date dtype:", df['date'].dtype)
+
+      eda = run_eda(df)
+      print(f"\nShape: {eda['shape']}")
+      print("Numeric columns:", eda['numeric_cols'])
+      print("Categorical columns:", eda['cat_cols'])
+      print("\nRevenue stats:", eda['numeric_summary']['revenue'])
+      print("price ↔ revenue:", eda['correlations']['price']['revenue'])
+    narration: >
+      The correlation between price and revenue is moderate-positive: higher
+      price items generate more revenue, but units sold also matters. The
+      correlation between units_sold and revenue is also positive, as expected.
+      Discount correlation with revenue is negative — higher discounts reduce
+      revenue for the same volume. These correlations are the "key pattern" the
+      narrator will mention in the executive summary.
+
+  - type: exercise
+    heading: "Exercises 1 and 2"
+    prompt: >
+      **Exercise 1:** Implement `load_and_clean(source) -> pd.DataFrame`.
+      The three cleaning steps are: (1) parse date/time columns to datetime64 using
+      `pd.to_datetime(col, errors='coerce')`; (2) fill numeric NaN with
+      `df[col].fillna(df[col].median())`; (3) `drop_duplicates().reset_index(drop=True)`.
+
+      **Exercise 2:** Implement `run_eda(df) -> dict` with all 9 keys.
+      For `numeric_summary`: iterate `num_cols`, compute mean/std/min/max/median.
+      For `correlations`: `df[num_cols].corr()`, then dict of dicts.
+      For `category_counts`: `df[col].value_counts().head(10).to_dict()`.
+    hint: >
+      For the date heuristic: `any(kw in col.lower() for kw in ('date', 'time'))`.
+      For correlations: `cm.loc[col, other]` gives the Pearson r between two columns.
+      Remember to exclude `other == col` (self-correlation is always 1.0).
+    narration: >
+      Open exercise_01.ipynb. The heuristic for detecting whether a string input is
+      CSV text or a file path is `'\\n' in source or ',' in source[:200]`. Check 5
+      tests that load_and_clean works with CSV string input directly — the same
+      function must handle both DataFrame and string inputs. Once both exercises pass,
+      move to lesson 3 for the modelling stage.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`load_and_clean` accepts DataFrame, CSV string, or file path — all three via isinstance checks"
+      - "`pd.to_datetime(errors='coerce')` — graceful date parsing; bad values → NaT"
+      - "`fillna(median())` — robust null fill; resistant to outliers"
+      - "`run_eda` produces a 9-key dict consumed by every downstream stage"
+      - "`df[num_cols].corr()` — full Pearson correlation matrix in one call"
+    narration: >
+      You now have two stages of the InsightEngine. Stage 1 cleans any CSV into a
+      reliable DataFrame. Stage 2 summarises it into a structured dict. Lesson 3
+      adds the modelling stage: auto-select features, scale, cross-validate, and
+      evaluate a LinearRegression on the cleaned data.
