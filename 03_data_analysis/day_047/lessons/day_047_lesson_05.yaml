@@ -1,0 +1,144 @@
+day: "047"
+lesson: "05"
+title: "StatsReport — Composing Statistical Analysis"
+slides:
+  - type: title
+    heading: "StatsReport — Composing Statistical Analysis"
+    subheading: "One class, one call, full statistical profile of any DataFrame"
+    narration: >
+      Lesson 5 ties together everything from today. You've built four functions:
+      describe_distribution, test_normality, correlation_with_pvalue, and compare_groups.
+      Now you'll compose them into a single StatsReport class that runs the full
+      analysis pipeline on every numeric column of a DataFrame with one method call.
+      This is the same composition pattern you used for TrendAnalyzer in Day 46 —
+      a thin layer that wires existing functions together behind a clean interface.
+
+  - type: concept
+    label: "The Design"
+    heading: "load() + report() — Same Pattern as TrendAnalyzer"
+    body: >
+      `StatsReport` uses the same fluent builder pattern as `TrendAnalyzer`:
+      - `load(df, columns=None) -> StatsReport` — store df and column list;
+        if columns is None, use all numeric columns (via `select_dtypes`);
+        return self for chaining
+      - `report() -> dict` — iterate over stored columns; for each, run
+        `describe_distribution` and `test_normality`; return nested dict
+    bullets:
+      - "`sr = StatsReport().load(df).report()` — full report in one line"
+      - "Skips columns not in the DataFrame (defensive iteration)"
+      - "Skips columns with fewer than 3 non-null values (stats require data)"
+      - "Returns `{col: {'distribution': {...}, 'normality': {...}}}` per column"
+    narration: >
+      The composition pattern is powerful because each piece is independently testable.
+      You tested describe_distribution in exercise 01 and test_normality in exercise 02.
+      StatsReport just calls them — it adds no new statistical logic. This means if you
+      improve describe_distribution later, StatsReport automatically gets the improvement.
+      The default of all numeric columns via select_dtypes means you can hand it any
+      DataFrame and get a useful result without needing to know the column names in
+      advance — useful when loading unknown datasets.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "select_dtypes + iterate + compose"
+    body: >
+      ```python
+      class StatsReport:
+          def __init__(self):
+              self._df      = None
+              self._columns = None
+
+          def load(self, df, columns=None):
+              self._df      = df.copy()
+              num_cols      = df.select_dtypes(include='number').columns.tolist()
+              self._columns = columns if columns is not None else num_cols
+              return self  # fluent
+
+          def report(self):
+              result = {}
+              for col in self._columns:
+                  if col not in self._df.columns: continue
+                  s = self._df[col].dropna()
+                  if len(s) < 3: continue
+                  result[col] = {
+                      'distribution': describe_distribution(s),
+                      'normality':    test_normality(s),
+                  }
+              return result
+      ```
+    narration: >
+      df.select_dtypes(include='number') returns a DataFrame with only numeric columns.
+      Calling .columns.tolist() gives you a Python list of those column names. The columns
+      parameter lets the caller override this default and analyse a specific subset.
+      Defensive checks — skipping missing columns and columns with fewer than 3 values —
+      prevent crashes when the DataFrame is incomplete or partially constructed.
+      The copy in load() is important: it prevents report() from being affected by
+      mutations to the original DataFrame after load() was called.
+
+  - type: code
+    label: "StatsReport in Practice"
+    heading: "One call gives you the full picture"
+    code: |
+      df = make_sample_data(100)
+      report = StatsReport().load(df).report()
+
+      for col, entry in report.items():
+          d = entry['distribution']
+          n = entry['normality']
+          norm_str = 'normal' if n['is_normal'] else 'NOT normal'
+          print(f"{col}: mean={d['mean']:.2f} skew={d['skewness']:.2f} [{norm_str}]")
+
+      # normal_col: mean≈0.04  skew≈ 0.1  [normal]
+      # skewed_col: mean≈2.00  skew≈ 2.1  [NOT normal]
+      # score_a:    mean≈49.5  skew≈ 0.0  [normal]
+      # score_b:    mean≈69.9  skew≈ 0.1  [normal]
+
+      # Select a subset:
+      subset_report = StatsReport().load(df, columns=['score_a', 'score_b']).report()
+      print(f"Subset columns: {list(subset_report.keys())}")
+      # ['score_a', 'score_b']
+    narration: >
+      The output immediately tells you which columns are normal and which are not —
+      information you need before choosing correlation method or group test. The skewed
+      column shows a skewness above 2 and fails the normality test, confirming it needs
+      Spearman rather than Pearson. The score columns are close to 0 skewness and pass
+      normality, so Pearson is appropriate there. Being able to specify a subset of
+      columns via the columns parameter is useful when you have a large DataFrame with
+      many columns but only want to analyse a specific set.
+
+  - type: exercise
+    heading: "Exercise 5: StatsReport Class"
+    prompt: >
+      Implement the `StatsReport` class with `__init__`, `load(df, columns=None)`,
+      and `report()`. `load()` must return `self`. `report()` must return a dict
+      keyed by column name, each value being a dict with 'distribution' and 'normality'
+      sub-dicts from the functions you implemented earlier.
+    hint: >
+      `__init__`: set `self._df = None` and `self._columns = None`. `load()`:
+      `num_cols = df.select_dtypes(include='number').columns.tolist()`,
+      then `self._columns = columns if columns is not None else num_cols`.
+      `report()`: skip columns not in self._df.columns and skip if
+      `len(s) < 3` after dropping NaN.
+    narration: >
+      Open exercise_05.ipynb. All four helper functions are provided. Write the class
+      that wires them together. Check 2 tests that load() returns self for chaining.
+      Check 4 tests that report() returns exactly 4 columns — all numeric columns in
+      make_sample_data. Check 5 tests that each column entry has both a 'distribution'
+      sub-dict with 'count' and 'skewness', and a 'normality' sub-dict with 'is_normal'.
+      Once all five pass, move to the project notebook and build the full stats report.
+
+  - type: summary
+    heading: "Lesson 5 + Day 47 Takeaways"
+    bullets:
+      - "`StatsReport.load()` returns self — fluent chaining pattern"
+      - "`report()` composes describe_distribution + test_normality per column"
+      - "`df.select_dtypes(include='number')` — auto-detect numeric columns"
+      - "Classes as composition layers add usability without adding new logic"
+      - "Full pipeline: raw DataFrame → per-column stats + normality in one call"
+    narration: >
+      You've now built a complete statistics toolkit from scratch: extended descriptive
+      stats, normality testing, correlation with p-values, hypothesis testing with
+      effect size, and an automated report class. These are the same tools a data
+      scientist reaches for first when exploring a new dataset. In Day 48 you'll build
+      on this foundation by introducing scikit-learn — you'll use these statistical
+      insights to guide feature selection and understand model performance. The journey
+      from raw data to trained model starts with exactly what you built today.

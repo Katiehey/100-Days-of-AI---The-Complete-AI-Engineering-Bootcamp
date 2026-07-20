@@ -1,0 +1,141 @@
+day: "047"
+lesson: "01"
+title: "Descriptive Statistics Beyond describe()"
+slides:
+  - type: title
+    heading: "Descriptive Statistics Beyond describe()"
+    subheading: "Skewness, kurtosis, SEM, and IQR — the shape of your data"
+    narration: >
+      Lesson 1 extends the basic summary statistics you saw in Day 36. You already know
+      how to call df.describe() to get count, mean, std, min, and max. Today you add
+      four more: skewness (which direction does the data lean?), kurtosis (how heavy
+      are the tails?), standard error of the mean (how uncertain is the sample mean?),
+      and interquartile range (a robust spread measure). Together these give you the
+      full shape of a variable's distribution, not just its centre and width.
+
+  - type: concept
+    label: "What They Mean"
+    heading: "Four Stats That Reveal Distribution Shape"
+    body: >
+      `df.describe()` gives you centre and spread. Four more stats complete the picture:
+      - **Skewness** — Is the tail longer on the left or right? 0 = symmetric.
+      - **Kurtosis** — Are the tails heavier or lighter than a normal distribution? 0 = normal.
+      - **SEM** — How much does the sample mean vary? `std / sqrt(n)`.
+      - **IQR** — Spread of the middle 50% of values. Resistant to outliers.
+    bullets:
+      - "Positive skewness → long right tail (e.g., income, exponential data)"
+      - "Negative skewness → long left tail (e.g., age-at-retirement)"
+      - "High kurtosis → more extreme outliers than a normal distribution"
+      - "IQR: Q3 − Q1; interquartile range identifies the robust spread"
+    narration: >
+      Let's unpack each one. Skewness measures asymmetry. A symmetric distribution like
+      the normal has skewness near zero. An exponential distribution — think reaction
+      times, income, or file sizes — has strong positive skewness because it has a
+      long right tail with a few very large values. Kurtosis measures tail heaviness.
+      A normal distribution has kurtosis near zero in the excess definition pandas uses.
+      Very heavy tails — think stock returns during crashes — give positive kurtosis.
+      SEM is standard deviation divided by square root of n. It answers the question:
+      if I ran this study again, how much would the mean vary? Smaller SEM means more
+      precise estimate of the true mean. IQR is the range from the 25th to the 75th
+      percentile. Unlike standard deviation, outliers don't inflate it, so it is a
+      robust spread measure useful for detecting outliers.
+
+  - type: how_it_works
+    label: "Pandas API"
+    heading: "series.skew(), .kurt(), .sem(), .quantile()"
+    body: >
+      ```python
+      s = df['column'].dropna()
+
+      q25 = float(s.quantile(0.25))
+      q75 = float(s.quantile(0.75))
+      iqr = q75 - q25          # interquartile range
+
+      s.mean()                  # sample mean
+      s.std(ddof=1)             # sample std (N-1)
+      s.sem()                   # std / sqrt(n) — standard error of mean
+      s.skew()                  # Fisher's skewness (adjusted)
+      s.kurt()                  # excess kurtosis (0 for normal)
+      ```
+    narration: >
+      Every method here is built into pandas — no extra imports needed. s.sem() uses
+      ddof=1 internally, so it is consistent with s.std(ddof=1). s.skew() uses the
+      adjusted Fisher-Pearson standardized moment coefficient — the standard definition
+      used in statistics. s.kurt() returns excess kurtosis, meaning it subtracts 3 so
+      that a perfect normal distribution gives 0. A positive value means heavier tails
+      than normal; negative means lighter. The only reason to compute q25 and q75 before
+      calling them is that you need both to compute IQR, and computing quantile twice on
+      the same series is slightly wasteful.
+
+  - type: code
+    label: "describe_distribution in Practice"
+    heading: "Building the extended summary dict"
+    code: |
+      def describe_distribution(series: pd.Series) -> dict:
+          s   = series.dropna()
+          q25 = float(s.quantile(0.25))
+          q75 = float(s.quantile(0.75))
+          return {
+              'count':    int(len(s)),
+              'mean':     round(float(s.mean()), 4),
+              'median':   round(float(s.median()), 4),
+              'std':      round(float(s.std(ddof=1)), 4),
+              'sem':      round(float(s.sem()), 4),
+              'min':      round(float(s.min()), 4),
+              'max':      round(float(s.max()), 4),
+              'q25':      round(q25, 4),
+              'q75':      round(q75, 4),
+              'iqr':      round(q75 - q25, 4),
+              'skewness': round(float(s.skew()), 4),
+              'kurtosis': round(float(s.kurt()), 4),
+          }
+
+      df = make_sample_data(100)
+      d_norm = describe_distribution(df['normal_col'])
+      d_skew = describe_distribution(df['skewed_col'])
+
+      print(f"Normal  skew={d_norm['skewness']:.2f}  IQR={d_norm['iqr']:.2f}")
+      print(f"Skewed  skew={d_skew['skewness']:.2f}  IQR={d_skew['iqr']:.2f}")
+      # Normal  skew≈0.0   IQR≈1.3
+      # Skewed  skew>0     IQR much smaller than std (outlier resistance)
+    narration: >
+      Notice that the function drops NaN values first — that one line prevents every
+      downstream computation from silently returning NaN. All numeric values are cast to
+      Python float or int explicitly, which avoids numpy scalar types that can behave
+      unexpectedly in downstream code such as JSON serialisation. Rounding to 4 decimal
+      places keeps output readable while preserving enough precision for downstream use.
+      When you compare d_norm and d_skew, the most striking difference is skewness: the
+      normal column is close to zero, while the exponential column is clearly positive.
+
+  - type: exercise
+    heading: "Exercise 1: describe_distribution"
+    prompt: >
+      Implement `describe_distribution(series) -> dict` returning a dict with these
+      12 keys: count, mean, median, std, sem, min, max, q25, q75, iqr, skewness,
+      kurtosis. Drop NaN values first. Round floats to 4 decimal places.
+    hint: >
+      Compute q25 and q75 with `s.quantile()` first, then compute
+      `iqr = q75 - q25`. Use `s.skew()` for skewness, `s.kurt()` for excess
+      kurtosis, and `s.sem()` for standard error. Cast to Python float with
+      `float(...)` before rounding.
+    narration: >
+      Open exercise_01.ipynb. The helper make_sample_data is provided — it generates
+      four columns: a standard-normal column, a right-skewed exponential column, and
+      two score columns you'll need in later exercises. Write your implementation of
+      describe_distribution and run the checks. Check 5 verifies that skewed_col has
+      positive skewness, which is guaranteed by the exponential distribution. Once all
+      five checks pass, proceed to lesson 2.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "`s.skew()` — asymmetry; positive = right tail, negative = left tail"
+      - "`s.kurt()` — excess kurtosis; positive = heavier tails than normal"
+      - "`s.sem()` — standard error of mean = std / sqrt(n)"
+      - "IQR = Q3 − Q1; robust spread that ignores outliers"
+      - "Always drop NaN before computing and cast numpy scalars to Python float"
+    narration: >
+      You now have four extra stats that reveal distribution shape, not just centre and
+      spread. In the next lesson you'll use them to test formally whether a column is
+      normally distributed — a question that matters because many downstream methods,
+      like t-tests and Pearson correlation, assume normality.

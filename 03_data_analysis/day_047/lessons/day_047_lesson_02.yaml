@@ -1,0 +1,136 @@
+day: "047"
+lesson: "02"
+title: "Distributions and Normality Testing"
+slides:
+  - type: title
+    heading: "Distributions and Normality Testing"
+    subheading: "Shapiro-Wilk — does your data fit the normal distribution?"
+    narration: >
+      Lesson 2 introduces hypothesis testing through one concrete question: is this
+      column normally distributed? The Shapiro-Wilk test, available in scipy.stats,
+      answers with a p-value. If the p-value exceeds your significance level — typically
+      0.05 — the data is consistent with normality. If it doesn't, something non-normal
+      is going on: a skewed distribution, heavy tails, or a bimodal mixture.
+
+  - type: concept
+    label: "Why Normality Matters"
+    heading: "Many Methods Assume Normal Data"
+    body: >
+      The t-test, Pearson correlation, and linear regression all assume the data —
+      or the residuals — are approximately normal. If your data is skewed or has heavy
+      tails, those methods can give misleading p-values. Testing normality lets you
+      choose between:
+      - **Normal → parametric test** (t-test, Pearson) — higher power
+      - **Not normal → non-parametric test** (Mann-Whitney, Spearman) — more robust
+    bullets:
+      - "Shapiro-Wilk is the most powerful test for small-to-medium samples (n ≤ 5000)"
+      - "p > alpha means: the data is *consistent with* normality — not proven normal"
+      - "p ≤ alpha means: the data *deviates significantly* from normality"
+      - "Always check skewness and kurtosis visually alongside the p-value"
+    narration: >
+      A key nuance: failing to reject normality is not the same as proving the data
+      is normal. It means there's not enough evidence to conclude it's non-normal.
+      With small samples, almost any distribution will pass the test because there's
+      not enough data to detect the deviation. With very large samples, even tiny
+      deviations from normality become significant. So the Shapiro-Wilk test is most
+      useful for moderate sample sizes — say, 30 to 2000 observations. The p-value
+      threshold, called alpha, is conventionally 0.05, meaning you accept a 5% chance
+      of a false positive.
+
+  - type: how_it_works
+    label: "scipy.stats.shapiro"
+    heading: "stat, p = stats.shapiro(series)"
+    body: >
+      ```python
+      from scipy import stats
+
+      s           = series.dropna()
+      stat, p     = stats.shapiro(s)
+
+      # stat: W statistic (close to 1.0 = more normal)
+      # p:    p-value for the test
+      # is_normal: True if p > alpha
+      is_normal   = bool(p > 0.05)
+      ```
+    narration: >
+      scipy.stats.shapiro returns a named tuple but you can unpack it directly into two
+      variables with stat, p equals stats.shapiro(s). The W statistic ranges from 0 to 1.
+      Values very close to 1 indicate the data fits the normal distribution well.
+      The p-value is what you actually use for the decision: if p is greater than your
+      alpha level, you fail to reject normality. Casting the result to bool with
+      bool(p greater than alpha) is important — scipy returns numpy scalar types that
+      behave like bools in if-statements but won't pass isinstance(result, bool) checks.
+      Always cast explicitly.
+
+  - type: code
+    label: "test_normality in Practice"
+    heading: "Shapiro-Wilk for two contrasting distributions"
+    code: |
+      from scipy import stats
+
+      def test_normality(series: pd.Series, alpha: float = 0.05) -> dict:
+          s      = series.dropna()
+          stat, p = stats.shapiro(s)
+          return {
+              'n':         len(s),
+              'statistic': round(float(stat), 4),
+              'p_value':   round(float(p), 6),
+              'is_normal': bool(p > alpha),
+              'alpha':     alpha,
+          }
+
+      rng = np.random.default_rng(0)
+      normal_data = pd.Series(rng.standard_normal(200))
+      skewed_data = pd.Series(np.random.default_rng(0).exponential(2, 100))
+
+      n_norm = test_normality(normal_data)
+      n_skew = test_normality(skewed_data)
+
+      print(f"Normal:  p={n_norm['p_value']:.4f}  is_normal={n_norm['is_normal']}")
+      print(f"Skewed:  p={n_skew['p_value']:.2e}  is_normal={n_skew['is_normal']}")
+      # Normal:  p=0.1255  is_normal=True
+      # Skewed:  p=2e-08   is_normal=False
+    narration: >
+      Look at the contrast in p-values. The standard normal sample gives p equals 0.1255,
+      well above 0.05, so is_normal is True. The exponential sample gives p equals
+      2 times 10 to the minus 8 — vanishingly small — because the right skew is
+      unmistakable even in 100 observations. Notice the seed: using a fixed seed makes
+      these tests deterministic, which is essential when your check harness verifies the
+      is_normal value. In production you'd run the test on real data where the result
+      isn't known in advance, but during exercise development, determinism lets you
+      write reliable automatic checks.
+
+  - type: exercise
+    heading: "Exercise 2: test_normality"
+    prompt: >
+      Implement `test_normality(series, alpha=0.05) -> dict` using `stats.shapiro`.
+      Return a dict with keys: n, statistic, p_value, is_normal, alpha.
+      `is_normal` must be a Python bool (cast with `bool(...)`), True when p > alpha.
+    hint: >
+      `from scipy import stats` is already imported in the provided setup cell.
+      Unpack the result: `stat, p = stats.shapiro(s)`. Cast everything:
+      `int(len(s))`, `float(stat)`, `float(p)`, `bool(p > alpha)`.
+    narration: >
+      Open exercise_02.ipynb. The provided cell includes the scipy import and the
+      make_sample_data and describe_distribution functions from exercise 01. Write your
+      test_normality implementation. Check 4 tests the standard normal dataset with
+      seed 0 and n equals 200 and expects is_normal to be True. Check 5 tests the
+      exponential dataset with seed 0 and n equals 100 and expects is_normal to be False.
+      Both are deterministic because of the fixed seed. Run all five checks before moving
+      to lesson 3.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`stat, p = stats.shapiro(s)` — Shapiro-Wilk normality test"
+      - "p > alpha → is_normal=True (fail to reject normality)"
+      - "p ≤ alpha → is_normal=False (evidence of non-normality)"
+      - "Always cast scipy results: `float(stat)`, `bool(p > alpha)`"
+      - "Normal → use Pearson/t-test; Not normal → use Spearman/Mann-Whitney"
+    narration: >
+      Normality testing is a decision gate. Before picking a correlation method or a
+      group comparison test, you now know how to check whether your data supports
+      the parametric assumption. In lesson 3 you'll put this to use with
+      correlation_with_pvalue — and you'll see how to choose between Pearson
+      (assumes linear relationship between normal variables) and Spearman
+      (works on ranks, no normality assumption).

@@ -1,0 +1,146 @@
+day: "047"
+lesson: "04"
+title: "Hypothesis Testing — t-test and Cohen's d"
+slides:
+  - type: title
+    heading: "Hypothesis Testing — t-test and Cohen's d"
+    subheading: "Is the difference real, and is it large enough to matter?"
+    narration: >
+      Lesson 4 addresses one of the most common questions in data analysis: are these
+      two groups different? You'll use the independent-samples t-test from scipy.stats
+      to answer whether the difference is statistically significant, and Cohen's d to
+      answer whether it's practically meaningful. A result can be statistically
+      significant without being useful — and vice versa. You need both.
+
+  - type: concept
+    label: "Two Questions"
+    heading: "Significance vs Effect Size"
+    body: >
+      The t-test answers: **Could this difference have happened by chance?**
+      - p < 0.05 → very unlikely by chance → statistically significant
+      - p ≥ 0.05 → plausible by chance → not significant (yet)
+
+      Cohen's d answers: **How large is the difference in standard deviation units?**
+      - |d| < 0.2 → negligible
+      - 0.2–0.5 → small
+      - 0.5–0.8 → medium
+      - > 0.8 → large
+    bullets:
+      - "Large p, small sample → low power, can't detect real differences yet"
+      - "Small p, tiny d → statistically significant but practically meaningless"
+      - "The combination of p-value AND Cohen's d tells the full story"
+      - "Two-sided t-test: tests whether means differ in either direction"
+    narration: >
+      Here's a classic trap: with a very large sample — say, ten thousand observations
+      per group — even a difference of 0.01 points on a 100-point scale will be
+      statistically significant. The p-value will be tiny. But Cohen's d will be near
+      zero, telling you the effect is negligible in practice. Conversely, with a small
+      sample like 10 observations per group, a real difference of 2 standard deviations
+      might not be statistically significant because you don't have enough data to
+      distinguish it from random variation. Both pieces of information matter.
+
+  - type: how_it_works
+    label: "Mechanism"
+    heading: "ttest_ind + pooled standard deviation"
+    body: >
+      ```python
+      from scipy import stats
+
+      a_c, b_c = a.dropna(), b.dropna()
+      t, p      = stats.ttest_ind(a_c, b_c)   # two-sided by default
+
+      # Pooled standard deviation (equal-variance assumption)
+      n_a, n_b = len(a_c), len(b_c)
+      std_a    = float(a_c.std(ddof=1))
+      std_b    = float(b_c.std(ddof=1))
+      pooled_var = ((n_a-1)*std_a**2 + (n_b-1)*std_b**2) / (n_a+n_b-2)
+      pooled     = np.sqrt(pooled_var)
+
+      # Cohen's d (signed: positive if mean_a > mean_b)
+      d = (float(a_c.mean()) - float(b_c.mean())) / pooled
+      ```
+    narration: >
+      stats.ttest_ind performs a two-sample t-test assuming the two groups have similar
+      variances. It returns t (the test statistic) and p (the p-value). Cohen's d is
+      computed manually because scipy doesn't return it. The pooled standard deviation
+      combines the variance from both groups weighted by their sample sizes. The formula
+      is: sum of (n minus 1) times variance, divided by (total n minus 2), then square
+      root. Dividing the mean difference by the pooled standard deviation gives d in
+      units of standard deviations, which is interpretable independently of the
+      measurement scale. A positive d means group A has a higher mean; negative means
+      group B is higher.
+
+  - type: code
+    label: "compare_groups in Practice"
+    heading: "A 20-point gap between score_a and score_b"
+    code: |
+      def compare_groups(a: pd.Series, b: pd.Series,
+                         alpha: float = 0.05) -> dict:
+          a_c, b_c   = a.dropna(), b.dropna()
+          t, p        = stats.ttest_ind(a_c, b_c)
+          n_a, n_b    = len(a_c), len(b_c)
+          std_a       = float(a_c.std(ddof=1))
+          std_b       = float(b_c.std(ddof=1))
+          pooled_var  = ((n_a-1)*std_a**2 + (n_b-1)*std_b**2) / (n_a+n_b-2)
+          pooled      = np.sqrt(pooled_var) if pooled_var > 0 else 0.0
+          d           = (float(a_c.mean()) - float(b_c.mean())) / pooled if pooled > 0 else 0.0
+          sig         = bool(p < alpha)
+          return {
+              'n_a': n_a, 'n_b': n_b,
+              'mean_a': round(float(a_c.mean()), 4),
+              'mean_b': round(float(b_c.mean()), 4),
+              'statistic': round(float(t), 4),
+              'p_value': round(float(p), 6),
+              'is_significant': sig,
+              'cohens_d': round(d, 4),
+              'conclusion': 'different' if sig else 'not_different',
+          }
+
+      df = make_sample_data(100)
+      result = compare_groups(df['score_a'], df['score_b'])
+      print(f"t={result['statistic']:.2f}  p={result['p_value']:.2e}")
+      print(f"Cohen's d = {result['cohens_d']:.2f} ({result['conclusion']})")
+      # t≈-16.31  p≈1.77e-38
+      # Cohen's d ≈ -2.31 (different) → very large effect
+    narration: >
+      score_a has a mean around 50 and score_b around 70 — a 20-point difference.
+      With 100 observations per group and standard deviation around 9 to 10, this
+      is roughly 2 standard deviations apart. Cohen's d of about minus 2.3 confirms
+      a very large effect. The p-value of 1.77 times 10 to the minus 38 is essentially
+      zero — there's no plausible random explanation for a gap this large in samples
+      this size. Conclusion is 'different'. Notice the guard for pooled equal to zero:
+      this prevents division by zero if both groups have zero variance — an edge case
+      that could happen with constant test data.
+
+  - type: exercise
+    heading: "Exercise 4: compare_groups"
+    prompt: >
+      Implement `compare_groups(a, b, alpha=0.05) -> dict` using `stats.ttest_ind`.
+      Compute Cohen's d using the pooled standard deviation formula.
+      Return keys: n_a, n_b, mean_a, mean_b, statistic, p_value, is_significant,
+      cohens_d, conclusion ('different' or 'not_different').
+    hint: >
+      `t, p = stats.ttest_ind(a_c, b_c)`. Pooled std: `sqrt(((n_a-1)*std_a**2
+      + (n_b-1)*std_b**2) / (n_a+n_b-2))`. Cohen's d: `(mean_a - mean_b) / pooled`.
+      Guard against pooled == 0 with `if pooled > 0 else 0.0`. Cast: `bool(p < alpha)`.
+    narration: >
+      Open exercise_04.ipynb. Check 4 tests similar groups — two Series where all values
+      are very close to 5.0 — and expects conclusion to be 'not_different'. Check 5 tests
+      score_a versus score_b from make_sample_data and expects conclusion to be
+      'different' with Cohen's d absolute value greater than 1.0. Both checks are
+      deterministic because make_sample_data uses a fixed seed. Run all five checks,
+      then proceed to the final lesson.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`t, p = stats.ttest_ind(a, b)` — two-sample independent t-test"
+      - "p < alpha → is_significant=True → groups are statistically different"
+      - "Cohen's d = (mean_a − mean_b) / pooled_std — effect size in std units"
+      - "|d| < 0.2 negligible · 0.2–0.5 small · 0.5–0.8 medium · >0.8 large"
+      - "Always report both: significance (p) AND magnitude (Cohen's d)"
+    narration: >
+      You now have four statistical building blocks: describe_distribution,
+      test_normality, correlation_with_pvalue, and compare_groups. In lesson 5 you
+      compose them into StatsReport — the same composition-layer pattern you saw
+      in TrendAnalyzer yesterday.

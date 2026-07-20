@@ -1,0 +1,140 @@
+day: "047"
+lesson: "03"
+title: "Correlation with p-values"
+slides:
+  - type: title
+    heading: "Correlation with p-values"
+    subheading: "Pearson and Spearman — not just how strong, but how real"
+    narration: >
+      Lesson 3 moves from single-variable statistics to the relationship between two
+      variables. Day 38 introduced df.corr() which gives you a correlation coefficient.
+      Today you add the p-value — the probability that a correlation this large would
+      appear by chance if there were no real relationship. Without the p-value, a
+      correlation of 0.3 in a sample of 10 is indistinguishable from a correlation of
+      0.3 in a sample of 1000, even though one is noise and the other is a real signal.
+
+  - type: concept
+    label: "Pearson vs Spearman"
+    heading: "Two Correlation Methods, Two Assumptions"
+    body: >
+      Both measure monotonic relationships but differ in what they assume:
+      - **Pearson** — measures linear correlation; assumes both variables are
+        approximately normal and the relationship is linear. Best when data is
+        symmetric without heavy tails.
+      - **Spearman** — correlates the *ranks* of values; no normality assumption,
+        robust to outliers, works for any monotonic relationship (including
+        non-linear ones).
+    bullets:
+      - "If data passes normality test → prefer Pearson (more statistical power)"
+      - "If data is skewed or has outliers → use Spearman"
+      - "r = 1.0: perfect positive; r = -1.0: perfect negative; r = 0: no relationship"
+      - "is_significant: True when p_value < 0.05 (relationship unlikely by chance)"
+    narration: >
+      A practical rule: run test_normality on both variables. If both pass, use
+      Pearson. If either fails, use Spearman. This is not always strictly necessary
+      — Pearson is fairly robust to mild non-normality — but it's a principled default
+      that you can justify. Both methods return an r value between minus 1 and plus 1
+      and a p-value. The r value tells you the strength and direction of the
+      relationship. The p-value tells you whether that r is statistically distinguishable
+      from zero. A correlation of 0.8 with p equals 0.15 is not statistically
+      significant — it just means your sample was too small to be sure.
+
+  - type: how_it_works
+    label: "scipy.stats API"
+    heading: "stats.pearsonr and stats.spearmanr"
+    body: >
+      ```python
+      from scipy import stats
+
+      # Drop rows where either variable is missing
+      mask    = x.notna() & y.notna()
+      x_c, y_c = x[mask], y[mask]
+
+      # Pearson (assumes linearity + approximate normality)
+      r, p = stats.pearsonr(x_c, y_c)
+
+      # Spearman (rank-based, no normality assumption)
+      r, p = stats.spearmanr(x_c, y_c)
+
+      result = {
+          'method': 'pearson',
+          'n': len(x_c),
+          'r': round(float(r), 4),
+          'p_value': round(float(p), 6),
+          'is_significant': bool(p < 0.05),
+      }
+      ```
+    narration: >
+      Both functions accept array-like inputs and return a named tuple that you can
+      unpack into r and p. The pairwise NaN mask is important: if x has a missing value
+      in row 5 and y doesn't, you want to exclude that row from both arrays rather than
+      computing on misaligned data. The mask x.notna() and y.notna() builds a boolean
+      index that selects only rows where both values are present. Always cast r and p to
+      Python float before rounding, since scipy returns numpy scalar types.
+
+  - type: code
+    label: "correlation_with_pvalue in Practice"
+    heading: "Pearson vs Spearman on the same data"
+    code: |
+      def correlation_with_pvalue(x: pd.Series, y: pd.Series,
+                                   method: str = 'pearson') -> dict:
+          mask     = x.notna() & y.notna()
+          x_c, y_c = x[mask], y[mask]
+          if method == 'pearson':
+              r, p = stats.pearsonr(x_c, y_c)
+          elif method == 'spearman':
+              r, p = stats.spearmanr(x_c, y_c)
+          else:
+              raise ValueError(f"method must be 'pearson' or 'spearman', got {method!r}")
+          return {
+              'method': method, 'n': len(x_c),
+              'r': round(float(r), 4),
+              'p_value': round(float(p), 6),
+              'is_significant': bool(p < 0.05),
+          }
+
+      x = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0])
+      y = x * 2 + 3   # perfect linear relationship
+      print(correlation_with_pvalue(x, y))
+      # {'method': 'pearson', 'n': 5, 'r': 1.0, 'p_value': 0.0, 'is_significant': True}
+      print(correlation_with_pvalue(x, y, method='spearman'))
+      # {'method': 'spearman', 'n': 5, 'r': 1.0, 'p_value': 0.0, 'is_significant': True}
+    narration: >
+      For y equals 2x plus 3, both Pearson and Spearman give r equals 1.0 because the
+      relationship is both perfectly linear and perfectly monotonic. In real data they
+      diverge: if a strong outlier inflates one pair, Spearman's rank-based approach
+      limits the damage while Pearson's r can be pulled substantially off. Raising
+      ValueError for an unknown method string is important defensive practice — it gives
+      the caller an immediate, clear message instead of silently returning nonsense.
+
+  - type: exercise
+    heading: "Exercise 3: correlation_with_pvalue"
+    prompt: >
+      Implement `correlation_with_pvalue(x, y, method='pearson') -> dict` with
+      keys: method, n, r, p_value, is_significant. Drop NaN pairs with a mask.
+      Support 'pearson' and 'spearman'; raise ValueError for any other method.
+    hint: >
+      Build the mask: `mask = x.notna() & y.notna()`. Then use
+      `stats.pearsonr(x_c, y_c)` or `stats.spearmanr(x_c, y_c)`.
+      Cast: `float(r)`, `float(p)`, `bool(p < 0.05)`. Note that the scipy
+      import is in the provided setup cell, so you don't need to import again.
+    narration: >
+      Open exercise_03.ipynb. The provided cell includes all prior implementations.
+      Check 4 uses a perfectly correlated pair — x equals 1 through 5, y equals 2x
+      plus 3 — and expects r approximately 1.0 and is_significant True. Check 5 applies
+      Spearman to the same pair and expects the same result since the relationship is
+      also perfectly monotonic. Once all five checks pass, you're ready for the
+      hypothesis testing lesson.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`stats.pearsonr(x, y)` → (r, p); assumes linearity + approximate normality"
+      - "`stats.spearmanr(x, y)` → (r, p); rank-based, robust to outliers"
+      - "Always drop NaN pairs with `mask = x.notna() & y.notna()` before correlating"
+      - "`is_significant = bool(p < 0.05)` — r alone doesn't tell you if it's real"
+      - "Normality test → choose Pearson (normal) or Spearman (not normal)"
+    narration: >
+      The key insight from this lesson: a correlation without a p-value is incomplete.
+      You now have a function that gives both. In lesson 4 you'll extend this to
+      comparing group means — the t-test — and add Cohen's d to quantify effect size.
