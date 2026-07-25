@@ -1,0 +1,119 @@
+day: "052"
+lesson: "05"
+title: "Assemble & Ship the API"
+slides:
+  - type: title
+    heading: "Assemble & Ship the API"
+    subheading: "One factory, four routes — then uvicorn main:app"
+    narration: >
+      Lesson 5 is the capstone of Day 52. You combine health, templates, chat, and
+      templated chat into a single build_api factory, then generate a real
+      main.py and learn how to run it with uvicorn. By the end you have an AI
+      service with interactive documentation, ready to be called by a front-end —
+      which is exactly what tomorrow, Day 53, will do.
+
+  - type: concept
+    label: "one app, many routes"
+    heading: "A Real Service Is Many Routes on One App"
+    body: >
+      `build_api` registers four routes on one FastAPI app, all sharing the
+      `ChatRequest`/`ChatResponse` contract and a `run_model` helper:
+
+      | Route | Purpose |
+      |---|---|
+      | `GET /health` | liveness check |
+      | `GET /templates` | list prompt templates |
+      | `POST /chat` | free-form chat with the model |
+      | `POST /render/{name}` | run a named template as a chat |
+
+      The handlers stay thin because `run_model` owns the model call — the same
+      thin-handler pattern from the Streamlit `ChatApp`.
+    narration: >
+      A production service is not one endpoint; it is a set of related routes on
+      one app. build_api registers four, and they all share the same request and
+      response models and a small run_model helper that wraps the Ollama call. That
+      helper keeps every handler to a line or two — validate, call, respond —
+      which is the same thin-handler-over-logic-core discipline you used on the
+      Streamlit side yesterday. The render route is the richest: a path parameter,
+      a body, a four oh four, a model call, and a five oh three, all in one place.
+
+  - type: how_it_works
+    label: "the factory + entry point"
+    heading: "build_api() and the uvicorn entry point"
+    body: >
+      ```python
+      def build_api(model="llama3.2") -> FastAPI:
+          app = FastAPI(title="AI API", version="1.0.0")
+          # ... register /health, /templates, /chat, /render/{name} ...
+          return app
+
+      app = build_api()          # module-level app for uvicorn
+
+      if __name__ == "__main__":
+          import uvicorn
+          uvicorn.run(app, host="0.0.0.0", port=8000)
+      ```
+    narration: >
+      The factory returns a fully wired app. In main.py we call it once at module
+      level to create app, because uvicorn needs a module-level object to serve —
+      that is what the command uvicorn main colon app refers to, the app attribute
+      in the main module. The run guard under name equals main lets you also start
+      it by running the file directly. Never call uvicorn dot run inside a
+      notebook, though — it blocks the kernel forever. In notebooks you test with
+      TestClient; you launch with uvicorn only from a terminal.
+
+  - type: code
+    label: "run it"
+    heading: "Generate main.py, then launch"
+    code: |
+      # In the project notebook:
+      app = build_api()
+      client = TestClient(app)
+      print(client.post("/chat", json={"message": "Say hi in 3 words."}).json())
+      write_api_app("main.py")     # emit the runnable service
+
+      # In a terminal:
+      #   uvicorn main:app --reload
+      # Opens http://localhost:8000  — and /docs for interactive Swagger UI
+    narration: >
+      In the project you first drive the app with TestClient to prove every route
+      works, then call write_api_app to emit main.py — assembled from a source
+      string, not from inspect, so it writes cleanly. Then you run uvicorn main
+      colon app dash dash reload in a terminal. It serves at localhost port eight
+      thousand, and — this is the FastAPI gift — slash docs gives you an
+      auto-generated, interactive documentation page where you can try every
+      endpoint from the browser. Your API documents itself.
+
+  - type: exercise
+    heading: "Exercise 5 + Project — Assemble and Ship"
+    prompt: >
+      Implement `build_api(model)` with all four routes, then in the project
+      generate `main.py` with `write_api_app` and run `uvicorn main:app --reload`.
+      The checks verify the routes exist, `/health` and `/templates` respond,
+      `/chat` returns a reply, and `/render/{name}` renders (200) or 404s.
+    hint: >
+      Register each route inside `build_api` and `return app`. Use the provided
+      `run_model(model, prompt, temperature)` in the chat and render handlers, and
+      keep the try/except → `HTTPException(503)` on both, plus the 404 guard on
+      `/render/{name}`.
+    narration: >
+      Open exercise underscore 05, then the project. build_api is mostly assembly —
+      four decorated functions and a return. Lean on run_model so each handler
+      stays short. Once the exercise is green, the project has you emit main.py and
+      launch it. Open slash docs in your browser and call your own AI API from the
+      interactive UI — that is the moment it becomes real.
+
+  - type: summary
+    heading: "Lesson 5 & Day 52 Takeaways"
+    bullets:
+      - "`build_api` assembles many routes on one app behind a shared contract"
+      - "Expose a module-level `app = build_api()` for `uvicorn main:app`"
+      - "Test with `TestClient` in notebooks; launch with `uvicorn` in a terminal"
+      - "`/docs` gives you free interactive API documentation"
+    narration: >
+      Day 52 in summary: you built endpoints with FastAPI, typed them with Pydantic
+      models, served Ollama over HTTP with proper status codes, handled path and
+      query parameters, and assembled it all into a shippable main.py served by
+      uvicorn — with automatic docs. You now have both halves of an app: a UI from
+      Day 51 and an API today. Tomorrow, Day 53, you connect them — a front-end
+      calling this backend — to build your first full-stack AI app.

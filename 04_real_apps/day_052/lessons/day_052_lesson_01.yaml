@@ -1,0 +1,116 @@
+day: "052"
+lesson: "01"
+title: "FastAPI & Your First Endpoint"
+slides:
+  - type: title
+    heading: "FastAPI & Your First Endpoint"
+    subheading: "Turn a Python function into a web API — and test it with no server"
+    narration: >
+      Yesterday you built a user interface with Streamlit. Today you build the
+      other half of a real application: the API — the HTTP service that any
+      client, browser, script, or mobile app can call. FastAPI is the tool. It
+      turns an ordinary Python function into a web endpoint with a single
+      decorator, and it gives you validation and interactive docs for free. We
+      start with the smallest possible API and the trick that makes testing it
+      painless.
+
+  - type: concept
+    label: "what an API is"
+    heading: "An API Is a Contract Over HTTP"
+    body: >
+      A web API exposes functions at URLs. A client sends an HTTP request — a
+      method (GET, POST) and a path (`/health`, `/chat`) — and gets back a
+      status code and a JSON body.
+
+      FastAPI maps each `path + method` to one Python function. Return a dict;
+      FastAPI serialises it to JSON and attaches a 200 status automatically.
+    bullets:
+      - "Request = method + path + optional body; response = status code + JSON"
+      - "`FastAPI()` is the app object that holds all your routes"
+      - "`@app.get('/health')` binds a function to a path and method"
+      - "Return a dict → JSON body with HTTP 200, no boilerplate"
+    narration: >
+      Think of an API as a menu of functions, each reachable at a URL. The client
+      picks a method and a path — GET slash health, POST slash chat — and sends a
+      request. Your function runs and returns data. FastAPI handles the HTTP
+      plumbing: it turns your returned dict into JSON and stamps it with a two
+      hundred OK status. The app object, created by calling FastAPI, is the
+      registry that all your routes attach to with decorators.
+
+  - type: how_it_works
+    label: "the decorator"
+    heading: "@app.get — one decorator, one endpoint"
+    body: >
+      ```python
+      from fastapi import FastAPI
+
+      app = FastAPI(title="AI API", version="1.0.0")
+
+      @app.get("/health")
+      def health():
+          return {"status": "ok", "model": "llama3.2"}
+      ```
+
+      `@app.get("/health")` registers `health` as the handler for GET requests to
+      `/health`. That's the entire endpoint.
+    narration: >
+      Here is a complete API. We create the app, then decorate a function with at
+      app dot get and the path. Now any GET request to slash health runs health
+      and returns the dict as JSON. There is no router boilerplate, no request
+      parsing, no response object to build. The decorator is the wiring. GET is
+      for reading data; tomorrow's POST is for sending data — same pattern, a
+      different decorator.
+
+  - type: code
+    label: "TestClient"
+    heading: "TestClient — call your API without a server"
+    code: |
+      from starlette.testclient import TestClient
+
+      client = TestClient(app)
+
+      r = client.get("/health")
+      print(r.status_code)   # 200
+      print(r.json())        # {'status': 'ok', 'model': 'llama3.2'}
+      print(client.get("/nope").status_code)  # 404
+    narration: >
+      Now the key testing trick. Normally you would launch a server with uvicorn
+      and hit it over the network. But for testing that is slow and awkward, and
+      inside a notebook it would block the kernel. TestClient wraps your app and
+      lets you call it in-process — client dot get slash health returns a real
+      response object with a status code and a json body, no server, no port, no
+      network. Every endpoint in this section is tested this way. Requesting a
+      path that does not exist returns a four oh four automatically.
+
+  - type: exercise
+    heading: "Exercise 1 — Your First Endpoint"
+    prompt: >
+      Implement `create_health_app()` so it returns a FastAPI app with a
+      `GET /health` route responding `{'status': 'ok', 'model': 'llama3.2'}`.
+      The checks build a `TestClient` and verify 200, the JSON body, a 404 on an
+      unknown route, and that a model is reported.
+    hint: >
+      Inside the function, after `app = FastAPI(...)`, add
+      `@app.get('/health')` above a function that returns the dict, then
+      `return app`. The decorator must be applied inside the factory so each call
+      returns a fresh, fully-wired app.
+    narration: >
+      Open exercise underscore 01. The whole task is defining one decorated
+      function inside the factory and returning the app. Notice we return the app
+      from a function rather than using a global — that factory pattern lets the
+      tests build fresh instances, and you will reuse it all week. Get five green
+      and move to Lesson 2, where the request body enters the picture.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "FastAPI maps `path + method` to a Python function via a decorator"
+      - "`@app.get('/path')` + return a dict = a JSON endpoint with 200"
+      - "`TestClient(app)` calls your API in-process — no uvicorn, no network"
+      - "Unknown routes return 404 automatically"
+    narration: >
+      To recap: FastAPI turns functions into endpoints with decorators, returning
+      a dict gives you a JSON two hundred response, and TestClient lets you test
+      it all without a server. That in-process testing is what makes an API as
+      easy to check as a plain function. Lesson 2 adds the request body — and
+      Pydantic models as the contract that validates it.

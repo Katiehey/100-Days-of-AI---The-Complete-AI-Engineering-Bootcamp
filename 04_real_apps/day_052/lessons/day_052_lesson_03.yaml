@@ -1,0 +1,121 @@
+day: "052"
+lesson: "03"
+title: "The AI Endpoint — Serving Ollama over HTTP"
+slides:
+  - type: title
+    heading: "The AI Endpoint"
+    subheading: "Wire a validated request into Ollama — and handle failure cleanly"
+    narration: >
+      Now we make it an AI API. Lesson 3 takes the validated ChatRequest and
+      passes it to Ollama, returning the model's reply as a typed ChatResponse.
+      The new skill here is error handling the HTTP way: a web handler must never
+      leak a raw exception, so we convert any model failure into a clean status
+      code. This is the heart of a production endpoint.
+
+  - type: concept
+    label: "handler orchestrates"
+    heading: "The Handler Orchestrates, the Model Answers"
+    body: >
+      A POST handler receives the parsed `ChatRequest`, calls the model, and
+      returns a `ChatResponse`. The handler is thin — it does no validation (the
+      model contract did that) and no business logic beyond one model call.
+
+      The one thing it must own is failure: if the model call raises, translate
+      it into an HTTP error, not a crash.
+    bullets:
+      - "`POST /chat` receives an already-valid `ChatRequest`"
+      - "Call `ollama.chat(...)` with the message and temperature"
+      - "Return `ChatResponse(reply=..., model=...)`"
+      - "On any model error → `raise HTTPException(503)`"
+    narration: >
+      By the time your chat handler runs, the request is already a valid
+      ChatRequest — no parsing, no checks. So the handler's job is narrow: call
+      the model, wrap the answer in a ChatResponse, and return it. Everything you
+      learned about calling Ollama on Day 3 applies here unchanged. The one new
+      responsibility is failure. On the server, an unhandled exception becomes an
+      opaque five hundred error. You want a meaningful status instead.
+
+  - type: how_it_works
+    label: "HTTPException"
+    heading: "raise HTTPException to return an error status"
+    body: >
+      ```python
+      from fastapi import HTTPException
+
+      @app.post("/chat", response_model=ChatResponse)
+      def chat(req: ChatRequest):
+          try:
+              resp = ollama.chat(
+                  model=model,
+                  messages=[{"role": "user", "content": req.message}],
+                  options={"temperature": req.temperature})
+              return ChatResponse(reply=resp["message"]["content"].strip(),
+                                  model=model)
+          except Exception as e:
+              raise HTTPException(status_code=503, detail=f"Model unavailable: {e}")
+      ```
+    narration: >
+      Here is the endpoint. Inside a try, we call ollama dot chat with the message
+      and the temperature passed through the options dict, exactly as in the
+      Streamlit app. We return the stripped reply inside a ChatResponse. But if
+      anything fails — Ollama not running, an unknown model — the except clause
+      raises HTTPException with status code five oh three, Service Unavailable.
+      FastAPI catches that and returns a clean JSON error with that status. Raising
+      HTTPException is how a handler returns any non-two-hundred response.
+
+  - type: concept
+    label: "status codes"
+    heading: "Two Kinds of Failure, Two Status Codes"
+    body: >
+      Your `/chat` endpoint can fail in two distinct ways, and each has its own
+      code:
+
+      | Failure | Who's at fault | Status |
+      |---|---|---|
+      | Bad request body (no message) | the client | 422 (automatic) |
+      | Model unavailable | the server | 503 (you raise it) |
+
+      422 is handled for you by the Pydantic contract; 503 you raise explicitly.
+      Correct codes let clients react correctly — retry a 503, fix a 422.
+    narration: >
+      There are two failure modes and it matters which code you return. If the
+      client sends a bad body — no message — that is their mistake, and FastAPI
+      returns four twenty two automatically from your model contract. If the model
+      itself is down, that is the server's problem, and you raise five oh three.
+      The distinction is not pedantry: a well-behaved client retries a five oh
+      three but fixes its request on a four twenty two. Correct status codes are
+      how your API communicates what went wrong.
+
+  - type: exercise
+    heading: "Exercise 3 — The AI Endpoint"
+    prompt: >
+      Implement `create_chat_app(model)` with a `POST /chat` endpoint that calls
+      Ollama and returns a `ChatResponse`, converting model errors into
+      `HTTPException(503)`. The checks verify a real 200 reply, the reported
+      model, a 422 on a missing message, and a 503 when the model name is bad.
+    hint: >
+      Wrap the `ollama.chat` call in try/except. On success return
+      `ChatResponse(reply=resp['message']['content'].strip(), model=model)`. On
+      `except Exception as e`, `raise HTTPException(status_code=503, detail=...)`.
+      Ollama should be running for the 200 check.
+    narration: >
+      Open exercise underscore 03. The structure is a try that calls the model and
+      returns a ChatResponse, and an except that raises a five oh three. Check five
+      deliberately passes a nonsense model name and expects a five oh three, not a
+      crash — that is your error handling working. Make sure Ollama is running so
+      the real reply check passes. Five green, then Lesson 4 explores path and
+      query parameters.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "The handler is thin: validated request in, model call, typed response out"
+      - "Pass sampling params via `options={'temperature': ...}` (as on Day 51)"
+      - "`raise HTTPException(status_code, detail)` returns a non-200 response"
+      - "422 = bad client request (automatic); 503 = server/model failure (you raise)"
+    narration: >
+      To recap: the AI endpoint takes a validated request, calls Ollama, and
+      returns a typed response, converting any model failure into a five oh three
+      with HTTPException. Two failure modes, two codes: four twenty two for bad
+      input, five oh three for a downed model. Lesson 4 adds the other ways clients
+      pass data — path parameters and query parameters — and more on status codes.

@@ -1,0 +1,121 @@
+day: "052"
+lesson: "04"
+title: "Path & Query Parameters"
+slides:
+  - type: title
+    heading: "Path & Query Parameters"
+    subheading: "Three ways clients pass data — and returning the right status"
+    narration: >
+      Not every input arrives in a JSON body. Lesson 4 covers the other two ways
+      clients send data: path parameters, which identify a resource inside the
+      URL, and query parameters, which tune a request after a question mark.
+      FastAPI reads both straight from your function signature. We'll build a
+      prompt-template service that uses both, and return a proper 404 when a
+      client asks for something that doesn't exist.
+
+  - type: concept
+    label: "path vs query"
+    heading: "Path Identifies, Query Modifies"
+    body: >
+      Three input channels, one function signature:
+
+      | Channel | Example | In the signature |
+      |---|---|---|
+      | Path param | `/render/summary` | `def render(name: str)` (name is in the path) |
+      | Query param | `?topic=Python` | `def render(..., topic: str = "AI")` (not in path) |
+      | Request body | JSON `{...}` | `def render(req: ChatRequest)` (a BaseModel) |
+
+      FastAPI decides which is which by whether the name appears in the path
+      string and whether the type is a Pydantic model.
+    bullets:
+      - "Path param: named in the route (`/render/{name}`), required, identifies"
+      - "Query param: a plain function arg not in the path, often with a default"
+      - "Body: a Pydantic-model-typed arg (Lesson 2)"
+      - "FastAPI infers the channel from the signature — no manual parsing"
+    narration: >
+      FastAPI reads three input channels off one signature. If a parameter's name
+      appears in the path — like name in slash render slash brace name — it is a
+      path parameter, part of the URL, and required. If a plain parameter is not
+      in the path, it is a query parameter, the part after the question mark,
+      usually with a default. And if a parameter is typed as a Pydantic model, it
+      is the request body. You never parse a URL by hand; you declare the
+      parameters and FastAPI routes each to the right channel.
+
+  - type: how_it_works
+    label: "the routes"
+    heading: "A template service with both parameter kinds"
+    body: >
+      ```python
+      @app.get("/templates")
+      def list_templates():
+          return {"templates": list(PROMPT_TEMPLATES.keys())}
+
+      @app.get("/render/{name}")
+      def render(name: str, topic: str = "AI"):
+          if name not in PROMPT_TEMPLATES:
+              raise HTTPException(status_code=404, detail=f"template {name!r} not found")
+          return {"name": name, "prompt": PROMPT_TEMPLATES[name].format(topic=topic)}
+      ```
+    narration: >
+      Here is the service. Slash templates lists the available names. Slash render
+      slash name takes the template name from the path and an optional topic from
+      the query string, defaulting to AI. So slash render slash summary works, and
+      slash render slash summary question mark topic equals Python overrides the
+      default. If the name is not a known template, we raise a four oh four — the
+      correct code for a resource that does not exist. FastAPI wired all of that
+      from the signature alone.
+
+  - type: concept
+    label: "404 semantics"
+    heading: "404 Means 'This Resource Doesn't Exist'"
+    body: >
+      Returning the right status code is part of the API contract:
+
+      - **200** — found and returned
+      - **404** — the named resource doesn't exist (unknown template)
+      - **422** — the request itself was malformed (handled by Pydantic)
+
+      A 404 tells the client "your path was well-formed but points at nothing" —
+      distinct from a 422 ("your input was invalid") and a 503 ("we failed").
+    narration: >
+      Status codes are how your API tells the truth about what happened. Two
+      hundred means here is your result. Four oh four means the thing you asked
+      for does not exist — the path was fine, but there is no template by that
+      name. That is different from four twenty two, which means your request was
+      malformed, and different again from five oh three, which means we broke.
+      Each code points the client at a different fix, so choosing the right one is
+      part of designing a usable API.
+
+  - type: exercise
+    heading: "Exercise 4 — Path & Query Parameters"
+    prompt: >
+      Implement `create_template_app()` with `GET /templates` and
+      `GET /render/{name}` (a `topic` query param defaulting to `AI`), raising
+      `HTTPException(404)` for unknown names. The checks verify the list, a
+      rendered prompt with a custom topic, the default topic, a 404, and that the
+      path param is reflected back.
+    hint: >
+      Put `{name}` in the route path and take `name: str` plus `topic: str = 'AI'`
+      as arguments. Guard with `if name not in PROMPT_TEMPLATES: raise
+      HTTPException(status_code=404, ...)`, then `.format(topic=topic)`.
+    narration: >
+      Open exercise underscore 04. The template dict is provided. Your job is the
+      two routes: list the keys, and render one by name with a topic. Remember the
+      default — topic colon str equals AI — so that check three passes without a
+      query string. And do not forget the four oh four guard for unknown names.
+      Five green, then Lesson 5 assembles the whole API into the file you ship.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Path params identify a resource and live in the route (`/render/{name}`)"
+      - "Query params tune a request and can have defaults (`topic: str = 'AI'`)"
+      - "FastAPI infers each channel from the function signature"
+      - "Return 404 for a missing resource — distinct from 422 and 503"
+    narration: >
+      In summary: path parameters identify, query parameters modify, and bodies
+      carry structured data — FastAPI reads all three from your signature. And
+      returning the right status code, especially four oh four for a missing
+      resource, is what makes your API honest and easy to consume. Lesson 5 brings
+      health, templates, chat, and templated chat together into one build_api
+      factory — and the runnable main.py you deploy.

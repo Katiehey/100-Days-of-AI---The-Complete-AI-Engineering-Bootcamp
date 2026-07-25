@@ -1,0 +1,122 @@
+day: "052"
+lesson: "02"
+title: "Request & Response Models — The Contract"
+slides:
+  - type: title
+    heading: "Request & Response Models"
+    subheading: "Pydantic models as the validated contract of your API"
+    narration: >
+      An API is a promise about shapes: what a client must send, and what it will
+      get back. FastAPI expresses that promise with Pydantic models — the same
+      BaseModel you met on Day 4. Declare the request shape, and FastAPI parses,
+      validates, and rejects bad input automatically, before your code runs.
+      Lesson 2 is about turning your endpoints into typed, self-validating
+      contracts.
+
+  - type: concept
+    label: "models as contract"
+    heading: "Type the Body, Get Validation Free"
+    body: >
+      Annotate a handler parameter with a Pydantic model and FastAPI treats the
+      JSON body as that model:
+
+      - parses the JSON into a `ChatRequest`
+      - validates every field and constraint
+      - returns **422 Unprocessable Entity** with a precise error list if invalid
+      - only then calls your function, with a fully-typed object
+
+      `response_model=` does the same on the way out.
+    bullets:
+      - "`def chat(req: ChatRequest)` — body must match ChatRequest"
+      - "`Field(min_length=1)`, `Field(ge=0.0, le=1.0)` — Pydantic v2 constraints"
+      - "Invalid input → automatic 422 before your code runs"
+      - "`response_model=ChatResponse` validates and shapes the output"
+    narration: >
+      Here is the magic of FastAPI. You annotate the handler parameter with a
+      Pydantic model — def chat, req colon ChatRequest — and FastAPI reads the
+      request body as that model. It parses the JSON, checks every field and every
+      constraint you declared, and if anything is wrong it returns a four twenty
+      two with a detailed error list, all before your function is ever called. So
+      inside your handler, req is already valid. You never write parsing or
+      validation code again — you just declare the shape.
+
+  - type: how_it_works
+    label: "the models"
+    heading: "ChatRequest and ChatResponse"
+    body: >
+      ```python
+      from pydantic import BaseModel, Field
+
+      class ChatRequest(BaseModel):
+          message: str = Field(min_length=1)
+          temperature: float = Field(default=0.7, ge=0.0, le=1.0)
+
+      class ChatResponse(BaseModel):
+          reply: str
+          model: str
+      ```
+
+      `min_length=1` rejects empty messages; `ge`/`le` bound the temperature.
+      Each constraint that fails becomes one entry in the 422 error response.
+    narration: >
+      These two models are the contract for the whole API. ChatRequest requires a
+      message with at least one character and an optional temperature that must
+      sit between zero and one, defaulting to zero point seven. ChatResponse
+      guarantees the shape you return: a reply string and a model name. Notice
+      these are the same validation constraints you clamped by hand in yesterday's
+      Streamlit app — here Pydantic enforces them at the boundary and rejects bad
+      requests for you.
+
+  - type: code
+    label: "echo endpoint"
+    heading: "A deterministic endpoint to test the contract"
+    code: |
+      @app.post("/echo", response_model=ChatResponse)
+      def echo(req: ChatRequest):
+          return ChatResponse(reply=req.message, model="echo")
+
+      # TestClient:
+      client.post("/echo", json={"message": "hi"}).status_code      # 200
+      client.post("/echo", json={"temperature": 0.5}).status_code   # 422 (no message)
+      client.post("/echo", json={"message": ""}).status_code        # 422 (min_length)
+    narration: >
+      To test the contract without involving the model, we build an echo
+      endpoint. It takes a ChatRequest and returns a ChatResponse that just echoes
+      the message. Because it is deterministic, the tests are crisp: a valid body
+      returns two hundred, a missing message returns four twenty two, an empty
+      message violates min length and also returns four twenty two. POST sends a
+      JSON body — with TestClient you pass it as the json argument. This proves
+      the request and response shapes before any AI is involved.
+
+  - type: exercise
+    heading: "Exercise 2 — Request & Response Models"
+    prompt: >
+      Implement `ChatRequest`, `ChatResponse`, and `create_echo_app()` with a
+      `POST /echo` endpoint. The checks validate the models with
+      `model_validate`, confirm the echo returns 200, and verify that a missing
+      message, an empty message, and an out-of-range temperature each return 422.
+    hint: >
+      Use `message: str = Field(min_length=1)` and
+      `temperature: float = Field(default=0.7, ge=0.0, le=1.0)`. In the endpoint,
+      annotate the parameter `req: ChatRequest` and set
+      `response_model=ChatResponse` on the decorator.
+    narration: >
+      Open exercise underscore 02. Declare the two models with the constraints,
+      then the echo endpoint that returns a ChatResponse. You write no validation
+      logic — the three four twenty two checks pass purely because FastAPI
+      enforces your Field constraints. That is the payoff of models as contract.
+      Five green, then Lesson 3 replaces echo with a real call to Ollama.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Annotate a handler param with a Pydantic model → automatic body validation"
+      - "`Field(min_length=…, ge=…, le=…)` constraints → automatic 422 on violation"
+      - "`response_model=` validates and shapes the output"
+      - "A deterministic echo endpoint proves the contract without the model"
+    narration: >
+      In summary: Pydantic models are your API's contract, FastAPI validates
+      incoming bodies against them and returns four twenty two on any violation,
+      and response model does the same for output. You declare shapes; FastAPI
+      enforces them. Next, Lesson 3 wires a validated ChatRequest into Ollama and
+      turns this into a genuine AI endpoint.
