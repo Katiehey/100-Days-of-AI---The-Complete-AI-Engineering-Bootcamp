@@ -1,0 +1,119 @@
+day: "053"
+lesson: "02"
+title: "The JSON Contract Between Frontend and Backend"
+slides:
+  - type: title
+    heading: "The JSON Contract"
+    subheading: "Both sides agree on shapes — send the right keys, read the right keys"
+    narration: >
+      When the frontend POSTs to the backend, it sends a JSON body. That body must
+      match exactly what the backend expects, and the reply comes back in a shape
+      the frontend must know how to read. This agreement is the contract. Lesson 2
+      is about honouring it from the client side, and gracefully handling the
+      moment you break it.
+
+  - type: concept
+    label: "shapes agreed"
+    heading: "A Contract Is an Agreement About Keys"
+    body: >
+      The two halves agree on request and response shapes:
+
+      | Direction | Shape | Enforced by |
+      |---|---|---|
+      | Frontend → Backend | `{"message": str, "temperature": float}` | backend's `ChatRequest` |
+      | Backend → Frontend | `{"reply": str, "model": str}` | backend's `ChatResponse` |
+
+      Send a wrong or missing key and the backend rejects the whole request with a
+      422 — before any model runs.
+    bullets:
+      - "The request keys must match the backend's `ChatRequest` model"
+      - "The response keys are guaranteed by the backend's `ChatResponse`"
+      - "Wrong/missing key → 422 (the contract, enforced by Pydantic)"
+      - "The contract is the API's public promise — change it carefully"
+    narration: >
+      A contract is just an agreement about keys. The backend's ChatRequest says a
+      request must have a message string and may have a temperature. So the
+      frontend must send exactly those keys. In return, ChatResponse promises a
+      reply and a model. If the frontend sends the wrong key — say text instead of
+      message — the backend's Pydantic validation rejects it with a four twenty
+      two before the model is ever called. The models you wrote yesterday are the
+      contract both sides now depend on.
+
+  - type: how_it_works
+    label: "post json"
+    heading: "Sending a JSON body with httpx"
+    body: >
+      ```python
+      def post_chat(client, message, temperature=0.7):
+          try:
+              resp = client.post("/chat",
+                                 json={"message": message, "temperature": temperature})
+          except Exception as e:
+              return {"error": f"request failed: {e}"}
+          if resp.status_code != 200:
+              return {"error": f"backend returned {resp.status_code}",
+                      "status": resp.status_code}
+          return resp.json()
+      ```
+    narration: >
+      The json argument is the key. Passing json equals a dict tells httpx to
+      serialise it to a JSON body and set the content type header — and those keys,
+      message and temperature, are precisely the contract. On a two hundred we
+      return the parsed reply. On anything else we return an error dict carrying
+      the status code, so the UI can display backend returned four twenty two
+      rather than crashing. And a connection failure returns its own error dict.
+      The frontend always gets a dict it can render.
+
+  - type: concept
+    label: "translate failures"
+    heading: "Turn HTTP Failures into Displayable Data"
+    body: >
+      The frontend should never throw. Every failure becomes data the UI can show:
+
+      - backend down → `{"error": "request failed: ..."}`
+      - 422 / 404 / 503 → `{"error": "backend returned N", "status": N}`
+      - success → `{"reply": ..., "model": ...}`
+
+      One return type — a dict — for every path. The UI reads `reply` or falls back
+      to `error`.
+    narration: >
+      A user interface that throws an exception is a broken screen. So the client
+      translates every failure into a plain dictionary. Backend not running, bad
+      request, model down — each becomes an error dict. Success becomes the reply
+      dict. Because the return type is always a dict, the UI logic is trivial: show
+      the reply if it is there, otherwise show the error. This is the same
+      never-crash discipline you applied inside the Streamlit app, now applied
+      across the network boundary.
+
+  - type: exercise
+    heading: "Exercise 2 — The JSON Contract"
+    prompt: >
+      Implement `post_chat(client, message, temperature)` that POSTs
+      `{message, temperature}` to `/chat`, returns the parsed body on 200, and an
+      error dict otherwise (including the status on a non-200 and on a connection
+      failure). The checks verify a real reply, a 422 on an empty message, the
+      connection-failure path, and that the contract keys line up.
+    hint: >
+      Use `client.post('/chat', json={'message': message, 'temperature':
+      temperature})`. Branch on `resp.status_code != 200` to build the error dict.
+      Wrap the whole call in try/except for the connection-failure case.
+    narration: >
+      Open exercise underscore 02. The heart is the json argument carrying the two
+      contract keys. Check five uses a spy backend that echoes the message back —
+      if your keys are wrong, that check fails, proving the contract matters. And
+      remember every path returns a dict, never an exception. Five green, then
+      Lesson 3 generalises this into one envelope for every endpoint.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "The JSON contract = agreed request/response keys (the Pydantic models)"
+      - "`client.post(path, json={...})` sends the body; keys must match the backend"
+      - "Wrong/missing key → 422, enforced by the backend before the model runs"
+      - "Translate every failure into an error dict — the UI never throws"
+    narration: >
+      In summary: the contract is the set of keys both sides agree on, enforced by
+      the backend's models; you send them with the json argument; and you translate
+      every failure into a dict so the interface stays alive. Next, Lesson 3 takes
+      this idea further — a single envelope function that normalises the outcome of
+      any call to any endpoint.

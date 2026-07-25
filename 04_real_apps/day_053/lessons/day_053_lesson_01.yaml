@@ -1,0 +1,117 @@
+day: "053"
+lesson: "01"
+title: "Connecting the Two Halves — HTTP Client Calls"
+slides:
+  - type: title
+    heading: "Frontend meets Backend"
+    subheading: "The UI calls the API over HTTP — and the injected-client trick"
+    narration: >
+      You have built a user interface with Streamlit and an API with FastAPI.
+      Today they finally talk to each other. The frontend sends HTTP requests to
+      the backend, the backend answers, and the two together become a full-stack
+      app. We start with the simplest call — a health check — and the one pattern
+      that makes all of this testable without ever starting a server.
+
+  - type: concept
+    label: "the architecture"
+    heading: "Three Tiers, One App"
+    body: >
+      A full-stack AI app is three layers talking over HTTP:
+
+      ```
+      Browser (Streamlit UI)  --HTTP-->  FastAPI backend  -->  Ollama
+      frontend.py                        backend.py
+      ```
+
+      The frontend never calls Ollama directly. It calls the backend's HTTP
+      endpoints; the backend owns the model. Each half runs as its own process,
+      launched separately.
+    bullets:
+      - "Frontend (Streamlit) renders UI and makes HTTP calls"
+      - "Backend (FastAPI) owns the model and the business logic"
+      - "They communicate only through HTTP + JSON — a clean seam"
+      - "Two processes: `streamlit run frontend.py` and `uvicorn backend:app`"
+    narration: >
+      Picture three tiers. The browser runs your Streamlit UI. It does not know
+      anything about Ollama — it only knows how to call the backend over HTTP. The
+      backend, your FastAPI app, owns the model and the logic. This separation is
+      the whole point of full-stack design: the two halves meet only at the HTTP
+      boundary, so you can change, test, or redeploy either side independently.
+      They run as two separate processes that you start with two commands.
+
+  - type: how_it_works
+    label: "http from Python"
+    heading: "httpx — an HTTP client for Python"
+    body: >
+      The frontend uses `httpx` to call the backend:
+
+      ```python
+      import httpx
+
+      client = httpx.Client(base_url="http://localhost:8000", timeout=60.0)
+      resp = client.get("/health")
+      print(resp.status_code)   # 200
+      print(resp.json())        # {'status': 'ok', 'model': 'llama3.2'}
+      ```
+
+      `base_url` sets the backend address once; `timeout` bounds how long to wait.
+    narration: >
+      To make HTTP calls from Python we use httpx, a modern client library. You
+      create a client with the backend's base URL and a timeout, then call get or
+      post on it, just like the TestClient you already know. In fact — and this is
+      the key — TestClient is itself an httpx client. That means code written
+      against one works against the other unchanged, which sets up the testing
+      trick on the next slide.
+
+  - type: code
+    label: "injected client"
+    heading: "Take the client as a parameter"
+    code: |
+      def check_health(client) -> bool:
+          try:
+              resp = client.get("/health")
+              return resp.status_code == 200 and resp.json().get("status") == "ok"
+          except Exception:
+              return False
+
+      # production:  check_health(httpx.Client(base_url="http://localhost:8000"))
+      # tests:       check_health(TestClient(build_api()))
+    narration: >
+      Here is the pattern that carries the whole day. Instead of creating the HTTP
+      client inside the function, we pass it in as a parameter. Now the exact same
+      check_health runs two ways: in production you hand it a real httpx client
+      pointed at the running backend; in tests you hand it a TestClient that runs
+      the backend in-process, no server, no network. This is dependency injection,
+      and it is why every client function today is testable inside a notebook.
+
+  - type: exercise
+    heading: "Exercise 1 — The Health Check"
+    prompt: >
+      Implement `check_health(client)` that GETs `/health` through the injected
+      client and returns `True` only on a 200 with `status == 'ok'`, and `False`
+      on any error. The checks pass a `TestClient(build_api())`, a dead client, a
+      degraded backend, and a backend with no `/health` route.
+    hint: >
+      Wrap the call in try/except and return `False` in the except branch — a
+      health check must survive the backend being down. Read the status from
+      `resp.json().get('status')`.
+    narration: >
+      Open exercise underscore 01. The backend from Day 52 is provided, so you
+      have something real to call. Your job is the client side: one GET, guarded
+      by try/except so a refused connection becomes a calm False. Check three
+      passes a dead client that raises on every call — your except branch is what
+      makes that pass. Five green, then Lesson 2 sends data with POST.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Full-stack = Streamlit frontend → HTTP → FastAPI backend → Ollama"
+      - "`httpx.Client(base_url=..., timeout=...)` makes HTTP calls from Python"
+      - "TestClient IS an httpx client — same interface, in-process"
+      - "Inject the client as a parameter → one function, testable and deployable"
+    narration: >
+      To recap: a full-stack app is three tiers meeting at HTTP, httpx is how
+      Python calls a backend, and because TestClient shares httpx's interface, an
+      injected client lets one function serve both tests and production. That
+      injection trick is the backbone of today. Lesson 2 moves from reading to
+      writing — POSTing a JSON body and the contract that governs it.

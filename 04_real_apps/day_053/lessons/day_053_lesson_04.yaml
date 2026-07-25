@@ -1,0 +1,129 @@
+day: "053"
+lesson: "04"
+title: "CORS — Letting the Browser In"
+slides:
+  - type: title
+    heading: "CORS — Letting the Browser In"
+    subheading: "Why it works in your script but breaks in the browser"
+    narration: >
+      Here is a bug that catches almost everyone. Your Python client calls the
+      backend and it works. You deploy the browser front-end, it calls the same
+      backend, and it fails — blocked, with a cryptic console error. The culprit is
+      the browser's same-origin policy, and the fix is CORS. Lesson 4 explains why
+      this happens and how one line of middleware solves it.
+
+  - type: concept
+    label: "same-origin policy"
+    heading: "The Browser Blocks Cross-Origin Calls"
+    body: >
+      An *origin* is scheme + host + port. `http://localhost:8501` (the Streamlit
+      UI) and `http://localhost:8000` (the API) are **different origins**.
+
+      For security, a browser forbids JavaScript on one origin from reading
+      responses from another — unless the server explicitly allows it. This is the
+      same-origin policy, and it applies only in the browser.
+    bullets:
+      - "Origin = scheme + host + port (`http://localhost:8501`)"
+      - "Frontend (8501) and backend (8000) are different origins"
+      - "Browsers block cross-origin reads unless the server opts in"
+      - "Your httpx/TestClient tests are NOT browsers — they never hit this"
+    narration: >
+      An origin is the combination of scheme, host, and port. Your Streamlit UI on
+      port eighty five oh one and your API on port eight thousand are different
+      origins, even on the same machine. For security, browsers enforce the
+      same-origin policy: JavaScript loaded from one origin may not read responses
+      from another unless the server explicitly permits it. Crucially, this is a
+      browser rule. Your httpx and TestClient calls are not browsers, which is
+      exactly why your tests passed while the deployed UI fails.
+
+  - type: how_it_works
+    label: "CORS headers"
+    heading: "The Server Opts In with CORS Headers"
+    body: >
+      The server grants permission by sending an `access-control-allow-origin`
+      header naming the allowed origin. For risky requests (like a POST with JSON),
+      the browser first sends a **preflight** `OPTIONS` request to ask permission;
+      the server must answer that too.
+
+      FastAPI does all of this with one middleware:
+
+      ```python
+      from fastapi.middleware.cors import CORSMiddleware
+
+      app.add_middleware(
+          CORSMiddleware,
+          allow_origins=["http://localhost:8501"],
+          allow_credentials=True,
+          allow_methods=["*"],
+          allow_headers=["*"],
+      )
+      ```
+    narration: >
+      The server opts in by sending an access-control-allow-origin header naming
+      the origins it trusts. For anything beyond a simple request, the browser
+      sends a preflight — an OPTIONS request asking may I — and the server must
+      answer with the right headers before the real request goes out. FastAPI
+      handles both the header and the preflight automatically once you add
+      CORSMiddleware with your allowed origins. You list the frontend's origin, and
+      the browser is satisfied.
+
+  - type: code
+    label: "add_cors"
+    heading: "A helper to enable CORS"
+    code: |
+      def add_cors(app, origins):
+          app.add_middleware(
+              CORSMiddleware,
+              allow_origins=origins,
+              allow_credentials=True,
+              allow_methods=["*"],
+              allow_headers=["*"],
+          )
+          return app
+
+      # backend.py:
+      app = build_api()
+      add_cors(app, ["http://localhost:8501"])
+    narration: >
+      We wrap it in a small helper. add_cors takes the app and the list of allowed
+      origins, adds the middleware, and returns the app. In backend dot py you
+      build the API and then call add_cors with the Streamlit origin. That is the
+      whole fix. You can test it even without a browser: send a request with an
+      Origin header through TestClient and check that the response carries the
+      allow-origin header back — which is exactly what the exercise does.
+
+  - type: exercise
+    heading: "Exercise 4 — Enable CORS"
+    prompt: >
+      Implement `add_cors(app, origins)` using `CORSMiddleware`, allowing the given
+      origins, all methods, and all headers. The checks verify the app is returned,
+      an allowed origin gets the `access-control-allow-origin` header, a preflight
+      OPTIONS is answered, a same-origin request still works, and a disallowed
+      origin is not echoed as allowed.
+    hint: >
+      Call `app.add_middleware(CORSMiddleware, allow_origins=origins,
+      allow_credentials=True, allow_methods=['*'], allow_headers=['*'])` then
+      `return app`. Test it by sending an `Origin` header and reading the response
+      headers.
+    narration: >
+      Open exercise underscore 04. The implementation is one add_middleware call
+      and a return. The interesting part is the checks: they send an Origin header
+      and confirm the allow-origin header comes back, and they send a preflight
+      OPTIONS and confirm it is answered. That is how CORS is verified without a
+      real browser. Five green, then Lesson 5 assembles everything into the
+      gateway and the two shipped files.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Same-origin policy: browsers block cross-origin reads by default"
+      - "Frontend and backend on different ports are different origins"
+      - "`CORSMiddleware` sends `access-control-allow-origin` + answers preflights"
+      - "It's a browser rule — httpx/TestClient tests never trigger it"
+    narration: >
+      In summary: browsers block cross-origin calls, your frontend and backend are
+      different origins, and CORSMiddleware is the server's way of opting in. It is
+      a browser-only concern, which is why it is invisible in your tests but
+      essential once a real browser is involved. Add it now and you avoid the most
+      common full-stack surprise. Lesson 5 brings the client layer together into
+      the AIAppClient gateway and generates the two files you run.

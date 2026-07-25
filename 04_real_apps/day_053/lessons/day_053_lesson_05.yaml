@@ -1,0 +1,116 @@
+day: "053"
+lesson: "05"
+title: "The Gateway & Shipping the Full Stack"
+slides:
+  - type: title
+    heading: "The Gateway & Shipping the Full Stack"
+    subheading: "One client class, two files, one running app"
+    narration: >
+      Lesson 5 is the capstone of Day 53. You wrap the client functions into a
+      single gateway class, the AIAppClient, that the Streamlit UI uses to talk to
+      the backend. Then you generate the two files that make up the app —
+      backend dot py and frontend dot py — and learn how to run them together. By
+      the end you have a genuine full-stack AI application.
+
+  - type: concept
+    label: "the gateway"
+    heading: "AIAppClient — the Frontend's Gateway"
+    body: >
+      One class hides all HTTP behind clean methods:
+
+      | Method | Returns | Built on |
+      |---|---|---|
+      | `health()` | bool | `check_health` |
+      | `chat(message)` | dict | `post_chat` |
+      | `templates()` | list | `request_json` |
+      | `render(name, topic)` | dict | `request_json` |
+
+      The UI holds one `AIAppClient` and calls these — it never sees a status code
+      or a JSON body. Same thin-shell pattern as Days 51 and 52, now over the wire.
+    narration: >
+      The gateway is a single class that hides HTTP behind four clean methods.
+      health returns a boolean, chat returns a dict, templates returns a list,
+      render returns a dict. Each is one or two lines built on the functions you
+      already wrote. The Streamlit UI holds one AIAppClient and calls these methods
+      — it never touches a status code or a raw JSON body. This is the same
+      thin-shell-over-logic pattern from the last two days, except the logic now
+      lives across a network boundary.
+
+  - type: how_it_works
+    label: "inject the client"
+    heading: "The same gateway, two clients"
+    body: >
+      ```python
+      class AIAppClient:
+          def __init__(self, client):
+              self.client = client
+          def health(self): return check_health(self.client)
+          def chat(self, m, t=0.7): return post_chat(self.client, m, t)
+          # templates(), render() -> request_json(...)
+
+      # tests:      AIAppClient(TestClient(build_api()))
+      # frontend:   AIAppClient(httpx.Client(base_url="http://localhost:8000"))
+      ```
+    narration: >
+      The injection pattern returns one last time. AIAppClient takes a client in
+      its constructor and stores it. In the tests you build it with a TestClient
+      wrapping the backend in-process; in frontend dot py you build it with a real
+      httpx client pointed at the running server. The class body is identical in
+      both cases. That is the reward for injecting the client from the very first
+      exercise — the exact same gateway is both fully tested and production-ready.
+
+  - type: code
+    label: "two files"
+    heading: "Generate and run the two halves"
+    code: |
+      # In the project notebook:
+      write_full_stack(".")   # writes backend.py and frontend.py
+
+      # Two terminals:
+      #   uvicorn backend:app --reload      # terminal 1 — the API
+      #   streamlit run frontend.py         # terminal 2 — the UI
+      # Open http://localhost:8501 — the browser UI calls the API over HTTP.
+    narration: >
+      In the project you drive the gateway against an in-process backend to prove
+      it works, then call write_full_stack to emit the two files. backend dot py is
+      the FastAPI app with CORS enabled; frontend dot py is the Streamlit UI holding
+      an AIAppClient over an httpx client. You run them in two terminals — uvicorn
+      for the backend, streamlit for the frontend — and open the browser. Now a real
+      browser calls a real API which calls Ollama. The health badge in the UI turns
+      green when the backend is up, which is your Day 51 and Day 52 work, connected.
+
+  - type: exercise
+    heading: "Exercise 5 + Project — Ship the Full Stack"
+    prompt: >
+      Implement the `AIAppClient` class (`health`, `chat`, `templates`, `render`),
+      then in the project generate `backend.py` + `frontend.py` with
+      `write_full_stack` and run them in two terminals. The checks verify the
+      methods, a working health check, a real chat reply, the template list, and
+      render (success and unknown-name error).
+    hint: >
+      Store the injected client in `__init__`. Delegate `health` to `check_health`,
+      `chat` to `post_chat`, and `templates`/`render` to `request_json`, unwrapping
+      `env['data']` when `env['ok']`. Fall back to `[]` or `{'error': ...}` on
+      failure.
+    narration: >
+      Open exercise underscore 05, then the project. The class is pure delegation —
+      each method hands off to a function you already built. Once it is green, the
+      project has you write the two files and launch them. Seeing your Streamlit UI
+      call your FastAPI backend, over real HTTP, and stream an Ollama answer back to
+      the browser — that is the moment the two halves of this section become one
+      app.
+
+  - type: summary
+    heading: "Lesson 5 & Day 53 Takeaways"
+    bullets:
+      - "`AIAppClient` is the frontend's gateway — clean methods, no HTTP leakage"
+      - "Inject the client: `TestClient` in tests, `httpx.Client` in the frontend"
+      - "`write_full_stack` emits backend.py + frontend.py — the two-process app"
+      - "Run: `uvicorn backend:app` + `streamlit run frontend.py`"
+    narration: >
+      Day 53 in summary: you connected the UI and the API over HTTP, honoured the
+      JSON contract, normalised every response into one envelope, enabled CORS for
+      the browser, and wrapped it all in a gateway that the frontend uses. You now
+      have a full-stack AI app running as two processes. Tomorrow, Day 54, you give
+      it a memory that outlives a restart — a database — so the app can save users'
+      data.

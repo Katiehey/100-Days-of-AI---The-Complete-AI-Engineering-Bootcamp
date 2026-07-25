@@ -1,0 +1,129 @@
+day: "053"
+lesson: "03"
+title: "One Envelope for Every Response"
+slides:
+  - type: title
+    heading: "A Uniform Response Envelope"
+    subheading: "Normalise success, error, and failure into one predictable shape"
+    narration: >
+      A frontend calls many endpoints, and every call can go three ways: it
+      succeeds, it returns an error status, or it fails to connect at all.
+      Handling those cases separately at every call site is repetitive and
+      error-prone. Lesson 3 introduces one helper that wraps any call and returns
+      a single, predictable envelope — so the whole frontend branches the same
+      simple way.
+
+  - type: concept
+    label: "the envelope"
+    heading: "Collapse Three Outcomes into One Shape"
+    body: >
+      Every call returns the same dict:
+
+      ```python
+      {"ok": bool, "status": int | None, "data": dict | None, "error": str | None}
+      ```
+
+      | Outcome | ok | status | data | error |
+      |---|---|---|---|---|
+      | 2xx success | True | 200 | the JSON | None |
+      | 4xx / 5xx | False | code | None | "HTTP code" |
+      | connection failure | False | None | None | "connection error: ..." |
+    bullets:
+      - "One shape for success, error status, and no-connection"
+      - "The UI checks `if env['ok']:` — nothing else"
+      - "`status is None` distinguishes 'never reached the server' from an HTTP error"
+      - "Same idea as Day 51's `(is_valid, result)` tuple, generalised to HTTP"
+    narration: >
+      The envelope collapses three outcomes into one shape with four keys: ok, a
+      boolean; status, the HTTP code or none if we never connected; data, the JSON
+      on success; and error, a message on failure. Now every call site looks the
+      same — check ok, then read data or error. Notice the subtlety in status: a
+      real HTTP error carries a code, but a connection failure has status none,
+      which tells the UI the server was never reached at all. It is the tuple
+      pattern from Day 51, scaled up to the network.
+
+  - type: how_it_works
+    label: "generic request"
+    heading: "client.request — one call for every verb"
+    body: >
+      ```python
+      def request_json(client, method, path, payload=None):
+          try:
+              resp = client.request(method, path, json=payload)
+          except Exception as e:
+              return {"ok": False, "status": None, "data": None,
+                      "error": f"connection error: {e}"}
+          ok = 200 <= resp.status_code < 300
+          try:
+              data = resp.json()
+          except Exception:
+              data = None
+          return {"ok": ok, "status": resp.status_code,
+                  "data": data if ok else None,
+                  "error": None if ok else f"HTTP {resp.status_code}"}
+      ```
+    narration: >
+      client dot request is the generic form of get and post — you pass the method
+      as a string, so one function handles every verb. The outer try catches a
+      connection failure and returns the status-none envelope. Otherwise we compute
+      ok from the status code, parse the JSON defensively in case the body is not
+      JSON, and assemble the envelope. Two hundred to two ninety nine counts as
+      success; everything else fills the error field. One function, every outcome,
+      one shape out.
+
+  - type: concept
+    label: "why it scales"
+    heading: "Why One Envelope Beats Scattered try/except"
+    body: >
+      With `request_json`, adding a new endpoint call is one line and the caller
+      already knows how to handle it:
+
+      ```python
+      env = request_json(client, "GET", "/templates")
+      names = env["data"]["templates"] if env["ok"] else []
+      ```
+
+      No new error handling, no new try/except — the envelope already covered every
+      case. This is what lets the `AIAppClient` in Lesson 5 stay tiny.
+    narration: >
+      The payoff is scale. Once you have request_json, every new endpoint call is a
+      single line, and the caller already knows the drill: if ok, read data; else,
+      fall back. You never write another try/except at a call site. That is exactly
+      what keeps the AIAppClient gateway in Lesson 5 so small — each method is one
+      request_json call plus a tiny bit of unwrapping. Good infrastructure makes
+      the code above it shrink.
+
+  - type: exercise
+    heading: "Exercise 3 — The Response Envelope"
+    prompt: >
+      Implement `request_json(client, method, path, payload)` returning the
+      `{ok, status, data, error}` envelope for success, error status, and
+      connection failure. The checks verify a 2xx envelope, the four keys, a 404
+      envelope, a connection failure with `status is None`, and a POST with a
+      payload.
+    hint: >
+      Use `client.request(method, path, json=payload)` inside try/except. Compute
+      `ok = 200 <= resp.status_code < 300`. On failure set `data=None`; on success
+      set `error=None`. The connection-error branch must set `status=None`.
+    narration: >
+      Open exercise underscore 03. Build the envelope exactly as shown: a
+      connection failure gives status none, an HTTP error gives the code with a
+      none data, and success gives the data with a none error. Check four passes a
+      dead client and expects status none — that is how the UI later tells apart a
+      down server from a bad request. Five green, then Lesson 4 tackles the browser
+      gatekeeper: CORS.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "One envelope: `{ok, status, data, error}` for every call outcome"
+      - "`client.request(method, path, json=...)` handles any HTTP verb"
+      - "`status is None` means the server was never reached (vs an HTTP error code)"
+      - "One envelope function lets the client layer above it stay tiny"
+    narration: >
+      To recap: request_json normalises success, error, and connection failure into
+      one four-key envelope, using the generic client dot request so it works for
+      any verb. That uniformity means new calls are one line and the UI branches
+      the same way everywhere. Lesson 4 turns to the one thing your Python tests
+      never hit but the browser always does — the same-origin policy, and the CORS
+      headers that satisfy it.
