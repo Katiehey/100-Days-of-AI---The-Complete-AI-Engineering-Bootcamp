@@ -1,0 +1,117 @@
+day: "051"
+lesson: "02"
+title: "Widgets & Input Validation — Trust Nothing from the UI"
+slides:
+  - type: title
+    heading: "Widgets & Input Validation"
+    subheading: "Sliders, text boxes, buttons — and cleaning what they return"
+    narration: >
+      Lesson 2 is about widgets: the inputs that make an app interactive. A
+      slider, a text box, a button. Each one returns a value on every rerun. But
+      widget values are raw — a text box can be empty, a temperature can be out
+      of range. The professional move is to validate at the boundary, before any
+      value reaches your model. That is what this lesson and Exercise 2 build.
+
+  - type: concept
+    label: "widgets return values"
+    heading: "Every Widget Is a Function That Returns a Value"
+    body: >
+      In Streamlit a widget call both renders the control AND returns its
+      current value on this run:
+
+      ```python
+      name = st.text_input("Your name")        # str
+      temp = st.slider("Temperature", 0.0, 1.0, 0.7)   # float
+      go   = st.button("Send")                  # bool (True on the run it's clicked)
+      ```
+
+      Because the script reruns, `temp` always holds the slider's live value.
+      But that value is only as trustworthy as the user — validate it.
+    bullets:
+      - "`st.text_input` / `st.text_area` return the current string"
+      - "`st.slider` / `st.selectbox` return the current selection"
+      - "`st.button` returns True only on the run where it was clicked"
+      - "Widgets bound raw input — you still validate for empty, length, range"
+    narration: >
+      Every widget is a function call that draws the control and hands you back
+      its value for this run. Text input gives a string, slider gives a number,
+      button gives a boolean that is true only on the click run. That last one
+      matters: a button is not an event handler, it is a boolean you check with
+      an if statement. And because the value is whatever the user did, you treat
+      it like any untrusted input — you validate it.
+
+  - type: concept
+    label: "validate at the boundary"
+    heading: "Return a (valid, result) Tuple"
+    body: >
+      A clean validation function returns a two-part result the UI can branch
+      on:
+
+      - `(False, "Please enter a message.")` — show a warning, do nothing
+      - `(True, "cleaned text")` — send `result` to the model
+
+      This keeps the UI declarative: `ok, result = validate_user_input(text)`
+      then `st.warning(result)` or proceed. All the rules live in one testable
+      function, not scattered through the layout.
+    narration: >
+      The pattern that keeps UI code clean is returning a tuple: a boolean for
+      valid or not, and a payload. If invalid, the payload is a friendly error
+      message you can show with st.warning. If valid, the payload is the cleaned
+      text you send onward. Now your interface code is two lines and every rule
+      about emptiness, whitespace, and length lives in one function you can test
+      without a browser.
+
+  - type: code
+    label: "clamp + settings"
+    heading: "Clamping and building a settings dict"
+    code: |
+      def clamp(value, lo, hi):
+          return max(lo, min(hi, value))
+
+      def build_settings(model, temperature, system_prompt):
+          sp = system_prompt.strip() or "You are a helpful assistant."
+          return {
+              "model": model,
+              "temperature": float(clamp(temperature, 0.0, 1.0)),
+              "system_prompt": sp,
+          }
+    narration: >
+      Two more helpers. Clamp forces a number into a range — st.slider already
+      bounds live input, but a value restored from session state or a URL query
+      param might not be bounded, so clamp is your safety net. build_settings
+      gathers the sidebar values into one validated dict: temperature clamped,
+      and an empty system prompt replaced with a sensible default. The sidebar
+      code then just reads these back — declarative and safe.
+
+  - type: exercise
+    heading: "Exercise 2 — Validate Widget Input"
+    prompt: >
+      Implement `validate_user_input(text, max_chars)`, `clamp(value, lo, hi)`,
+      and `build_settings(model, temperature, system_prompt)`. The checks verify
+      stripping, empty rejection, length limits, clamping at both ends, and that
+      build_settings clamps temperature and defaults an empty prompt.
+    hint: >
+      Strip first, then test: empty string is invalid, over-length is invalid,
+      otherwise valid with the stripped text. `clamp` is `max(lo, min(hi, x))`.
+      In build_settings, `system_prompt.strip() or default` gives the fallback.
+    narration: >
+      Open exercise underscore 02. Remember the order in validate: strip the
+      text first, then check emptiness, then check length, then return valid.
+      Clamp is a single expression — max of lo and the min of hi and the value.
+      And in build_settings, the idiom stripped-or-default handles the empty
+      prompt in one line. Five checks, all green, then Lesson 3.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Widgets are function calls that return their current value each rerun"
+      - "`st.button` returns a bool — check it with `if`, it's not a callback"
+      - "Validate at the boundary: return `(is_valid, result)` for clean branching"
+      - "Clamp and default in one place so the UI code stays declarative"
+    narration: >
+      In summary: widgets return values, buttons return booleans, and you never
+      trust raw input. A validation function returning a valid-flag and a payload
+      keeps your interface to two lines and your rules in one testable place.
+      clamp and build_settings centralise defaulting so the sidebar reads clean.
+      Next, Lesson 3 wires this validated input into the model with full
+      conversation history.

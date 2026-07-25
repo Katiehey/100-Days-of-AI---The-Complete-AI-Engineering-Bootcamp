@@ -1,0 +1,122 @@
+day: "051"
+lesson: "03"
+title: "Wiring State to the Model — Conversation Memory"
+slides:
+  - type: title
+    heading: "Wiring State to the Model"
+    subheading: "Send the whole conversation so the model remembers"
+    narration: >
+      Lesson 3 connects the app to the brain. A chat model is stateless — it
+      remembers nothing between calls. To make it feel like a conversation, you
+      resend the entire history every turn: the system prompt, all prior turns,
+      and the new message. This lesson builds the two functions that do that,
+      reusing the message-list pattern you first met on Day 3.
+
+  - type: concept
+    label: "stateless models"
+    heading: "The Model Has No Memory — You Supply It"
+    body: >
+      `ollama.chat` takes a fresh `messages` list every call. If you send only
+      the newest user message, the model has no context. So each turn you
+      rebuild the full list:
+
+      ```
+      [ {system prompt} , ...prior turns... , {new user turn} ]
+      ```
+
+      The conversation lives in YOUR session state; the model just processes
+      whatever list you hand it.
+    bullets:
+      - "Chat models are stateless — memory is an illusion you create"
+      - "Rebuild the messages list every turn from session state"
+      - "System prompt first, history in the middle, new user turn last"
+      - "`build_messages` reads state but does NOT mutate it"
+    narration: >
+      This is the single most important idea in chat apps. The model does not
+      remember your last message — every call starts blank. The memory you feel
+      when using ChatGPT is the client resending the whole transcript each time.
+      So you build a messages list: system prompt at the front, the prior
+      conversation in the middle, the new user turn at the end. Crucially,
+      build_messages reads from your state but returns a fresh list — it does not
+      append to state, so your app stays in control of when history is committed.
+
+  - type: how_it_works
+    label: "build_messages"
+    heading: "Assembling the messages list"
+    body: >
+      ```python
+      def build_messages(state, user_text):
+          settings = state.get("settings", {})
+          sysp = settings.get("system_prompt", "You are a helpful assistant.")
+          messages = [{"role": "system", "content": sysp}]
+          messages.extend(state.get("messages", []))
+          messages.append({"role": "user", "content": user_text})
+          return messages
+      ```
+
+      Start with the system prompt, spread in the stored history, append the new
+      turn. A new list every call — no mutation.
+    narration: >
+      Look at the construction. We start a brand new list with the system
+      prompt. We extend it with the stored messages — that is the whole prior
+      conversation. Then we append the new user turn. Because we build a new list
+      and only read from state, calling build_messages a hundred times never
+      changes your conversation. That immutability is what makes the app
+      predictable — the app decides when to actually save a turn, in Exercise 5.
+
+  - type: code
+    label: "chat_with_history"
+    heading: "Calling Ollama with a safety net"
+    code: |
+      def chat_with_history(state, user_text, model="llama3.2"):
+          temperature = state.get("settings", {}).get("temperature", 0.7)
+          messages = build_messages(state, user_text)
+          try:
+              response = ollama.chat(
+                  model=model, messages=messages,
+                  options={"temperature": temperature})
+              return response["message"]["content"].strip()
+          except Exception as e:
+              return f"[Model unavailable: {e}]"
+    narration: >
+      chat_with_history reads the temperature from settings, builds the messages,
+      and calls Ollama. The options dict is how Ollama takes sampling parameters
+      like temperature. The whole call sits inside a try-except that returns a
+      string on every path — so a stopped Ollama or a bad model name becomes a
+      visible message in the chat, not a crash. In a web app, an unhandled
+      exception is a blank error page; a caught one is a graceful reply.
+
+  - type: exercise
+    heading: "Exercise 3 — Wire State to the Model"
+    prompt: >
+      Implement `build_messages(state, user_text)` and `chat_with_history(state,
+      user_text, model)`. The checks verify system-first / user-last ordering,
+      that prior history is included, that build_messages does not mutate state,
+      that a real call returns a non-empty string, and that a bad model name is
+      handled gracefully.
+    hint: >
+      Build a NEW list — start with the system message, `extend` with
+      `state["messages"]`, then `append` the user turn. Wrap the `ollama.chat`
+      call in try/except and return `f"[Model unavailable: {e}]"` on error.
+    narration: >
+      Open exercise underscore 03. The trap here is mutating state — if you
+      append the user turn to state dot messages instead of to a fresh list,
+      check three fails. Build a new list every time. And do not forget the
+      try-except: check five deliberately passes a nonsense model name and
+      expects a string back, not an exception. Ollama should be running for
+      check four. Five green, then Lesson 4.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "Chat models are stateless — resend the full history every turn"
+      - "`build_messages`: system first, history middle, new user last — no mutation"
+      - "`options={'temperature': ...}` passes sampling params to Ollama"
+      - "Wrap the model call in try/except — always return a string, never crash"
+    narration: >
+      To recap: the model has no memory, so you rebuild the whole messages list
+      each turn — system, history, new turn — without mutating state.
+      chat_with_history adds the temperature and a try-except that guarantees a
+      string reply on every path. That is what keeps a web app resilient. Lesson
+      4 turns the conversation into things the user sees: a downloadable
+      transcript and live metrics.

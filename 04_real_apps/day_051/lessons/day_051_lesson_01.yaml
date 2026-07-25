@@ -1,0 +1,128 @@
+day: "051"
+lesson: "01"
+title: "Streamlit & Session State — Apps That Remember"
+slides:
+  - type: title
+    heading: "Streamlit & Session State"
+    subheading: "Turn a Python script into a live web app — and make it remember"
+    narration: >
+      Welcome to Section 4 — Building Real Apps. For fifty days you have written
+      functions and notebooks. Now you turn them into things other people can
+      use in a browser. Day 51 is Streamlit: a library that renders a plain
+      Python script as an interactive web app, with zero HTML, CSS, or
+      JavaScript. The first thing to understand is the one idea that trips up
+      everyone — how Streamlit remembers state.
+
+  - type: concept
+    label: "the rerun model"
+    heading: "Streamlit Reruns Your Whole Script"
+    body: >
+      Every interaction — a click, a keystroke, a slider drag — reruns your
+      entire `app.py` from top to bottom. There is no callback, no event loop
+      you manage. The script IS the UI.
+
+      That means any normal variable is recreated from scratch on every
+      interaction. The only thing that survives is `st.session_state`, a
+      dict-like object scoped to the browser session.
+    bullets:
+      - "One script, top-to-bottom, re-executed on every interaction"
+      - "Local variables reset every run — they cannot hold a conversation"
+      - "`st.session_state` is a plain dict that persists across reruns"
+      - "Golden rule: initialise state only if the key is ABSENT"
+    narration: >
+      Here is the mental model. When a user types in your chat box and hits
+      enter, Streamlit does not call one function — it re-runs the whole file
+      from line one. So if you wrote messages equals empty list at the top,
+      that list would be wiped on every single interaction, and your chat would
+      never remember anything. The fix is session state: a dict that lives
+      across reruns. And the discipline that goes with it is idempotent
+      initialisation — you set a key only if it is not already there.
+
+  - type: how_it_works
+    label: "session_state"
+    heading: "st.session_state — the dict that survives"
+    body: >
+      `st.session_state` behaves like a dict AND supports attribute access:
+
+      ```python
+      import streamlit as st
+
+      # Idempotent init — runs safely on every rerun
+      if "messages" not in st.session_state:
+          st.session_state.messages = []
+
+      # Read / append across reruns
+      st.session_state.messages.append({"role": "user", "content": text})
+      ```
+
+      In the exercise you will model this exact dict as a plain Python `state`
+      dict, so you can test the logic with no browser required.
+    narration: >
+      Session state supports both bracket access and dot access, so
+      st.session_state dot messages and st.session_state bracket messages are
+      the same thing. The pattern you will see everywhere is: if the key is not
+      in session state, set it. That guard is the whole trick. Because a
+      Streamlit session_state is just a dict, we can develop and test all of our
+      state logic against a plain Python dict — which is exactly what Exercise 1
+      does.
+
+  - type: code
+    label: "state helpers"
+    heading: "Three functions that manage the chat state"
+    code: |
+      def init_session(state: dict) -> dict:
+          if "messages" not in state:
+              state["messages"] = []
+          if "settings" not in state:
+              state["settings"] = {
+                  "model": "llama3.2", "temperature": 0.7,
+                  "system_prompt": "You are a helpful assistant."}
+          return state
+
+      def add_message(state, role, content):
+          if role not in ("user", "assistant", "system"):
+              raise ValueError(f"invalid role: {role!r}")
+          msg = {"role": role, "content": content}
+          state["messages"].append(msg)
+          return msg
+    narration: >
+      These are the functions your app will call. init_session sets up messages
+      and settings, but only if they are missing — safe on every rerun.
+      add_message validates the role before appending, so bad data never reaches
+      the model. And a reset function, which you will also write, clears the
+      messages list while leaving settings alone — exactly what a Clear chat
+      button should do. Notice none of these import Streamlit; they operate on a
+      plain dict, so they are trivially testable.
+
+  - type: exercise
+    heading: "Exercise 1 — Build the Session State Layer"
+    prompt: >
+      Implement `init_session(state)`, `add_message(state, role, content)`, and
+      `reset_messages(state)`. The checks verify that init is idempotent (a
+      second call does not wipe existing messages), that add_message validates
+      roles, and that reset clears messages while keeping settings.
+    hint: >
+      The whole exercise hinges on the `if key not in state` guard. For
+      add_message, raise `ValueError` on any role that is not user, assistant,
+      or system. For reset, rebind only `state["messages"]` to a new empty list.
+    narration: >
+      Open exercise underscore 01. You are modelling st.session_state as a plain
+      dict called state. The one check that matters most is check two: it adds a
+      message, calls init_session again to simulate a rerun, and asserts the
+      message is still there. If your init overwrites, that check fails. Get all
+      five green and move to Lesson 2.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Streamlit reruns the entire script on every interaction"
+      - "`st.session_state` is the only thing that persists across reruns"
+      - "Initialise state idempotently — set a key only if it is absent"
+      - "Keep state logic in plain functions over a dict — testable without a browser"
+    narration: >
+      To recap: Streamlit re-runs your script top to bottom on every
+      interaction, session state is the dict that survives, and idempotent
+      initialisation is the rule that keeps your data alive. By building the
+      state layer as plain functions over a dict, you get logic you can test in
+      a notebook and reuse in the app unchanged. Lesson 2 handles the values
+      coming out of widgets — and why you must validate them before use.

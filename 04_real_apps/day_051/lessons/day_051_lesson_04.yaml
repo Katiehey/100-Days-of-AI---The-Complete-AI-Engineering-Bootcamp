@@ -1,0 +1,125 @@
+day: "051"
+lesson: "04"
+title: "Display Helpers — Layout, Metrics & Downloads"
+slides:
+  - type: title
+    heading: "Display Helpers"
+    subheading: "Sidebars, columns, metrics, and a download button"
+    narration: >
+      Lesson 4 is about what the user sees beyond the chat itself: a sidebar with
+      settings, live metrics of the conversation, and a button to download the
+      transcript. Streamlit gives you layout containers and display widgets for
+      all of this. But the values they show come from pure functions you can test
+      — that is the split we keep: Streamlit renders, your functions compute.
+
+  - type: concept
+    label: "layout containers"
+    heading: "Sidebar, Columns, and Metrics"
+    body: >
+      Streamlit lays out with containers and context managers:
+
+      ```python
+      with st.sidebar:
+          st.header("Settings")
+          temp = st.slider("Temperature", 0.0, 1.0, 0.7)
+
+      c1, c2 = st.columns(2)
+      c1.metric("Messages", 12)
+      c2.metric("Characters", 3480)
+      ```
+
+      `st.metric` shows a big number with a label — perfect for at-a-glance
+      stats. The numbers themselves come from a plain function.
+    bullets:
+      - "`with st.sidebar:` — put controls in the left panel"
+      - "`st.columns(n)` — split a row into n side-by-side cells"
+      - "`st.metric(label, value)` — a labelled headline number"
+      - "`st.chat_message(role)` — a styled chat bubble container"
+    narration: >
+      Layout in Streamlit is containers. with st.sidebar puts everything inside
+      it into the left panel — that is where settings belong. st.columns splits a
+      row into cells you write into independently, great for a row of metrics.
+      st.metric renders a big number with a caption, ideal for message counts.
+      And st.chat_message gives you a proper chat bubble with an avatar for each
+      role. All of these just render — the values are computed by your code.
+
+  - type: how_it_works
+    label: "pure display functions"
+    heading: "Compute display values with pure functions"
+    body: >
+      ```python
+      def chat_stats(messages):
+          non_system = [m for m in messages if m.get("role") != "system"]
+          return {
+              "total": len(non_system),
+              "user": sum(1 for m in non_system if m["role"] == "user"),
+              "assistant": sum(1 for m in non_system if m["role"] == "assistant"),
+              "chars": sum(len(m.get("content", "")) for m in non_system),
+          }
+      ```
+
+      The sidebar then reads `chat_stats(msgs)["total"]` into an `st.metric`.
+      System messages are excluded — the user never sees them.
+    narration: >
+      chat_stats turns the message list into a flat dict of numbers, one per
+      metric. It filters out system messages first, because the user never sees
+      the system prompt in the chat, so it should not count. The sidebar code
+      becomes a clean mapping: st.metric of Messages and stats total, st.metric
+      of Characters and stats chars. Same idea for format_transcript, which
+      renders the conversation as ROLE colon content text for a download button.
+
+  - type: code
+    label: "download_button"
+    heading: "Export the transcript"
+    code: |
+      def format_transcript(messages):
+          lines = []
+          for m in messages:
+              if m.get("role") == "system":
+                  continue
+              lines.append(f"{m['role'].upper()}: {m.get('content','')}")
+          return "\n\n".join(lines)
+
+      # In app.py:
+      st.download_button("Download transcript",
+                         format_transcript(msgs), "chat.txt")
+    narration: >
+      format_transcript joins each turn as an upper-cased role, a colon, and the
+      content, skipping system messages, with a blank line between turns.
+      st.download_button takes a label, the data, and a filename, and renders a
+      button that saves the string as a file — no server route, no file handling,
+      Streamlit does it all. Notice again: the function is pure and testable; the
+      widget is one line.
+
+  - type: exercise
+    heading: "Exercise 4 — Build the Display Helpers"
+    prompt: >
+      Implement `format_transcript(messages)` and `chat_stats(messages)`. The
+      checks verify ROLE-prefixed lines, that system messages are skipped, that
+      user and assistant turns are counted, that total excludes system, and that
+      the character count sums non-system content.
+    hint: >
+      Skip system messages in both functions. For the transcript use
+      `f"{role.upper()}: {content}"` joined by blank lines. For stats, filter to
+      non-system first, then count roles and sum `len(content)`.
+    narration: >
+      Open exercise underscore 04. Both functions filter system messages first —
+      that is the common thread. In the transcript, upper-case the role and join
+      with double newlines. In stats, build the non-system list once, then derive
+      total, user, assistant, and chars from it. These are pure functions, so no
+      Ollama and no browser needed. Five green, then the capstone in Lesson 5.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Layout with `st.sidebar`, `st.columns`, and `st.chat_message` containers"
+      - "`st.metric` shows a headline number; `st.download_button` exports data"
+      - "Compute display values in pure functions; let widgets just render them"
+      - "Exclude system messages from anything the user sees or counts"
+    narration: >
+      In summary: Streamlit lays out with containers and shows values with
+      widgets like metric and download_button, but the values themselves come
+      from pure functions like chat_stats and format_transcript. That separation
+      is why your whole app is testable in a notebook. And always hide the system
+      prompt from the user's view and counts. Lesson 5 assembles everything into
+      the ChatApp class and the real app.py you will run.

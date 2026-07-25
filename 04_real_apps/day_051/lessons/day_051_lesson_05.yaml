@@ -1,0 +1,120 @@
+day: "051"
+lesson: "05"
+title: "The ChatApp Class — Assemble & Run the App"
+slides:
+  - type: title
+    heading: "The ChatApp Class"
+    subheading: "One object to rule the app — then streamlit run app.py"
+    narration: >
+      Lesson 5 is the capstone of Day 51. You take the four function groups from
+      the previous lessons and wire them into a single class, ChatApp. That
+      object holds the state and exposes a tiny interface the UI calls. Then you
+      generate a real app.py and run it. By the end you have a working chatbot in
+      your browser, powered entirely by local Ollama.
+
+  - type: concept
+    label: "logic core"
+    heading: "A Thin UI Over a Fat Logic Core"
+    body: >
+      The best web apps keep all logic out of the view. `ChatApp` owns the
+      state dict and exposes four methods:
+
+      | Method | Does |
+      |---|---|
+      | `send(text)` | validate → user turn → model → assistant turn |
+      | `stats()` | numbers for `st.metric` |
+      | `transcript()` | text for `st.download_button` |
+      | `reset()` | clear the conversation |
+
+      The Streamlit file just stores one `ChatApp` in `st.session_state` and
+      calls these. No business logic in the UI.
+    narration: >
+      The design goal is a thin UI over a fat logic core. ChatApp holds the state
+      and gives the interface four verbs: send, stats, transcript, reset. send is
+      the important one — it runs the whole turn: validate the input, append the
+      user message, call the model, append the assistant reply, and return it. If
+      the input is invalid, it returns the error and appends nothing. The
+      Streamlit layer never touches messages directly; it just calls these
+      methods and renders the results.
+
+  - type: how_it_works
+    label: "one instance per session"
+    heading: "Store the app in session_state"
+    body: >
+      ```python
+      if "app" not in st.session_state:
+          st.session_state.app = ChatApp()
+      app = st.session_state.app
+
+      prompt = st.chat_input("Type a message...")
+      if prompt:
+          app.send(prompt)   # appends user + assistant
+          st.rerun()         # rerun so the replay loop shows them
+      ```
+
+      One `ChatApp` per browser session, created once, reused on every rerun —
+      the same idempotent pattern from Lesson 1, now around an object.
+    narration: >
+      Here is how the object meets the rerun model. We create one ChatApp only if
+      it is not already in session state — idempotent, just like Lesson 1, but
+      now the whole app is the thing that persists. On a new prompt we call send,
+      which updates the conversation, then st.rerun, which restarts the script so
+      the replay loop redraws every message including the two we just added. That
+      rerun-after-mutate pattern is the idiomatic Streamlit chat loop.
+
+  - type: code
+    label: "run it"
+    heading: "Generate app.py, then launch"
+    code: |
+      # In the project notebook:
+      app = ChatApp()
+      print(app.send("Give me one tip for clean Python."))
+      write_streamlit_app("app.py")   # emits a self-contained Streamlit file
+
+      # In a terminal:
+      #   streamlit run app.py
+      # Opens http://localhost:8501 — a live chat UI backed by Ollama.
+    narration: >
+      In the project you first drive the ChatApp headlessly to prove the logic
+      works, then call write_streamlit_app, which uses inspect to gather your
+      functions and the ChatApp class into one self-contained app.py, complete
+      with the Streamlit UI. Then you run streamlit run app.py in a terminal. It
+      opens a browser tab at localhost port 8501 with your chat window, the
+      settings sidebar, live metrics, and the download button — a real, runnable
+      product.
+
+  - type: exercise
+    heading: "Exercise 5 + Project — ChatApp and the Real App"
+    prompt: >
+      Implement the `ChatApp` class (`send`, `stats`, `transcript`, `reset`),
+      then in the project generate `app.py` with `write_streamlit_app` and run
+      `streamlit run app.py`. The checks verify the methods, the send flow, that
+      invalid input appends nothing, and that the generated app.py imports
+      streamlit, defines ChatApp, uses `st.chat_input`, and compiles.
+    hint: >
+      In `send`, call `validate_user_input` first and return the error string on
+      failure BEFORE appending anything. Otherwise: add user, call
+      `chat_with_history`, add assistant, return the reply. Delegate `stats`,
+      `transcript`, and `reset` to the functions from Exercises 1 and 4.
+    narration: >
+      Open exercise underscore 05, then the project. In send, validate first and
+      bail out with the error message before touching the conversation — check
+      three depends on it. Everything else delegates to functions you already
+      wrote, so the class is short. Once the exercise is green, the project has
+      you emit app.py and launch it. Seeing your own chatbot open in the browser
+      is the payoff of Section 4's first day.
+
+  - type: summary
+    heading: "Lesson 5 & Day 51 Takeaways"
+    bullets:
+      - "ChatApp is the logic core; the Streamlit file is a thin shell"
+      - "`send()` runs the whole turn and only commits on valid input"
+      - "Store one app in `st.session_state`; `st.rerun()` after a mutation"
+      - "`streamlit run app.py` turns your Python into a live web product"
+    narration: >
+      Day 51 in summary: you learned Streamlit's rerun model and session state,
+      validated widget input, wired conversation history into the model, built
+      display helpers, and assembled it all into a ChatApp behind a thin UI. The
+      deliverable is a real app.py you launch with streamlit run. Tomorrow, Day
+      52, you flip to the other side of the stack — FastAPI — and serve your AI
+      over HTTP as an API that any client can call.
