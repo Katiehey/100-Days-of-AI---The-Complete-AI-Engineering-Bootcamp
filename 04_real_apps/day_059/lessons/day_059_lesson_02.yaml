@@ -1,0 +1,150 @@
+day: 59
+lesson: 2
+title: "Thread-Based Job Queues"
+slides:
+  - type: title
+    heading: "Thread-Based Job Queues"
+    subheading: "Day 059 — Background Jobs & Queues"
+
+  - type: concept
+    heading: "threading.Thread — The Building Block"
+    bullets:
+      - "`import threading` — standard library, no install needed"
+      - "`t = threading.Thread(target=fn, args=(arg1, arg2))`"
+      - "`t.start()` — starts the thread; main thread continues immediately"
+      - "`daemon=True` — thread exits when the main process exits (no zombie threads)"
+      - "Each thread runs `fn(*args)` independently in parallel"
+    narration: >
+      Python's threading module is all you need for background workers. You create
+      a Thread with a target function and optional arguments, call start(), and the
+      main thread continues without waiting. The daemon=True flag is important for
+      server use: daemon threads are automatically killed when the main process exits,
+      so you don't get orphaned background threads keeping the process alive after
+      the server shuts down. For our job queue, each submitted job spawns one daemon
+      thread.
+
+  - type: concept
+    heading: "Thread Safety — The Lock"
+    bullets:
+      - "Multiple threads sharing a dict → **race condition** if no synchronisation"
+      - "Two threads can interleave reads and writes, corrupting state"
+      - "`lock = threading.Lock()` — only one thread holds it at a time"
+      - "`with lock: ...` — acquires lock, runs block, releases lock automatically"
+      - "Rule: every read AND write of shared data must happen under the same lock"
+    narration: >
+      The critical rule for multi-threaded code is: any data structure accessed by
+      more than one thread must be protected by a lock. Python's GIL provides some
+      safety for simple operations, but dict updates that involve read-then-write
+      sequences are not atomic. If two threads simultaneously update the same job
+      entry, the final state is unpredictable. threading.Lock is the solution: it
+      ensures only one thread executes the protected block at a time. Use with lock
+      for automatic release even if an exception occurs.
+
+  - type: code
+    heading: "JobQueue — Structure"
+    language: python
+    code: |
+      import threading, uuid
+      from typing import Any, Callable
+
+      class JobQueue:
+          def __init__(self):
+              self._jobs: dict = {}          # shared state
+              self._lock = threading.Lock()  # protects _jobs
+
+          def submit(self, fn: Callable, *args) -> str:
+              job_id = uuid.uuid4().hex[:8]
+              with self._lock:
+                  self._jobs[job_id] = {"status": "pending"}
+
+              def worker():
+                  with self._lock:
+                      self._jobs[job_id]["status"] = "running"
+                  try:
+                      value = fn(*args)
+                      with self._lock:
+                          self._jobs[job_id] = {"status": "done", "result": value}
+                  except Exception as exc:
+                      with self._lock:
+                          self._jobs[job_id] = {"status": "error", "error": str(exc)}
+
+              threading.Thread(target=worker, daemon=True).start()
+              return job_id
+
+          def status(self, job_id: str) -> str:
+              with self._lock:
+                  return self._jobs.get(job_id, {}).get("status", "not_found")
+    narration: >
+      The JobQueue class follows a clear pattern. Every access to _jobs is wrapped
+      in a with self._lock block. The submit method creates the job record under the
+      lock, then starts a daemon thread. The worker function runs in that thread:
+      it sets status to running, calls the user's function, and stores the result
+      or error — all under the lock for each write. The status and result methods
+      similarly acquire the lock before reading. This makes the queue safe for
+      concurrent use from any number of threads.
+
+  - type: code
+    heading: "Using JobQueue"
+    language: python
+    code: |
+      import time
+
+      queue = JobQueue()
+
+      # submit a slow task
+      def slow_summarize(text):
+          import ollama
+          resp = ollama.chat(
+              model="llama3.2",
+              messages=[{"role": "user", "content": f"Summarize: {text[:1000]}"}]
+          )
+          return resp["message"]["content"]
+
+      job_id = queue.submit(slow_summarize, "Long article text here...")
+      print(f"Submitted: {job_id}")
+      print(f"Status: {queue.status(job_id)}")   # "pending" or "running"
+
+      # poll until done
+      while queue.status(job_id) in ("pending", "running"):
+          time.sleep(0.5)
+
+      print(f"Result: {queue.result(job_id)}")   # the summary string
+    narration: >
+      Using the queue is straightforward. You call submit with a function and its
+      arguments, get back a job_id immediately, and the function runs in a background
+      thread. You can check the status at any time without blocking. The polling loop
+      at the end waits until the job leaves the running state. In a web API, this
+      polling loop lives in the client code — the server just exposes GET /jobs/{id}
+      and the client calls it repeatedly until it sees status=done.
+
+  - type: concept
+    heading: "Job Status Lifecycle"
+    bullets:
+      - "`'pending'` — submitted, thread not started yet (very brief)"
+      - "`'running'` — thread active, fn is executing"
+      - "`'done'` — fn returned successfully, `result` key is populated"
+      - "`'error'` — fn raised an exception, `error` key has the message"
+      - "`'not_found'` — job_id unknown (typo or expired)"
+    narration: >
+      The four real statuses form a linear pipeline: pending to running to done or
+      error. The not_found pseudo-status is returned when the job_id does not exist
+      in the store at all — it is not a stored status, just a sentinel so callers
+      do not need to handle None. In a real system you might also add cancelled and
+      expired statuses. The key design decision is that done and error are terminal
+      — once a job reaches either, its status never changes again.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`threading.Thread(target=fn, daemon=True).start()` — fire and forget background work"
+      - "`threading.Lock()` + `with lock:` — serialize all shared-dict access"
+      - "Job lifecycle: pending → running → done | error"
+      - "`result(job_id)` returns `None` until status is `done`"
+      - "Submit returns immediately — caller must poll to discover completion"
+    narration: >
+      Thread-based job queues are practical for single-server applications. The
+      two key ingredients are a daemon Thread for background execution and a Lock
+      for safe access to the shared job store. The job status lifecycle — pending,
+      running, done, error — gives clients precise information about progress.
+      In Exercise 2 you implement JobQueue from scratch, and in Exercise 3 you wire
+      it into a FastAPI app to build a complete background processing API.

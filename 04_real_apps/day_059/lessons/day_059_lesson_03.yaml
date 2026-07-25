@@ -1,0 +1,147 @@
+day: 59
+lesson: 3
+title: "Job Status API Design"
+slides:
+  - type: title
+    heading: "Job Status API Design"
+    subheading: "Day 059 — Background Jobs & Queues"
+
+  - type: concept
+    heading: "The 202 Accepted Pattern"
+    bullets:
+      - "HTTP 200 OK = request completed — **not right** for background work"
+      - "HTTP 202 Accepted = request received, processing will happen later"
+      - "202 response body: `{\"job_id\": \"abc123\", \"status\": \"pending\"}`"
+      - "Client uses `job_id` to poll `GET /jobs/{id}` until done"
+      - "This is the standard REST pattern for asynchronous operations"
+    narration: >
+      The HTTP status code 202 Accepted exists exactly for this scenario: the server
+      has accepted the request and will process it, but processing is not complete
+      yet. Returning 200 OK would imply the work is done, which misleads the client.
+      The 202 response includes a job_id so the client can track progress. This
+      pattern is used by virtually every cloud API for long-running operations —
+      AWS, Azure, Google Cloud all use it for operations that take more than a few
+      seconds.
+
+  - type: code
+    heading: "Worker API — Endpoints"
+    language: python
+    code: |
+      from fastapi import FastAPI, HTTPException
+      from pydantic import BaseModel, Field
+
+      def build_worker_api(process_fn=None) -> FastAPI:
+          app   = FastAPI()
+          queue = JobQueue()   # from Exercise 2
+
+          class _JobReq(BaseModel):
+              payload: str = Field(min_length=1)
+
+          @app.post("/jobs", status_code=202)
+          def submit(req: _JobReq):
+              fn     = process_fn if process_fn is not None else str.upper
+              job_id = queue.submit(fn, req.payload)
+              return {"job_id": job_id, "status": "pending"}
+
+          @app.get("/jobs/{job_id}")
+          def get_job(job_id: str):
+              s = queue.status(job_id)
+              if s == "not_found":
+                  raise HTTPException(404, "Job not found")
+              return {"status": s, "result": queue.result(job_id)}
+
+          return app
+    narration: >
+      This is Exercise 3's target. The POST /jobs endpoint immediately returns 202
+      with the job_id. The GET /jobs/{job_id} endpoint checks the queue status and
+      returns it — the client must keep calling until status leaves running. The 404
+      case handles typos or stale job_ids. Note the process_fn injection: in tests
+      we pass str.upper for an instant result; in production it would call Ollama.
+      The result field is always included in the response but is None until the job
+      is done.
+
+  - type: concept
+    heading: "Polling vs Webhooks vs WebSocket"
+    bullets:
+      - "**Polling:** client calls GET /jobs/{id} every N seconds — simple, slightly wasteful"
+      - "**Webhook:** server POSTs to a client-provided URL when done — efficient but complex"
+      - "**WebSocket:** bidirectional — server pushes result the moment it is ready"
+      - "Polling is fine for AI jobs (5–30 seconds): one call per second = trivial overhead"
+      - "SSE or WebSocket better for real-time (sub-second updates)"
+    narration: >
+      There are three ways for a client to discover job completion. Polling is the
+      simplest: call GET /jobs/id every second until done. For a 20-second Ollama
+      job, that is 20 HTTP requests — negligible load. Webhooks invert the flow:
+      the client provides a callback URL and the server POSTs to it when the job
+      finishes. Webhooks are more efficient but require the client to be a server
+      itself. WebSocket streaming from Day 058 is a third option: keep the connection
+      open and push the result the moment processing completes. For simple AI
+      background jobs, polling is the right choice.
+
+  - type: code
+    heading: "Testing the Worker API"
+    language: python
+    code: |
+      import time
+      from starlette.testclient import TestClient
+
+      app    = build_worker_api(process_fn=str.upper)
+      client = TestClient(app, raise_server_exceptions=False)
+
+      # submit job
+      r = client.post("/jobs", json={"payload": "hello"})
+      assert r.status_code == 202
+      job_id = r.json()["job_id"]
+
+      # poll until done (thread runs truly in background)
+      deadline = time.monotonic() + 2.0
+      while time.monotonic() < deadline:
+          r2 = client.get(f"/jobs/{job_id}")
+          if r2.json()["status"] != "running":
+              break
+          time.sleep(0.01)
+
+      assert r2.json()["status"] == "done"
+      assert r2.json()["result"] == "HELLO"
+    narration: >
+      Unlike Exercise 1's BackgroundTasks which ran synchronously in TestClient,
+      the JobQueue launches a real OS thread, so we need a short polling loop in
+      the test. The str.upper function is nearly instant, so the loop exits in
+      one or two iterations. Notice we poll until status is not running — the job
+      could skip from pending directly to done if the thread starts very quickly.
+      In production with Ollama, this same polling pattern in the client would
+      run every 500 milliseconds or one second until the summary is ready.
+
+  - type: concept
+    heading: "In-Memory vs Persistent Job Store"
+    bullets:
+      - "In-memory dict: job results lost on server restart"
+      - "Not shared across multiple server instances (load balancer → different dicts)"
+      - "Fine for: development, single-server apps, short-lived jobs"
+      - "Production: store jobs in SQLite/Postgres (Day 54 patterns apply)"
+      - "Or: use Redis as a shared job store (same API, just a different backend)"
+    narration: >
+      The JobQueue implemented today uses an in-memory dict, which has two limitations.
+      First, results vanish when the server restarts — if Ollama takes 20 seconds
+      and the server crashes at second 15, the job is lost. Second, if you run two
+      server instances behind a load balancer, each has its own _jobs dict. A client
+      might submit to instance A but poll instance B, which knows nothing about that
+      job. For a production app, you would replace the dict with a database write —
+      using the SQLAlchemy patterns from Day 054 — or a Redis hash that all instances
+      can read and write.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`POST /jobs → 202 Accepted + job_id` then `GET /jobs/{id}` polling"
+      - "404 for unknown job_id; `result` is null until status is `done`"
+      - "Polling is appropriate for long AI jobs (1 req/sec is trivial overhead)"
+      - "In-memory store is sufficient for single-server development"
+      - "Production: persist job state to a database or Redis for durability"
+    narration: >
+      The REST pattern for background jobs is clean and widely understood: submit
+      for 202 and a job_id, poll the status endpoint, retrieve the result when done.
+      The TestClient polling loop mirrors exactly what a real client would do in
+      production. The main trade-off of the in-memory store is lack of persistence
+      and shareability — trade-offs you accept in development and address with a
+      database or Redis in production.

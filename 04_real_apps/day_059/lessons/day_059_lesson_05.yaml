@@ -1,0 +1,122 @@
+day: 59
+lesson: 5
+title: "The Background Job API"
+slides:
+  - type: title
+    heading: "The Background Job API"
+    subheading: "Day 059 — Background Jobs & Queues"
+
+  - type: concept
+    heading: "What background_api.py Provides"
+    bullets:
+      - "`GET /health` — health check (same pattern as Day 057)"
+      - "`POST /summarize` → 202 + `{job_id}` — submits Ollama summarization job"
+      - "`GET /jobs/{job_id}` → status + result when done; 404 if unknown"
+      - "All config via env vars: `MODEL`, `PORT`"
+      - "`build_api(process_fn=None)` — dependency injection for testability"
+    narration: >
+      The project deliverable, background_api.py, combines the three core pieces:
+      a thread-safe _JobStore for tracking job state, a background worker function
+      that calls Ollama, and three FastAPI endpoints for health, submission, and
+      status polling. The build_api function accepts an optional process_fn for
+      testing without Ollama, following the same injection pattern used in Days 053
+      and 058. All configuration comes from environment variables so the same code
+      runs locally and in production.
+
+  - type: concept
+    heading: "poll_until_done — The Client Helper"
+    bullets:
+      - "Client code needs to poll until job is no longer pending or running"
+      - "`poll_until_done(status_fn, job_id, timeout, interval) -> dict`"
+      - "Returns the final status dict when status leaves 'pending'/'running'"
+      - "Raises `TimeoutError` if job does not complete within `timeout` seconds"
+      - "Works with any status function — API client, TestClient, or mock"
+    narration: >
+      Exercise 5 implements poll_until_done, the client-side complement to the job
+      API. It abstracts the polling loop so you do not repeat this code everywhere.
+      The status_fn parameter accepts any callable that takes a job_id and returns
+      a status dict — you can pass a function that calls GET /jobs/{id} on a real
+      server, or a TestClient method for in-process testing, or a mock for unit tests.
+      The timeout prevents infinite loops when a job hangs. Returning the final dict
+      rather than raising on errors lets the caller decide how to handle an error job.
+
+  - type: code
+    heading: "Full Flow — Submit and Poll"
+    language: python
+    code: |
+      import time
+      from starlette.testclient import TestClient
+
+      # build test app (no Ollama)
+      app    = build_api(process_fn=lambda text: "Summary: " + text[:30])
+      client = TestClient(app, raise_server_exceptions=False)
+
+      # submit
+      r = client.post("/summarize", json={"text": "A long document..."})
+      job_id = r.json()["job_id"]
+
+      # poll using poll_until_done
+      def check_status(jid):
+          return client.get(f"/jobs/{jid}").json()
+
+      result = poll_until_done(check_status, job_id, timeout=5.0, interval=0.05)
+      print(result["status"])    # "done"
+      print(result["result"])    # "Summary: A long document..."
+    narration: >
+      This is the complete background job flow in six lines of application code.
+      Submit the text, get a job_id, pass a status-checking function to poll_until_done,
+      and read the result. The polling is hidden inside poll_until_done. In production
+      this same pattern works with an httpx client calling the real server URL
+      instead of TestClient. The dependency injection on process_fn means you can
+      test the entire flow — submission, threading, status tracking, polling — without
+      ever starting Ollama.
+
+  - type: code
+    heading: "Deploying the Background Job API"
+    language: bash
+    code: |
+      # local development
+      uvicorn background_api:app --reload
+
+      # Procfile for Render/Railway
+      web: uvicorn background_api:app --host 0.0.0.0 --port $PORT
+
+      # environment variables
+      MODEL=llama3.2
+      PORT=8000   # set by platform
+
+      # test: submit a job
+      curl -X POST http://localhost:8000/summarize \
+           -H "Content-Type: application/json" \
+           -d '{"text": "Background jobs are tasks that run independently..."}'
+      # → {"job_id": "a1b2c3d4", "status": "pending"}
+
+      # poll for result
+      curl http://localhost:8000/jobs/a1b2c3d4
+      # → {"status": "running"}   (a few seconds later...)
+      # → {"status": "done", "result": "Background jobs run independently of..."}
+    narration: >
+      Deployment is identical to Days 057 and 058: bind to 0.0.0.0, read PORT
+      from the environment, use a Procfile. The curl commands show the typical
+      client interaction: POST to submit, then GET repeatedly until the status
+      is done. In a real frontend, this polling loop would run in JavaScript with
+      a setInterval call. One limitation to document for users: if the server
+      restarts between POST and GET, the job_id is gone — for long-running
+      production jobs, persist the _JobStore to a database.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "`background_api.py` = _JobStore + threading.Thread + FastAPI endpoints"
+      - "`build_api(process_fn=None)` injection makes every endpoint testable"
+      - "`poll_until_done(status_fn, job_id)` = reusable client-side polling helper"
+      - "Full flow: POST /summarize → job_id → poll GET /jobs/{id} → result"
+      - "In-memory store only; persist to database for production durability"
+    narration: >
+      Today's three patterns — BackgroundTasks for simple cases, JobQueue with
+      threading for persistent status tracking, and retry_with_backoff for resilience
+      — cover most background-job needs in a single-server app. The poll_until_done
+      helper completes the picture by giving you a clean client-side abstraction.
+      These are the building blocks you will use when adding async processing to
+      the capstone products in Days 64 and 65. For multi-server production deployments,
+      swap the in-memory dict for Redis and the threading.Thread for a Celery worker.

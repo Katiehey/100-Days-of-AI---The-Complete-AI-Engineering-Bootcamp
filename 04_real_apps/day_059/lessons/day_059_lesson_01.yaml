@@ -1,0 +1,106 @@
+day: 59
+lesson: 1
+title: "Why Background Jobs?"
+slides:
+  - type: title
+    heading: "Why Background Jobs?"
+    subheading: "Day 059 — Background Jobs & Queues"
+
+  - type: concept
+    heading: "The Problem: Slow Operations Block HTTP"
+    bullets:
+      - "HTTP is request/response: client waits for the full response before doing anything"
+      - "Ollama summarization can take 5–30 seconds — user stares at a spinner"
+      - "If the server crashes mid-request, the result is lost"
+      - "If 10 users submit at once, all 10 requests block the server concurrently"
+      - "Solution: accept the request instantly, process it in the background"
+    narration: >
+      The fundamental problem with slow operations in a web app is that HTTP is
+      synchronous by design. The client opens a connection, sends a request, and
+      blocks until the server responds. If your server needs 20 seconds to summarize
+      a document with Ollama, the client waits 20 seconds — or times out. And if
+      ten users submit simultaneously, you have ten slow Ollama calls running at once,
+      each holding a server thread. Background jobs break this coupling: accept the
+      work immediately, process it separately, let the client check back later.
+
+  - type: concept
+    heading: "The Job Queue Pattern"
+    bullets:
+      - "**Submit:** client sends work → server immediately returns a `job_id`"
+      - "**Process:** a worker thread executes the work in the background"
+      - "**Poll:** client calls `GET /jobs/{job_id}` until status is `done`"
+      - "Client is never blocked — it can do other things while waiting"
+      - "Server controls throughput — can limit concurrent workers"
+    narration: >
+      The job queue pattern has three steps. First, the client POSTs work to the
+      API and gets back a job_id immediately — HTTP 202 Accepted, not 200 OK.
+      Second, a background thread picks up the work and processes it, storing
+      the result keyed by that job_id. Third, the client polls a status endpoint
+      until the job is done and retrieves the result. This decoupling is the foundation
+      of every background processing system, from simple threading to Redis queues.
+
+  - type: code
+    heading: "FastAPI BackgroundTasks — The Simplest Approach"
+    language: python
+    code: |
+      from fastapi import BackgroundTasks, FastAPI
+      app = FastAPI()
+      _results: dict = {}
+
+      @app.post("/run", status_code=202)
+      def run_task(text: str, background_tasks: BackgroundTasks):
+          import secrets
+          job_id = secrets.token_hex(4)
+          _results[job_id] = {"status": "pending"}
+
+          def process():
+              # runs AFTER the HTTP response is sent
+              _results[job_id] = {"status": "done", "result": text.upper()}
+
+          background_tasks.add_task(process)
+          return {"job_id": job_id, "status": "pending"}
+
+      @app.get("/jobs/{job_id}")
+      def get_job(job_id: str):
+          return _results.get(job_id, {"status": "not_found"})
+    narration: >
+      FastAPI's BackgroundTasks is the simplest built-in option. You inject
+      BackgroundTasks as a route parameter, register your function with add_task,
+      and FastAPI calls it after the HTTP response is flushed. The client gets
+      202 Accepted immediately. The process function runs in the same server process
+      but after the response — so there is no blocking. Results are stored in a
+      plain dict. The limitation is that results vanish on server restart and
+      aren't shared across multiple server instances.
+
+  - type: concept
+    heading: "BackgroundTasks vs Threads vs Queues"
+    bullets:
+      - "**BackgroundTasks:** simplest — same process, single server, no persistence"
+      - "**threading.Thread:** persistent while server runs, controllable concurrency"
+      - "**Redis + Celery:** multi-server, durable, production-grade (Day 59 covers threads)"
+      - "Pick the simplest tool that meets your requirements"
+      - "Today: threading — no extra infrastructure, works on any machine"
+    narration: >
+      There is a spectrum of background job systems. FastAPI's BackgroundTasks is
+      the entry point — zero config, one import. Threading gives you more control:
+      you can limit how many jobs run simultaneously, track job status persistently,
+      and handle errors per-job. Redis with Celery or similar tools add durability
+      across restarts and horizontal scaling across multiple servers. Day 059 covers
+      threading — enough for a real single-server app — without requiring Redis
+      or any external infrastructure.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Background jobs decouple slow work from HTTP response time"
+      - "Pattern: 202 Accepted + job_id → process in background → client polls"
+      - "`BackgroundTasks` = simplest FastAPI option, runs after response is sent"
+      - "Today's exercises use threading for persistent per-job status tracking"
+      - "In production: use Redis/Celery for durability and multi-server support"
+    narration: >
+      The core idea is simple: never make a client wait for slow work. Return a
+      job_id immediately, process in the background, let the client poll for
+      completion. FastAPI's BackgroundTasks handles the simplest case. For anything
+      that needs to survive server restarts or scale across multiple instances, you
+      would add a persistent queue. Today's exercises implement the threading version
+      — real background workers with job status tracking, all without external dependencies.

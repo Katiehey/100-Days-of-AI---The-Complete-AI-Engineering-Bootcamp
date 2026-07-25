@@ -1,0 +1,128 @@
+day: 59
+lesson: 4
+title: "Retry and Error Handling"
+slides:
+  - type: title
+    heading: "Retry and Error Handling"
+    subheading: "Day 059 — Background Jobs & Queues"
+
+  - type: concept
+    heading: "Why Background Jobs Fail"
+    bullets:
+      - "Ollama not running yet — brief startup window on cold server"
+      - "Temporary network blip — if Ollama runs on a remote host"
+      - "Context-length overrun — document too long for the model"
+      - "Out-of-memory — large model on a small machine"
+      - "Most failures are transient — retrying after a short delay usually works"
+    narration: >
+      Background jobs fail for many reasons, and most are transient. When the server
+      first starts, Ollama might still be loading the model. A network hiccup between
+      your API server and an Ollama host can break a single request. These failures
+      go away on their own within seconds. Retrying once or twice — with a brief
+      pause between attempts — recovers from almost all transient errors without
+      any manual intervention. Permanent failures like an invalid prompt or a
+      consistently OOM model are not helped by retrying.
+
+  - type: concept
+    heading: "Exponential Backoff"
+    bullets:
+      - "**Fixed delay:** retry every 1s — can overwhelm a struggling service"
+      - "**Exponential backoff:** delay doubles each attempt — 1s, 2s, 4s, 8s"
+      - "Multiple clients retrying simultaneously all spread out their requests"
+      - "Add small random jitter to further desynchronise retries"
+      - "Cap the maximum delay (e.g. 30s) to avoid waiting forever"
+    narration: >
+      Fixed-interval retries create a thundering-herd problem: if 100 clients all
+      fail at the same time and retry exactly one second later, the service gets hit
+      with 100 simultaneous requests at T+1. Exponential backoff spreads the load:
+      each retry waits twice as long as the previous one, so the bursts naturally
+      thin out. Adding a small random jitter — a fraction of the delay added
+      randomly — further prevents synchronised retries even when clients start at
+      the same moment. This is why every production retry library uses backoff.
+
+  - type: code
+    heading: "retry_with_backoff — Implementation"
+    language: python
+    code: |
+      import time
+
+      def retry_with_backoff(fn, max_retries=3, base_delay=0.001):
+          """Call fn(). Retry up to max_retries times with exponential backoff."""
+          last_exc = None
+          for attempt in range(max_retries + 1):    # 1 initial + max_retries retries
+              try:
+                  return fn()
+              except Exception as exc:
+                  last_exc = exc
+                  if attempt < max_retries:         # don't sleep after last attempt
+                      time.sleep(base_delay * (2 ** attempt))
+          raise last_exc                            # re-raise last failure
+    narration: >
+      The implementation is concise. The loop runs max_retries + 1 times — the
+      extra one is the initial attempt, which is not a retry. On success it returns
+      immediately. On failure it records the exception, sleeps if there are more
+      attempts remaining, and continues. After all attempts are exhausted it raises
+      the last exception so the caller knows why it failed. The last_exc variable
+      holds the most recent exception across loop iterations, avoiding bare raise
+      which would not work outside an except block.
+
+  - type: code
+    heading: "Using retry_with_backoff in a Job"
+    language: python
+    code: |
+      def worker(job_id, text, store):
+          store.set_running(job_id)
+          try:
+              def summarize():
+                  resp = ollama.chat(
+                      model=MODEL,
+                      messages=[{"role": "user", "content": f"Summarize: {text[:3000]}"}]
+                  )
+                  return resp["message"]["content"]
+
+              summary = retry_with_backoff(summarize, max_retries=2, base_delay=1.0)
+              store.set_done(job_id, summary)
+          except Exception as exc:
+              store.set_error(job_id, str(exc))
+    narration: >
+      Wrapping the Ollama call in retry_with_backoff is a one-line change.
+      If Ollama fails on the first call (for example, the model is still loading),
+      retry_with_backoff waits one second and tries again. If it fails a second time,
+      it waits two seconds. After the third attempt, if it still fails, the exception
+      propagates out of retry_with_backoff, is caught by the outer except, and the
+      job is marked as error. The client polling GET /jobs/{id} will see status error
+      and can decide whether to resubmit the job.
+
+  - type: concept
+    heading: "Idempotency — Safe to Retry"
+    bullets:
+      - "**Idempotent:** calling an operation multiple times has the same effect as once"
+      - "Ollama summarization IS idempotent — same text → same (equivalent) summary"
+      - "Write-once operations are NOT idempotent — duplicate DB inserts cause errors"
+      - "Design background jobs to be idempotent whenever possible"
+      - "If not idempotent: use a unique job_id to detect and skip duplicates"
+    narration: >
+      Retry is only safe if the operation is idempotent. Summarizing text with Ollama
+      is idempotent — running it twice gives equivalent results, and the extra call
+      is merely wasteful. But if your job sends an email or inserts a database row,
+      retrying on a transient network error might send the email twice or insert a
+      duplicate. For non-idempotent operations, use the job_id as an idempotency key:
+      before executing, check whether a record with this job_id already exists, and
+      skip the work if it does.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "Most background job failures are transient — retrying recovers them"
+      - "Exponential backoff: delay doubles each attempt (base * 2**attempt)"
+      - "`retry_with_backoff(fn, max_retries, base_delay)` wraps any zero-arg callable"
+      - "Total calls = max_retries + 1 (initial attempt is not counted as a retry)"
+      - "Only retry idempotent operations; use job_id as idempotency key otherwise"
+    narration: >
+      Retry with exponential backoff is one of the most valuable patterns in
+      distributed systems. It is a small function — ten lines — that dramatically
+      improves reliability in the face of transient failures. The key constraints
+      are that the operation must be idempotent (or protected by an idempotency key)
+      and the maximum delay must be capped so you do not wait forever. Exercise 4
+      asks you to implement this function from scratch, and Exercise 5 adds a
+      complementary poll_until_done helper for the client side.
