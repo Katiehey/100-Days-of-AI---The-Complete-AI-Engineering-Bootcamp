@@ -1,0 +1,126 @@
+day: "054"
+lesson: "04"
+title: "Persistence & Migrations"
+slides:
+  - type: title
+    heading: "Persistence & Migrations"
+    subheading: "Data on disk that survives restarts — and evolving the schema"
+    narration: >
+      This is the lesson where the app truly gains a memory. We switch from an
+      in-memory database to a file on disk, and prove the data survives a restart.
+      Then we face the reality that schemas change over time, and learn the
+      smallest honest version of a migration: adding a column to an existing
+      database without losing what is already there.
+
+  - type: concept
+    label: "file vs memory"
+    heading: "A File Is the Difference"
+    body: >
+      One line separates disposable from durable:
+
+      ```python
+      create_engine("sqlite:///:memory:")   # gone on exit
+      create_engine("sqlite:///chat.db")     # a file — survives restarts
+      ```
+
+      Point the engine at a file and every commit is written to disk. Restart the
+      process, reopen the file, and the data is all there.
+    bullets:
+      - "`:memory:` — fast, disposable, perfect for tests"
+      - "`sqlite:///chat.db` — a real file, durable across restarts"
+      - "`create_all` on startup is safe (CREATE TABLE IF NOT EXISTS)"
+      - "Same ORM, same queries — only the engine URL changes"
+    narration: >
+      The entire difference between disposable and durable is the engine URL.
+      Memory colon memory is an in-memory database — fast and perfect for tests, but
+      gone when the process exits. Point the URL at a file, sqlite slash slash slash
+      chat dot db, and now every commit is written to disk. Restart, reopen the same
+      file, and your conversations are still there. Nothing else changes — the same
+      models, the same queries. The engine URL is the whole switch from a toy to a
+      real, stateful app.
+
+  - type: how_it_works
+    label: "make_engine"
+    heading: "A file-backed engine that survives restarts"
+    body: >
+      ```python
+      def make_engine(db_path):
+          engine = create_engine(f"sqlite:///{db_path}")
+          Base.metadata.create_all(engine)   # build tables if new
+          return engine
+
+      # Restart = a new engine on the same file
+      engine  = make_engine("chat.db"); # ... save data ...
+      engine.dispose()
+      engine2 = make_engine("chat.db"); # sees all the saved data
+      ```
+    narration: >
+      make_engine points at a file path and calls create_all, which builds the
+      tables only if they are missing — so it is safe to run on every startup. To
+      prove persistence, you save some data, dispose the engine to simulate a
+      shutdown, then make a new engine on the same path — a simulated restart — and
+      the data is right there. That round trip, save, restart, read, is the demo at
+      the heart of today's exercise and the whole point of a database.
+
+  - type: concept
+    label: "migrations"
+    heading: "Schemas Change — Migrations Manage That"
+    body: >
+      Your app will need a new column someday. But `create_all` only creates
+      *missing* tables — it never alters an existing one. A **migration** changes a
+      live schema without losing data:
+
+      ```python
+      def migrate_add_column(engine, table, column, sqltype="TEXT"):
+          if column_exists(engine, table, column):
+              return False                    # idempotent — already applied
+          # ALTER TABLE ... ADD COLUMN ...
+          return True
+      ```
+
+      Production apps use **Alembic** to version and order many migrations; the
+      idea is the same: check, then change, safely and once.
+    narration: >
+      Here is a subtlety that catches people. create_all builds missing tables, but
+      it will never alter a table that already exists. So when your app needs a new
+      column on a database that is already full of users' data, you cannot just
+      change the model — you need a migration. The essence is check then change: see
+      if the column exists, and if not, alter the table to add it. Make it
+      idempotent so running it on every startup is safe. Real apps use a tool called
+      Alembic to version and order dozens of these migrations, but the core idea is
+      exactly this small function.
+
+  - type: exercise
+    heading: "Exercise 4 — Persistence & Migration"
+    prompt: >
+      Implement `make_engine(db_path)` (file-backed, creates the schema),
+      `column_exists(engine, table, column)`, and `migrate_add_column(engine,
+      table, column, sqltype)` (idempotent). The checks verify the file is created,
+      that data survives a simulated restart, and that the migration adds a column
+      once and no-ops on re-run.
+    hint: >
+      `create_engine(f"sqlite:///{db_path}")` then `create_all`. Use
+      `sa_inspect(engine).get_columns(table)` for `column_exists`. In the migration,
+      return `False` if the column exists, else `ALTER TABLE ... ADD COLUMN` inside
+      `with engine.begin()` and return `True`.
+    narration: >
+      Open exercise underscore 04. Check two is the important one: it saves a
+      message, disposes the engine, reopens on the same file, and expects the
+      message to still be there — that is persistence. The migration must be
+      idempotent: first call returns True and adds the column, second call returns
+      False and does nothing. That is what makes it safe to run on every boot. Five
+      green, then Lesson 5 wraps everything in the ChatStore facade.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`sqlite:///file.db` gives durable, restart-proof storage"
+      - "`create_all` builds missing tables but never alters existing ones"
+      - "A migration changes a live schema without losing data — check, then change"
+      - "Make migrations idempotent; production uses Alembic to order many"
+    narration: >
+      To recap: a file-backed engine is what makes state survive a restart,
+      create_all handles new tables but not schema changes, and a migration adds a
+      column to a live database idempotently. That check-then-change pattern scales
+      up, via Alembic, to manage a whole history of schema changes. Lesson 5 brings
+      it all together into ChatStore — the facade the backend uses.

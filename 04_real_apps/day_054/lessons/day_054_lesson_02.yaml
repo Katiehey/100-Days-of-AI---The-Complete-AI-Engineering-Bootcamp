@@ -1,0 +1,116 @@
+day: "054"
+lesson: "02"
+title: "Foreign Keys & Relationships in Action"
+slides:
+  - type: title
+    heading: "Linking Messages to Conversations"
+    subheading: "The foreign key at the row level, the relationship in Python"
+    narration: >
+      A message on its own is meaningless — it has to belong to a conversation.
+      Lesson 2 is about that link: saving a message with its foreign key, and
+      seeing it appear through the relationship. This is how the app records every
+      turn of a chat into the right conversation.
+
+  - type: concept
+    label: "two views of one link"
+    heading: "One Link, Two Views"
+    body: >
+      The connection between a message and its conversation shows up two ways:
+
+      | View | What it is | Example |
+      |---|---|---|
+      | Foreign key | a column storing the parent id | `message.conversation_id == 7` |
+      | Relationship | the ORM object link | `conversation.messages == [msg, ...]` |
+
+      Set the foreign key and SQLAlchemy keeps the relationship in sync — no manual
+      list management.
+    bullets:
+      - "`conversation_id` = the foreign key column (row-level link)"
+      - "`conversation.messages` = the relationship (object-level view)"
+      - "`back_populates` keeps both directions consistent"
+      - "Set the FK on insert → the relationship updates automatically"
+    narration: >
+      The same link has two faces. At the row level, each message carries a
+      conversation underscore id — a plain column pointing at its parent. At the
+      object level, the relationship lets you write conversation dot messages and
+      get the list, or message dot conversation and get the parent. Because the
+      models declare back_populates on both sides, setting one updates the other.
+      You save a message with its foreign key, and the conversation's message list
+      reflects it without you touching a list.
+
+  - type: how_it_works
+    label: "add_message"
+    heading: "Saving a message via its foreign key"
+    body: >
+      ```python
+      def add_message(session, conversation_id, role, content):
+          msg = Message(conversation_id=conversation_id,
+                        role=role, content=content)
+          session.add(msg)
+          session.flush()          # assign msg.id
+          return msg
+
+      # after commit:
+      conv = session.get(Conversation, conversation_id)
+      conv.messages          # -> [Message(role='user', content='hi'), ...]
+      ```
+    narration: >
+      add_message builds a Message with the conversation underscore id set to the
+      parent, adds it, and flushes to get the message id. That single foreign key
+      is enough — once committed, fetching the conversation and reading dot messages
+      shows the new message in the list. You never append to a Python list by hand;
+      the relationship reads the link from the database. This is exactly how the
+      chat backend will save each user turn and each assistant reply.
+
+  - type: concept
+    label: "integrity"
+    heading: "Why Foreign Keys Matter"
+    body: >
+      The foreign key is a promise: every message points at a real conversation. It
+      keeps data consistent and enables:
+
+      - grouping — all messages of one conversation
+      - cascade — delete a conversation, its messages go too
+      - separation — two conversations never mix messages
+
+      Structure enforced by the database is structure you can trust.
+    narration: >
+      Foreign keys are not bureaucracy — they are what keeps your data honest. The
+      key guarantees every message belongs to an actual conversation, so you can
+      group messages by conversation, cascade a delete so no orphaned messages are
+      left behind, and be certain that two different conversations never share a
+      message. When the database enforces the structure, your application code can
+      trust it and stay simple.
+
+  - type: exercise
+    heading: "Exercise 2 — Link Messages"
+    prompt: >
+      Implement `add_message(session, conversation_id, role, content)` that inserts
+      a message linked by foreign key and flushes to assign its id. The checks
+      verify the id and FK are set, that `conversation.messages` reflects the
+      insert, that role/content are stored, that multiple messages accumulate, and
+      that two conversations keep separate messages.
+    hint: >
+      Construct `Message(conversation_id=conversation_id, role=role,
+      content=content)`, `session.add(...)`, then `session.flush()`. The
+      relationship does the rest — no need to touch `conversation.messages`.
+    narration: >
+      Open exercise underscore 02. The function is short — the point is what it
+      unlocks. After you save a message with its foreign key, check two reloads the
+      conversation and finds the message in dot messages, and check five confirms
+      two conversations never mix. That is the foreign key doing its job. Five
+      green, then Lesson 3 reads the data back out.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Set `conversation_id` to link a message to its conversation"
+      - "The relationship (`conversation.messages`) updates automatically"
+      - "`back_populates` keeps both directions in sync"
+      - "Foreign keys enforce integrity: grouping, cascade, separation"
+    narration: >
+      To recap: you link a message by setting its foreign key, and the relationship
+      reflects it automatically thanks to back_populates. Foreign keys keep the data
+      trustworthy — every message belongs somewhere, conversations stay separate,
+      and deletes cascade. Lesson 3 turns to reading: querying messages and
+      conversations back out in the shapes the app needs.

@@ -1,0 +1,116 @@
+day: "054"
+lesson: "03"
+title: "Reading State Back — Queries for the App"
+slides:
+  - type: title
+    heading: "Reading State Back"
+    subheading: "Query messages and conversations into app-ready shapes"
+    narration: >
+      Saving is only half of persistence. To rebuild a chat after a restart, the
+      app has to read the data back — the messages of a conversation, and the list
+      of all conversations for a sidebar. Lesson 3 writes those queries, and it
+      returns plain dictionaries so the results are safe to use anywhere, even
+      after the database session closes.
+
+  - type: concept
+    label: "read for the app"
+    heading: "Query Into the Shape the App Wants"
+    body: >
+      Two reads power the UI:
+
+      - `get_messages(conversation_id)` → `[{"role", "content"}, ...]` in order —
+        exactly the shape `ollama.chat` wants
+      - `list_conversations()` → `[{"id", "title", "message_count"}]` — a sidebar
+
+      Return **plain dicts**, not ORM objects, so the data outlives the session.
+    bullets:
+      - "`get_messages` → ordered role/content dicts (model-ready)"
+      - "`list_conversations` → id/title/message_count per conversation"
+      - "Convert rows to dicts INSIDE the session"
+      - "Dicts have no lazy-loading — safe after the session closes"
+    narration: >
+      The app needs two reads. get_messages returns a conversation's messages in
+      order as role and content dicts — which happens to be exactly the format
+      ollama dot chat expects, so the history feeds straight back into the model.
+      list_conversations returns one row per conversation with its id, title, and
+      message count, perfect for a sidebar. Crucially, both return plain
+      dictionaries, converted while the session is still open. That matters because
+      ORM objects lazy-load from the database; once the session closes they raise.
+      Dicts are just data — safe to pass anywhere.
+
+  - type: how_it_works
+    label: "the queries"
+    heading: "select, where, order_by"
+    body: >
+      ```python
+      def get_messages(session, conversation_id):
+          stmt = (select(Message)
+                  .where(Message.conversation_id == conversation_id)
+                  .order_by(Message.id))
+          rows = session.execute(stmt).scalars().all()
+          return [{"role": m.role, "content": m.content} for m in rows]
+
+      def list_conversations(session):
+          convs = session.execute(
+              select(Conversation).order_by(Conversation.id)).scalars().all()
+          return [{"id": c.id, "title": c.title,
+                   "message_count": len(c.messages)} for c in convs]
+      ```
+    narration: >
+      These are the Day 44 query tools applied to related data. select of Message,
+      filtered by the conversation's foreign key, ordered by id so the turns come
+      back in sequence. scalars dot all gives the objects, and the comprehension
+      turns them into dicts before returning. list_conversations selects all
+      conversations and, for each, reads the messages relationship to count them.
+      Because we do the conversion inside the session, the relationship loads
+      cleanly and the caller gets pure data.
+
+  - type: concept
+    label: "order matters"
+    heading: "Order Is Part of Correctness"
+    body: >
+      A chat read back in the wrong order is a broken chat. `order_by(Message.id)`
+      guarantees insertion order, because ids increase with each insert.
+
+      Never rely on the database returning rows in insertion order by default — it
+      is not guaranteed. Ask for the order you need, explicitly.
+    narration: >
+      One easy bug to miss: order. If you read a conversation's messages back in the
+      wrong sequence, the chat is nonsense. Databases do not promise to return rows
+      in the order you inserted them unless you ask. So we order by the id, which
+      increases with every insert, guaranteeing the turns come back exactly as they
+      happened. Whenever order is part of the meaning, make it explicit in the
+      query.
+
+  - type: exercise
+    heading: "Exercise 3 — Read the Data Back"
+    prompt: >
+      Implement `get_messages(session, conversation_id)` returning ordered
+      role/content dicts, and `list_conversations(session)` returning
+      id/title/message_count dicts. The checks verify the dict shape, insertion
+      order, an empty list for an unknown conversation, and a correct message
+      count.
+    hint: >
+      Use `select(Message).where(...).order_by(Message.id)` and build dicts in a
+      comprehension. For counts, read `len(c.messages)` on each conversation while
+      the session is open.
+    narration: >
+      Open exercise underscore 03. Two queries, both returning dicts. Check two
+      pins the order — first, second, third — so do not forget order_by. Check
+      three confirms an unknown conversation gives an empty list rather than an
+      error. These reads are what let the app rebuild a saved chat. Five green, then
+      Lesson 4 moves the data onto disk and handles schema changes.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`get_messages` returns ordered, model-ready role/content dicts"
+      - "`list_conversations` returns id/title/message_count for a sidebar"
+      - "Convert ORM rows to dicts inside the session — no lazy-load surprises"
+      - "`order_by(Message.id)` makes insertion order explicit"
+    narration: >
+      To recap: the app reads state back with two queries that return plain dicts —
+      ordered messages ready for the model, and a conversation list for the UI. We
+      convert to dicts inside the session to avoid lazy-load errors, and we order
+      explicitly because order is part of correctness. Lesson 4 takes the final step
+      to real persistence: a file-backed database and a migration.

@@ -1,0 +1,118 @@
+day: "054"
+lesson: "01"
+title: "Giving the App a Memory — Schema & Relationships"
+slides:
+  - type: title
+    heading: "Databases for Apps"
+    subheading: "Saved state that survives a restart — starting with the schema"
+    narration: >
+      Every app you have built this week forgets everything the moment it stops.
+      Close the Streamlit tab, restart the API, and the conversation is gone.
+      Today we fix that with a database. You will model conversations and messages
+      as related tables, save them to disk, and prove the data survives a restart.
+      We build on the SQLAlchemy ORM from Day 44 and add the piece that makes real
+      apps real: persistent, related data.
+
+  - type: concept
+    label: "why a database"
+    heading: "In-Memory Is Not Saved State"
+    body: >
+      A Python list or `st.session_state` lives only as long as the process. Real
+      apps need data that outlives a restart, a crash, or a deploy — that means a
+      database on disk.
+
+      Today's data has structure: a *conversation* contains many *messages*. That
+      is a **one-to-many relationship**, and modelling it correctly is the first
+      step.
+    bullets:
+      - "Process memory vanishes on restart; a database file persists"
+      - "Two tables today: `conversations` and `messages`"
+      - "A conversation has many messages — one-to-many"
+      - "Built on Day 44's SQLAlchemy 2.x ORM (models, Session, select)"
+    narration: >
+      The distinction is simple but fundamental. Anything in a Python variable —
+      a list, a session state dict — is gone when the process ends. Saved state
+      means data on disk that survives. And real app data has shape: a chat
+      conversation is not one flat table, it is a conversation that owns many
+      messages. That one-to-many relationship is what we model first, using the
+      same ORM you learned on Day 44, now with two tables that are linked.
+
+  - type: how_it_works
+    label: "the models"
+    heading: "Two Tables, One Relationship"
+    body: >
+      ```python
+      class Conversation(Base):
+          __tablename__ = "conversations"
+          id:    Mapped[int] = mapped_column(primary_key=True)
+          title: Mapped[str] = mapped_column(default="New chat")
+          messages: Mapped[list["Message"]] = relationship(
+              back_populates="conversation", cascade="all, delete-orphan")
+
+      class Message(Base):
+          __tablename__ = "messages"
+          id:              Mapped[int] = mapped_column(primary_key=True)
+          conversation_id: Mapped[int] = mapped_column(ForeignKey("conversations.id"))
+          conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+      ```
+    narration: >
+      Here are the two models. The Message table has a conversation underscore id
+      column marked as a ForeignKey — that is the database-level link, a column
+      that stores which conversation each message belongs to. On top of that,
+      relationship gives you the Python-level view: conversation dot messages is
+      the list of a conversation's messages, and message dot conversation points
+      back. The back_populates on each side keeps them in sync. And cascade delete
+      orphan means deleting a conversation cleans up its messages automatically.
+
+  - type: code
+    label: "create schema"
+    heading: "create_schema and create_conversation"
+    code: |
+      def create_schema(engine):
+          Base.metadata.create_all(engine)          # both tables at once
+
+      def create_conversation(session, title="New chat"):
+          conv = Conversation(title=title)
+          session.add(conv)
+          session.flush()        # assigns conv.id WITHOUT committing
+          return conv
+    narration: >
+      create_schema calls create_all, which issues CREATE TABLE for every model on
+      Base — both tables in one go. create_conversation adds a new conversation and
+      calls flush. Flush is the subtle part: it sends the INSERT so the database
+      assigns the auto-increment id, but it does not commit the transaction. That
+      lets you get the id immediately and attach messages, while the caller decides
+      when to commit the whole unit of work. This is the unit-of-work pattern from
+      Day 44, now across related tables.
+
+  - type: exercise
+    heading: "Exercise 1 — Schema & Conversations"
+    prompt: >
+      Implement `create_schema(engine)` and `create_conversation(session, title)`.
+      The checks verify both tables are created, that a new conversation gets an
+      id after flush, that the title and a `created_at` timestamp are stored, and
+      that ids are unique.
+    hint: >
+      `Base.metadata.create_all(engine)` builds the tables. In
+      `create_conversation`, add the object then `session.flush()` so `conv.id` is
+      populated before you return it — the caller will commit.
+    narration: >
+      Open exercise underscore 01. The models are provided — you build the two
+      functions. The key detail is flush versus commit: flush assigns the id so
+      check two passes, and you leave the commit to the caller. Notice the tests
+      open a Session with a with block, exactly like Day 44. Five green, then
+      Lesson 2 links messages to conversations through the foreign key.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Saved state = data on disk that survives a restart"
+      - "A conversation has many messages — a one-to-many relationship"
+      - "`ForeignKey` is the DB link; `relationship()` is the Python view"
+      - "`flush()` assigns the id without committing (caller owns the commit)"
+    narration: >
+      To recap: databases give apps memory that survives restarts, our data is two
+      related tables, the foreign key links them at the row level while relationship
+      links them as Python objects, and flush assigns ids inside an open unit of
+      work. Lesson 2 puts the relationship to work — saving messages that belong to
+      a conversation.

@@ -1,0 +1,126 @@
+day: "054"
+lesson: "05"
+title: "The ChatStore Facade & a Persistent Backend"
+slides:
+  - type: title
+    heading: "The ChatStore Facade"
+    subheading: "One object for all persistence — wired into the backend"
+    narration: >
+      Lesson 5 is the capstone of Day 54. You wrap the repository functions in a
+      single facade, ChatStore, that the app uses for everything: starting a
+      conversation, saving a turn, reading history, listing chats. Then you wire it
+      into a FastAPI backend and generate a service whose conversations survive
+      every restart. This is the app with a memory.
+
+  - type: concept
+    label: "the facade"
+    heading: "ChatStore Hides the Database"
+    body: >
+      One object, four verbs, no SQL in the app:
+
+      | Method | Does |
+      |---|---|
+      | `start(title)` | create a conversation → returns its id |
+      | `append(cid, role, content)` | save one message |
+      | `history(cid)` | read the conversation's messages |
+      | `conversations()` | list all conversations |
+
+      Each method opens a short `Session` and commits — a session per unit of work.
+    narration: >
+      ChatStore is a facade: it hides sessions, commits, and queries behind four
+      plain verbs. start creates a conversation and returns its id. append saves a
+      message. history reads the turns. conversations lists them all. Inside, each
+      method opens a short-lived Session, does its work, and commits — a session per
+      unit of work, which is the standard pattern for web apps. The backend never
+      writes a select or a commit; it just calls these four methods.
+
+  - type: how_it_works
+    label: "session per call"
+    heading: "A short session per operation"
+    body: >
+      ```python
+      class ChatStore:
+          def __init__(self, db_path):
+              self.engine = make_engine(db_path)
+
+          def append(self, conversation_id, role, content):
+              with Session(self.engine) as s:
+                  msg = add_message(s, conversation_id, role, content)
+                  s.commit()
+                  return msg.id
+
+          def history(self, conversation_id):
+              with Session(self.engine) as s:
+                  return get_messages(s, conversation_id)
+      ```
+    narration: >
+      Look at how each method manages its own session. append opens a Session in a
+      with block, calls the repository function you already wrote, commits, and
+      returns — the session closes automatically. history opens a session just to
+      read and returns plain dicts. Short sessions that open, do one job, and close
+      are exactly what a web server wants: no shared mutable connection, no leaked
+      transactions. In FastAPI this same idea is often expressed with a Depends
+      dependency that yields a session per request; ChatStore bakes it into each
+      method.
+
+  - type: code
+    label: "persistent backend"
+    heading: "Wiring ChatStore into FastAPI"
+    code: |
+      store = ChatStore("chat.db")
+      app = FastAPI(title="Persistent Chat API")
+
+      @app.post("/conversations")
+      def create_conv(req: ConversationIn):
+          return {"id": store.start(req.title)}
+
+      @app.post("/conversations/{cid}/messages")
+      def post_message(cid: int, req: MessageIn):
+          store.append(cid, "user", req.message)
+          history = store.history(cid)            # full saved history
+          reply = ollama.chat(model="llama3.2", messages=history)["message"]["content"]
+          store.append(cid, "assistant", reply)
+          return {"reply": reply}
+    narration: >
+      Here is the backend, and notice how thin the handlers are. One ChatStore is
+      created at module level, pointed at chat dot db. Posting a message saves the
+      user turn, reads the full saved history — every previous turn from the
+      database — sends it to Ollama, and saves the reply. Because history comes from
+      the database, the conversation is remembered even across restarts and
+      redeploys. The handler is four lines; ChatStore does the remembering. This is
+      Day 51's history idea plus Day 54's persistence.
+
+  - type: exercise
+    heading: "Exercise 5 + Project — ChatStore & the Backend"
+    prompt: >
+      Implement the `ChatStore` class (`start`, `append`, `history`,
+      `conversations`), then in the project generate `backend.py` with
+      `write_backend` and run it with `uvicorn backend:app --reload`. The checks
+      verify the methods, the save/read flow, and — the key one — that a fresh
+      `ChatStore` on the same file sees the saved data.
+    hint: >
+      In each method, `with Session(self.engine) as s:`, call the matching
+      repository function, `s.commit()` for writes, and return. Store the engine
+      from `make_engine(db_path)` in `__init__`.
+    narration: >
+      Open exercise underscore 05, then the project. Each method is a short session
+      wrapping a function you already built. Check five is the payoff: it makes a
+      second ChatStore on the same file and finds the same conversation — proof of
+      saved state. Then the project generates the persistent backend and you run it.
+      Post messages, stop the server, start it again — your conversation is still
+      there.
+
+  - type: summary
+    heading: "Lesson 5 & Day 54 Takeaways"
+    bullets:
+      - "`ChatStore` is the persistence facade — four verbs, no SQL in the app"
+      - "A short `Session` per method = a session per unit of work"
+      - "The backend holds one `ChatStore`; handlers stay thin"
+      - "File-backed storage → conversations survive restarts and redeploys"
+    narration: >
+      Day 54 in summary: you modelled related tables, linked them with foreign keys,
+      queried them into app-ready shapes, moved the data to a durable file, ran a
+      migration, and wrapped it all in the ChatStore facade behind a persistent
+      backend. Your app now remembers. Tomorrow, Day 55, you decide WHO the memory
+      belongs to — adding users and authentication so each person has their own
+      private data.
