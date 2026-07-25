@@ -1,0 +1,133 @@
+day: 58
+lesson: 4
+title: "WebSockets vs SSE"
+slides:
+  - type: title
+    heading: "WebSockets vs SSE"
+    subheading: "Day 058 — Streaming in Web Apps"
+
+  - type: concept
+    heading: "What WebSockets Add"
+    bullets:
+      - "SSE: server pushes to client — **one direction only**"
+      - "WebSocket: client AND server send at any time — **bidirectional**"
+      - "WebSocket starts as HTTP, then upgrades to a persistent `ws://` connection"
+      - "Both sides can send independently — no request/response cycle"
+      - "Ideal for chat: user sends a prompt *while* the model is still streaming a reply"
+    narration: >
+      SSE handles the streaming-reply use case well, but it has a structural limitation:
+      the client cannot send data mid-stream. In a simple Q-and-A pattern that is fine —
+      the user sends one HTTP POST, then listens to the SSE stream until [DONE].
+      But for a true chat experience where the user might interrupt or send the next
+      message before the current reply finishes, you need WebSocket. The connection
+      is upgraded from HTTP once, and then both sides can write whenever they like.
+
+  - type: code
+    heading: "FastAPI WebSocket Endpoint"
+    language: python
+    code: |
+      from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+      app = FastAPI()
+
+      @app.websocket("/ws")
+      async def websocket_endpoint(ws: WebSocket):
+          await ws.accept()           # complete the handshake
+          try:
+              while True:
+                  prompt = await ws.receive_text()          # wait for user message
+                  # stream reply token-by-token
+                  chunks = ollama.chat(model="llama3.2",
+                                       messages=[{"role": "user", "content": prompt}],
+                                       stream=True)
+                  for chunk in chunks:
+                      token = chunk["message"]["content"]
+                      if token:
+                          await ws.send_text(token)         # push each token
+                  await ws.send_text("[DONE]")              # signal end of reply
+          except WebSocketDisconnect:
+              pass                    # client closed — exit cleanly
+    narration: >
+      The WebSocket endpoint is an async function decorated with @app.websocket.
+      The three steps are always: accept the connection, enter a loop that receives
+      and responds, and catch WebSocketDisconnect when the client leaves. Inside the
+      loop we call ollama.chat with stream=True — the sync Ollama iterator works fine
+      inside an async function. For each token we await ws.send_text, which pushes
+      the token to the client immediately. The [DONE] sentinel tells the client the
+      current reply is finished and it can send the next message.
+
+  - type: concept
+    heading: "Testing WebSockets with TestClient"
+    bullets:
+      - "`client.websocket_connect('/ws')` returns a context manager"
+      - "Inside the `with` block: `ws.send_text(msg)` and `ws.receive_text()`"
+      - "Connection closes automatically when the `with` block exits"
+      - "No event loop management needed — TestClient handles the async protocol"
+      - "Same TestClient used for REST endpoints — no separate setup"
+    narration: >
+      Starlette's TestClient has built-in WebSocket support that integrates seamlessly
+      with your existing tests. You open the WebSocket as a context manager, send
+      text messages, and receive responses synchronously. There is no asyncio.run or
+      event loop management on your side — TestClient spins up the ASGI app internally
+      and handles the protocol translation. The connection closes when you exit the
+      with block, which triggers WebSocketDisconnect in the server and lets the
+      endpoint clean up.
+
+  - type: code
+    heading: "WebSocket Test Pattern"
+    language: python
+    code: |
+      from starlette.testclient import TestClient
+
+      client = TestClient(app, raise_server_exceptions=False)
+
+      with client.websocket_connect("/ws") as ws:
+          ws.send_text("hello")
+          reply = ws.receive_text()
+          assert reply == "Echo: hello"
+
+          ws.send_text("second message")
+          reply2 = ws.receive_text()
+          assert reply2 == "Echo: second message"
+      # connection closed here — server sees WebSocketDisconnect
+    narration: >
+      This is Exercise 4's test pattern. The with block opens the WebSocket handshake,
+      and inside you alternate send_text and receive_text calls just like you would
+      in production. For the echo app in Exercise 4, each message gets one response.
+      For a real Ollama WebSocket endpoint, you would loop on receive_text until you
+      get [DONE] to collect the full streamed reply. The key rule is that you must
+      receive every message the server sends before sending the next one — or the
+      buffers fill and the test hangs.
+
+  - type: concept
+    heading: "Choosing Between SSE and WebSocket"
+    bullets:
+      - "Use **SSE** when: simple one-shot prompt → streamed reply pattern"
+      - "Use **SSE** when: notifications, dashboards, log tails"
+      - "Use **WebSocket** when: user might interrupt or send the next message early"
+      - "Use **WebSocket** when: you need binary data or sub-millisecond latency"
+      - "For basic streaming chat: SSE + normal POST is simpler and works well"
+    narration: >
+      The practical rule of thumb: start with SSE. It is simpler — just a generator
+      returning a StreamingResponse — and covers most AI streaming use cases. The
+      standard chat pattern of POST prompt, stream reply, repeat works fine with
+      SSE because the user rarely needs to interrupt mid-stream. Switch to WebSocket
+      when you need true bidirectional communication — for example, a coding assistant
+      where the user can cancel a long generation, or a voice interface where audio
+      flows both ways simultaneously.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "WebSocket is bidirectional — both sides send at any time; SSE is one-way"
+      - "`@app.websocket('/ws')` + `async def endpoint(ws: WebSocket):`"
+      - "Always `await ws.accept()` first; catch `WebSocketDisconnect` to clean up"
+      - "`client.websocket_connect('/ws')` in TestClient — no async boilerplate"
+      - "For most streaming chat apps, SSE is simpler; upgrade to WebSocket when needed"
+    narration: >
+      WebSocket and SSE solve the same underlying need — pushing data from server to
+      client — but WebSocket also lets the client push back at any time. The FastAPI
+      implementation is a clean async function with accept, loop, and disconnect
+      handling. Testing is equally clean with TestClient's websocket_connect context
+      manager. In the project deliverable, streaming_api.py provides both options so
+      you can choose based on your frontend's requirements.

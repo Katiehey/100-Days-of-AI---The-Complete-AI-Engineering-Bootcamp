@@ -1,0 +1,119 @@
+day: 58
+lesson: 5
+title: "The Streaming Chat App"
+slides:
+  - type: title
+    heading: "The Streaming Chat App"
+    subheading: "Day 058 — Streaming in Web Apps"
+
+  - type: concept
+    heading: "What streaming_api.py Provides"
+    bullets:
+      - "`GET /health` — health check (load balancer / monitoring)"
+      - "`GET /stream/count` — demo SSE stream, no Ollama (good for testing the frontend)"
+      - "`POST /chat/stream` — body `{prompt, system}` → SSE token stream"
+      - "`WebSocket /ws` — bidirectional; send prompt, receive tokens then `[DONE]`"
+      - "All config via env vars: `MODEL`, `PORT` — same 12-Factor pattern as Day 057"
+    narration: >
+      The project deliverable, streaming_api.py, combines everything from today's
+      exercises into a single deployable server. The /stream/count endpoint is useful
+      during frontend development — you can verify your SSE client code works before
+      wiring up the real Ollama /chat/stream endpoint. The WebSocket /ws endpoint
+      handles the interactive case. All configuration is read from environment variables
+      so the same code runs locally with llama3.2 and on a cloud server with a
+      different model.
+
+  - type: concept
+    heading: "ChatHistory — Keeping Context"
+    bullets:
+      - "Stateless endpoints forget every turn — each POST /chat/stream is a fresh conversation"
+      - "`ChatHistory` accumulates user + assistant messages across turns"
+      - "`build_messages()` → full list for Ollama `messages=` parameter"
+      - "Server stores `ChatHistory` per-session in memory (not shared across restarts)"
+      - "For production: persist history in a database (Day 054 pattern)"
+    narration: >
+      Exercise 5's ChatHistory class solves the stateless problem. Without it, every
+      call to /chat/stream starts a fresh context and Ollama has no memory of previous
+      turns. With ChatHistory, you append each user prompt and assistant reply after
+      streaming completes, then pass build_messages() on the next call. The limitation
+      is in-memory storage — if the server restarts, history is lost. For a production
+      chat app you would serialise ChatHistory to a database row, exactly the pattern
+      from Day 054.
+
+  - type: code
+    heading: "ChatHistory with Streaming"
+    language: python
+    code: |
+      history = ChatHistory(system_prompt="You are a helpful assistant.")
+      history.add_message("user", "What is the capital of France?")
+
+      # stream the reply, collect tokens
+      import ollama
+      chunks = ollama.chat(
+          model="llama3.2",
+          messages=history.build_messages(),
+          stream=True,
+      )
+      reply_tokens = []
+      for chunk in chunks:
+          token = chunk["message"]["content"]
+          if token:
+              print(token, end="", flush=True)
+              reply_tokens.append(token)
+
+      # store assistant reply for next turn
+      history.add_message("assistant", "".join(reply_tokens))
+      # next user turn has full context
+    narration: >
+      This snippet shows the complete multi-turn streaming loop. Build the messages list
+      from ChatHistory, stream from Ollama, collect the tokens into a list, then
+      add the concatenated reply as an assistant message. The next call to build_messages
+      will include both the user question and the assistant answer, giving Ollama full
+      conversation context. In the WebSocket endpoint you run this loop on every
+      message received from the client.
+
+  - type: code
+    heading: "Deploying the Streaming API"
+    language: bash
+    code: |
+      # local development
+      uvicorn streaming_api:app --reload
+
+      # production (Render / Railway)
+      # Procfile:
+      web: uvicorn streaming_api:app --host 0.0.0.0 --port $PORT
+
+      # environment variables to set on the platform:
+      MODEL=llama3.2
+      PORT=8000   # set automatically by platform
+
+      # test the SSE endpoint with curl
+      curl -N http://localhost:8000/stream/count?n=3
+
+      # test WebSocket with wscat
+      # npm install -g wscat
+      wscat -c ws://localhost:8000/ws
+    narration: >
+      Deployment follows the exact same pattern as Day 057's deploy_api.py. The
+      Procfile binds to 0.0.0.0 on the platform's assigned PORT. MODEL is read from
+      an environment variable so you can swap models without a code change. The curl
+      -N flag disables buffering so you see SSE events as they arrive in the terminal.
+      wscat is a handy command-line WebSocket client for quick manual testing of the
+      /ws endpoint before writing frontend code.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "`streaming_api.py` combines SSE + WebSocket + health check in one deployable"
+      - "`ChatHistory` enables multi-turn context — append after each completed reply"
+      - "Same 12-Factor deployment pattern as Day 057: env vars, Procfile, `--host 0.0.0.0`"
+      - "Test SSE with `curl -N`; test WebSocket with `wscat` or TestClient"
+      - "In-memory state resets on restart — persist to database for production"
+    narration: >
+      Today you built the two main real-time patterns for web apps: SSE for server-push
+      token streaming and WebSocket for bidirectional chat. The ChatHistory class gives
+      you multi-turn context management. The deployment approach is identical to Day 057,
+      because the same 12-Factor principles apply — config in env vars, bind to 0.0.0.0,
+      use the PORT variable. The one production caveat is that in-memory ChatHistory
+      is per-process and per-restart — for a real multi-user app you would combine it
+      with the database persistence from Day 054.

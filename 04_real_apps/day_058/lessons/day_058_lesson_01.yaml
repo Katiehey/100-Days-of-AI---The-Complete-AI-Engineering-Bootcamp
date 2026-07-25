@@ -1,0 +1,90 @@
+day: 58
+lesson: 1
+title: "What Is Streaming?"
+slides:
+  - type: title
+    heading: "What Is Streaming?"
+    subheading: "Day 058 — Streaming in Web Apps"
+
+  - type: concept
+    heading: "Batch vs Streaming"
+    bullets:
+      - "**Batch:** server computes the full answer, then sends it — user waits silently"
+      - "**Streaming:** server sends output *as it is produced* — user sees words appear immediately"
+      - "A 5-second Ollama response *feels* fast if the first word arrives in 0.3 s"
+      - "Streaming is not faster — it is *perceived* as faster (UX, not performance)"
+    narration: >
+      The difference between batch and streaming is entirely about user experience.
+      When you call ollama.chat without streaming, Python waits until the model finishes
+      generating every token before returning anything. With streaming, each token is
+      yielded the moment it is ready. The total compute time is identical, but the user
+      sees words appearing almost immediately — that feeling of responsiveness is why
+      every modern chat UI streams.
+
+  - type: concept
+    heading: "How HTTP Streaming Works"
+    bullets:
+      - "Normal HTTP: server writes body all at once, closes connection"
+      - "Streaming HTTP: server writes body in **chunks**, keeps connection open"
+      - "Client reads and displays each chunk as it arrives"
+      - "FastAPI uses Python **generator functions** as the streaming body"
+      - "The HTTP mechanism is called *chunked transfer encoding* (automatic)"
+    narration: >
+      Under the hood, HTTP streaming uses chunked transfer encoding. Instead of
+      sending a Content-Length header and writing the whole body at once, the server
+      sends the body in pieces — each piece prefixed with its byte length. The client
+      reads and renders each piece immediately. FastAPI handles all this automatically;
+      you just return a StreamingResponse whose body is a generator.
+
+  - type: code
+    heading: "StreamingResponse — Minimal Example"
+    language: python
+    code: |
+      from fastapi import FastAPI
+      from fastapi.responses import StreamingResponse
+
+      app = FastAPI()
+
+      @app.get("/count")
+      def stream_count(n: int = 5):
+          def generate():
+              for i in range(n):
+                  yield f"chunk {i}\n"   # sent immediately
+          return StreamingResponse(generate(), media_type="text/plain")
+    narration: >
+      This is the simplest possible streaming endpoint. The route function returns
+      a StreamingResponse whose body is a plain generator. Each time the generator
+      yields a string, FastAPI sends that string to the client immediately. The
+      connection stays open until the generator is exhausted. Note that there is no
+      await or async here — a regular sync generator works fine with StreamingResponse.
+
+  - type: concept
+    heading: "Two Streaming Protocols"
+    bullets:
+      - "**SSE (Server-Sent Events):** one-way, server → client, over plain HTTP"
+      - "  Format: `data: ...\\n\\n` per event, content-type `text/event-stream`"
+      - "**WebSocket:** bidirectional, both sides send at any time"
+      - "  Better for interactive chat (client sends prompts, server streams replies)"
+      - "Day 058 covers both — SSE first (simpler), then WebSocket"
+    narration: >
+      You have two main options for real-time data in web apps. Server-Sent Events
+      are simpler — they reuse plain HTTP and are one-directional, which is perfect
+      for notifications and streaming AI responses where the client just listens.
+      WebSockets open a persistent bidirectional channel, which is ideal when the
+      client also needs to send data — like the user's next message in a chat app.
+      Both are built into FastAPI with minimal code.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Streaming improves *perceived* speed — tokens appear immediately"
+      - "`StreamingResponse` + a Python generator = HTTP streaming in FastAPI"
+      - "SSE: simple one-way push over HTTP (`text/event-stream`)"
+      - "WebSocket: bidirectional, full-duplex channel"
+      - "Today's exercises implement both patterns from scratch"
+    narration: >
+      The key insight from this lesson is that streaming is a UX decision, not a
+      performance one. The model generates at the same speed either way — but users
+      perceive streaming responses as dramatically faster. FastAPI makes both SSE and
+      WebSocket streaming easy: you return a StreamingResponse with a generator for SSE,
+      and use the websocket decorator with async send and receive calls for WebSocket.

@@ -1,0 +1,120 @@
+day: 58
+lesson: 2
+title: "Server-Sent Events with FastAPI"
+slides:
+  - type: title
+    heading: "Server-Sent Events with FastAPI"
+    subheading: "Day 058 — Streaming in Web Apps"
+
+  - type: concept
+    heading: "The SSE Protocol"
+    bullets:
+      - "SSE is a plain HTTP response with `Content-Type: text/event-stream`"
+      - "Each event is one or more `data:` lines followed by a **blank line**"
+      - "`data: hello\\n\\n` — simplest valid event"
+      - "`data: {\"token\": \"hi\"}\\n\\n` — JSON payload (common for AI tokens)"
+      - "Browsers reconnect automatically if the connection drops"
+    narration: >
+      Server-Sent Events are refreshingly simple. The entire protocol is just an HTTP
+      response that never ends, formatted as a stream of events. Each event starts with
+      the text "data:" followed by its payload, and ends with two newlines. That double
+      newline is the event delimiter — the client buffers lines until it sees the blank
+      line, then fires an event. You can also add optional "event:" and "id:" fields,
+      but for streaming AI tokens, a plain data line is all you need.
+
+  - type: code
+    heading: "SSE Endpoint with StreamingResponse"
+    language: python
+    code: |
+      from fastapi import FastAPI
+      from fastapi.responses import StreamingResponse
+
+      app = FastAPI()
+
+      @app.get("/stream/count")
+      def stream_count(n: int = 5):
+          def generate():
+              for i in range(n):
+                  yield "data: " + str(i) + "\n\n"   # \n\n = event delimiter
+              yield "data: [DONE]\n\n"               # sentinel so client knows to stop
+          return StreamingResponse(generate(), media_type="text/event-stream")
+    narration: >
+      This is Exercise 1's target. The generate function is a plain Python generator —
+      no async required. Each yield sends one SSE event: the string "data:" followed by
+      the payload, then two newline characters. The [DONE] sentinel at the end is a
+      convention borrowed from OpenAI's streaming API; your JavaScript client watches
+      for it to know when to close the EventSource. StreamingResponse handles the
+      chunked transfer encoding automatically.
+
+  - type: concept
+    heading: "SSE vs Polling"
+    bullets:
+      - "**Polling:** client asks 'any updates?' every N seconds — wasteful and slow"
+      - "**SSE:** server pushes the moment data is ready — efficient and instant"
+      - "SSE connection stays open; server writes whenever it has something"
+      - "One HTTP connection replaces hundreds of polling requests"
+      - "Native browser support via `EventSource` JavaScript API"
+    narration: >
+      Before streaming APIs existed, web apps used polling — the client sent a new
+      HTTP request every few seconds to ask for updates. This burns server resources
+      and adds latency equal to the polling interval. SSE eliminates both problems:
+      the client opens one connection and the server writes events the moment they
+      are ready. For AI streaming, this means the user sees each token the instant
+      the model produces it, not on the next polling cycle.
+
+  - type: code
+    heading: "Testing SSE with TestClient"
+    language: python
+    code: |
+      from starlette.testclient import TestClient
+
+      client = TestClient(app, raise_server_exceptions=False)
+
+      r = client.get("/stream/count?n=3")
+
+      # TestClient collects the full buffered body
+      print(r.status_code)                         # 200
+      print(r.headers["content-type"])             # text/event-stream
+      print(r.text)
+      # data: 0\n\ndata: 1\n\ndata: 2\n\ndata: [DONE]\n\n
+      assert "data: 0" in r.text
+      assert "[DONE]" in r.text
+    narration: >
+      TestClient is synchronous and collects the entire response body before returning.
+      This is actually helpful for testing — you can assert on the full SSE body as a
+      string without needing a real browser or async event loop. The content-type header
+      tells you the endpoint is correctly identified as an event stream, and you can check
+      that all expected data lines and the [DONE] sentinel are present. In production,
+      a real browser EventSource would process each event incrementally.
+
+  - type: concept
+    heading: "When to Use SSE"
+    bullets:
+      - "✅ AI token streaming — model output flows one direction: server → client"
+      - "✅ Live notifications — price updates, status changes, log tails"
+      - "✅ Progress bars — background job completion percentage"
+      - "❌ Interactive chat — user also sends messages → use WebSocket instead"
+      - "❌ Binary data — SSE is text-only; use WebSocket for binary streams"
+    narration: >
+      SSE is the right tool when data flows predominantly one way — from server to client.
+      Streaming an AI response fits perfectly: the user typed their message (one request),
+      and now the server streams back the reply token by token. SSE is also ideal for
+      dashboards, notification feeds, and log streaming. The limitation is that SSE is
+      one-directional — for true back-and-forth conversation where the client sends
+      mid-stream, you need WebSocket.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "SSE format: `data: payload\\n\\n` per event, `text/event-stream` content-type"
+      - "`StreamingResponse(generator(), media_type='text/event-stream')` = SSE in FastAPI"
+      - "End with `data: [DONE]\\n\\n` so the client knows the stream is finished"
+      - "TestClient collects the full body — use string assertions to verify SSE output"
+      - "SSE is best for one-way server→client streams; use WebSocket for bidirectional"
+    narration: >
+      SSE is the simplest way to stream data from FastAPI. The entire implementation
+      is one generator function and one StreamingResponse return. The format is just
+      "data:" lines separated by blank lines. You end with [DONE] as a convention so
+      clients know to stop listening. For testing, TestClient collects everything and
+      you assert on the body string. In Lesson 4 you will see WebSockets handle the
+      bidirectional case that SSE cannot.

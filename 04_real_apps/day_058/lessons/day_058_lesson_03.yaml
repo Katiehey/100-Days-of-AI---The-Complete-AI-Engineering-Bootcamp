@@ -1,0 +1,124 @@
+day: 58
+lesson: 3
+title: "Streaming Ollama"
+slides:
+  - type: title
+    heading: "Streaming Ollama"
+    subheading: "Day 058 — Streaming in Web Apps"
+
+  - type: concept
+    heading: "Ollama's stream=True Mode"
+    bullets:
+      - "`ollama.chat(model, messages, stream=True)` returns an **iterator** of chunk dicts"
+      - "Each chunk: `{\"message\": {\"content\": \"token\", \"role\": \"assistant\"}, \"done\": False}`"
+      - "Last chunk: `{\"message\": {\"content\": \"\"}, \"done\": True}`"
+      - "Contrast with `stream=False`: returns one dict with the full message"
+      - "The iterator is **synchronous** — regular `for` loop, no `await`"
+    narration: >
+      Ollama's Python library makes streaming straightforward. Pass stream=True to
+      ollama.chat and you get back a regular Python iterator — not a coroutine, not
+      an async generator, just a plain for loop. Each iteration yields a chunk dict
+      with the partial message content. You accumulate these content strings to build
+      the full reply, or you yield them immediately to a StreamingResponse.
+
+  - type: code
+    heading: "The extract_tokens Generator"
+    language: python
+    code: |
+      def extract_tokens(chunks):
+          """Yield non-empty content strings from Ollama stream chunks."""
+          for chunk in chunks:
+              content = chunk.get("message", {}).get("content", "")
+              if content:          # skip empty strings Ollama emits on final chunk
+                  yield content
+
+      # Usage with real Ollama
+      import ollama
+      stream = ollama.chat(
+          model="llama3.2",
+          messages=[{"role": "user", "content": "Say hi"}],
+          stream=True,
+      )
+      full_reply = ""
+      for token in extract_tokens(stream):
+          print(token, end="", flush=True)   # prints token-by-token
+          full_reply += token
+    narration: >
+      The extract_tokens generator is a thin adapter between Ollama's chunk format and
+      the plain string tokens our streaming endpoint needs. It uses .get with defaults
+      to handle the final chunk gracefully — that last chunk has an empty content string
+      and done=True, and without the guard it would yield an empty string into our
+      SSE stream. This is Exercise 2's implementation. Notice it is a completely pure
+      function: it takes any iterable of dicts and yields strings, making it trivially
+      testable with mock data — no Ollama required.
+
+  - type: code
+    heading: "Wiring Ollama Streaming into SSE"
+    language: python
+    code: |
+      import json
+      import ollama
+      from fastapi import FastAPI
+      from fastapi.responses import StreamingResponse
+      from pydantic import BaseModel, Field
+
+      app = FastAPI()
+
+      class ChatRequest(BaseModel):
+          prompt: str = Field(min_length=1)
+
+      @app.post("/chat/stream")
+      def chat_stream(req: ChatRequest):
+          def generate():
+              chunks = ollama.chat(
+                  model="llama3.2",
+                  messages=[{"role": "user", "content": req.prompt}],
+                  stream=True,
+              )
+              for token in extract_tokens(chunks):
+                  payload = json.dumps({"token": token})
+                  yield "data: " + payload + "\n\n"
+              yield "data: [DONE]\n\n"
+
+          return StreamingResponse(generate(), media_type="text/event-stream")
+    narration: >
+      This is Exercise 3's target. The route function builds an inner generator that
+      calls extract_tokens on the Ollama stream. For each token, it formats a JSON
+      SSE event — wrapping the token string in a JSON object so the client can parse
+      it reliably even if the token contains special characters. The generator is
+      returned inside a StreamingResponse. Note the dependency injection pattern in
+      Exercise 3: the real app uses ollama.chat, but the testable version accepts an
+      optional stream_fn parameter so the gate can verify the endpoint without Ollama.
+
+  - type: concept
+    heading: "Why Generators are Efficient"
+    bullets:
+      - "Generator holds **one token in memory at a time** — not the full reply"
+      - "First token reaches the user before the last token is generated"
+      - "No buffering: `yield` → FastAPI sends → chunk arrives at client"
+      - "If user closes the tab, the generator is garbage-collected — Ollama stops"
+      - "Same pattern scales: swap Ollama for any streaming model API"
+    narration: >
+      Generators are the right abstraction for streaming because they match the
+      model's own production cadence — one token at a time. A list comprehension
+      would force Python to collect all tokens before anything is sent, defeating
+      the purpose. With a generator, the moment Ollama yields token one, FastAPI
+      writes it to the socket, and the user sees it. If the user closes their
+      browser tab, the request is cancelled, the generator is cleaned up, and the
+      Ollama inference stops consuming resources.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`ollama.chat(stream=True)` → sync iterator of chunk dicts"
+      - "`extract_tokens(chunks)` filters out empty tokens cleanly"
+      - "Wrap each token as `data: {\"token\": \"...\"}\\n\\n` for JSON SSE events"
+      - "Dependency injection (`stream_fn=None`) makes the endpoint testable without Ollama"
+      - "Generators stream one token at a time — memory-efficient and immediately responsive"
+    narration: >
+      Connecting Ollama to SSE is three lines of logic: call ollama.chat with stream=True,
+      iterate the chunks with extract_tokens, and yield each token as a data line.
+      The key engineering practice is the dependency injection pattern — by accepting
+      an optional stream_fn, you can pass a fake generator in tests and the real Ollama
+      call in production, without changing the endpoint code. This is the same principle
+      you used in Section 4's earlier days for HTTP client injection.
