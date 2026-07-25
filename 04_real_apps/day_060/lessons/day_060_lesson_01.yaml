@@ -1,0 +1,57 @@
+day: 60
+lesson: 1
+title: "Why Caching?"
+slides:
+  - type: title
+    heading: "Day 060 — Caching & Performance"
+    subheading: "Make it fast and cheap"
+
+  - type: concept
+    heading: "The Cost of Repeated LLM Calls"
+    narration: >
+      Every Ollama call takes seconds — often 5 to 30 seconds depending on the
+      model and prompt. If ten users ask "What is Python?" simultaneously, why
+      run inference ten times? The model will generate nearly identical answers.
+      Caching lets you compute once and serve instantly.
+    bullets:
+      - "Ollama inference: 5–30 s per call"
+      - "Same prompt → same (or very similar) answer"
+      - "First call is slow — every subsequent call should be instant"
+      - "Caching is the first optimisation to reach for"
+
+  - type: concept
+    heading: "Cache Hit vs Cache Miss"
+    narration: >
+      A cache hit means the answer was already stored — return it immediately.
+      A cache miss means it wasn't stored yet — call the slow function, store
+      the result, then return it. The cache-aside pattern implements this
+      check-first, fetch-on-miss logic.
+    bullets:
+      - "Hit: key found in cache → return stored value instantly"
+      - "Miss: key absent → call slow fn, store result, return it"
+      - "Hit rate = hits / (hits + misses) — higher is better"
+      - "Cold cache: 0% hits; warm cache: 80–95%+ hits in typical apps"
+
+  - type: concept
+    heading: "TTL — Time To Live"
+    narration: >
+      Cached data goes stale. A TTL (time-to-live) evicts entries automatically
+      after a set number of seconds, forcing a fresh fetch. Too short: lots of
+      misses; too long: stale answers. For LLM responses, 5–60 minutes is
+      typical since model output is stable but not permanent.
+    bullets:
+      - "TTL: seconds until an entry is evicted"
+      - "Short TTL (60 s): fresh data, lower hit rate"
+      - "Long TTL (3600 s): high hit rate, risk of stale answers"
+      - "Use time.monotonic() — unaffected by system clock corrections"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Caching eliminates redundant slow calls by storing results keyed by their
+      inputs. A TTL keeps the cache fresh. Today you will build a TTL cache from
+      scratch, wire it into FastAPI, and measure hit rates.
+    bullets:
+      - "Cache-aside: check first, fetch on miss, store result"
+      - "TTL balances freshness vs hit rate"
+      - "time.monotonic() is the right clock for elapsed-time TTL"

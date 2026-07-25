@@ -1,0 +1,75 @@
+day: 60
+lesson: 5
+title: "HTTP ETags — Browser-Level Caching"
+slides:
+  - type: title
+    heading: "HTTP ETags"
+    subheading: "Let browsers cache your API responses"
+
+  - type: concept
+    heading: "The ETag Protocol"
+    narration: >
+      An ETag is a fingerprint of a response body — typically an MD5 or SHA hash.
+      The server includes it in a response header. The browser stores it and
+      sends it back as If-None-Match on the next request. If the data hasn't
+      changed, the server returns 304 Not Modified with no body — saving
+      bandwidth and processing time.
+    bullets:
+      - "Server: GET /data → 200 + ETag: \"abc123\" + Cache-Control"
+      - "Client stores ETag alongside the response body"
+      - "Next request: GET /data + If-None-Match: \"abc123\""
+      - "Server: data unchanged → 304 (empty body); changed → 200 + new ETag"
+
+  - type: code
+    heading: "FastAPI ETag implementation"
+    narration: >
+      Compute the ETag from the JSON-encoded response body. Check the
+      If-None-Match header from the incoming request. Return an empty
+      Response with status 304 on match; return JSONResponse with the
+      ETag and Cache-Control headers on miss.
+    code: |
+      import hashlib, json
+      from fastapi import Request
+      from fastapi.responses import JSONResponse, Response
+
+      @app.get("/data")
+      def get_data(request: Request):
+          data  = {"message": "Hello!", "version": 1}
+          raw   = json.dumps(data, sort_keys=True)
+          etag  = '"' + hashlib.md5(raw.encode()).hexdigest() + '"'
+
+          if request.headers.get("if-none-match", "") == etag:
+              return Response(status_code=304)
+
+          return JSONResponse(
+              content=data,
+              headers={"ETag": etag, "Cache-Control": "max-age=60"},
+          )
+
+  - type: concept
+    heading: "ETag vs In-Process Cache"
+    narration: >
+      ETags and in-process caching solve different problems. In-process caching
+      (SimpleCache) reduces computation on the server. ETags reduce data transfer
+      between server and client. Both can be used together — the server caches
+      the Ollama response, and the browser caches the HTTP response.
+    bullets:
+      - "In-process cache: avoids re-running slow server-side computation"
+      - "ETag: avoids re-sending unchanged data over the network"
+      - "Complementary — use both for maximum performance"
+      - "ETag format: double-quoted string — \"abc123\" not abc123"
+
+  - type: summary
+    heading: "Day 060 Complete"
+    narration: >
+      Today you built a complete caching stack: TTL in-process cache, cache-aside
+      pattern, FastAPI integration with stats, LRU memoization with lru_cache,
+      and HTTP-level ETag caching. These techniques eliminate redundant Ollama
+      calls and reduce network overhead — making your AI apps faster and cheaper
+      to run.
+    bullets:
+      - "SimpleCache: TTL in-memory store (time.monotonic)"
+      - "Cache-aside: check → miss → fetch → store"
+      - "FastAPI: cache_hit flag + /cache/stats endpoint"
+      - "lru_cache: built-in memoization for pure functions"
+      - "ETags: 304 Not Modified saves bandwidth"

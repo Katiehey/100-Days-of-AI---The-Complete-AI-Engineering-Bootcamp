@@ -1,0 +1,68 @@
+day: 60
+lesson: 3
+title: "Cache-Aside Pattern & FastAPI Integration"
+slides:
+  - type: title
+    heading: "Cache-Aside & FastAPI"
+    subheading: "Wire caching into your API"
+
+  - type: concept
+    heading: "The Cache-Aside Pattern"
+    narration: >
+      Cache-aside, also called lazy loading, is the standard way to use a cache
+      with a slow data source. The application code (not the cache itself) is
+      responsible for loading data on a miss. This gives you full control over
+      what gets cached and for how long.
+    bullets:
+      - "1. cache.has(key) → True: return cache.get(key)"
+      - "2. Miss: value = slow_fn(); cache.set(key, value, ttl)"
+      - "3. Return value"
+      - "Application controls caching logic — cache is a dumb store"
+
+  - type: code
+    heading: "cache_aside helper"
+    narration: >
+      A reusable helper encapsulates the pattern. fn is a zero-argument
+      callable — use a lambda to pass arguments to the real function.
+      This keeps the cache key and the function call separate concerns.
+    code: |
+      def cache_aside(key, cache, fn, ttl=60.0):
+          if cache.has(key):
+              return cache.get(key)
+          value = fn()
+          cache.set(key, value, ttl)
+          return value
+
+      # Usage:
+      answer = cache_aside(
+          key=prompt,
+          cache=cache,
+          fn=lambda: ollama.chat(model=MODEL, messages=[...]),
+          ttl=300.0,
+      )
+
+  - type: concept
+    heading: "FastAPI: cache_hit flag + stats"
+    narration: >
+      Adding a cache_hit boolean to your API response gives callers visibility
+      into whether they got a cached or fresh answer. A stats endpoint lets
+      you monitor hit rate in production — essential for deciding whether your
+      TTL is tuned correctly.
+    bullets:
+      - "POST /ask → {answer: str, cache_hit: bool}"
+      - "cache_hit=True: instant response from cache"
+      - "cache_hit=False: fresh inference, stored for next caller"
+      - "GET /cache/stats → {hits, misses, size}"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Cache-aside is the most practical caching pattern for AI APIs. Wrap it in
+      a helper function, inject the cache into your FastAPI factory, and expose
+      stats and a clear endpoint for operational control. Exercise 2 builds the
+      helper; Exercise 3 wires it into FastAPI.
+    bullets:
+      - "cache_aside(key, cache, fn, ttl): encapsulates the pattern"
+      - "inject cache into FastAPI factory — testable with fake process_fn"
+      - "cache_hit flag: transparency for callers"
+      - "DELETE /cache: reset cache and stats for debugging"

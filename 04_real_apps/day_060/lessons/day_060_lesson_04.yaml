@@ -1,0 +1,67 @@
+day: 60
+lesson: 4
+title: "functools.lru_cache — Built-in Memoization"
+slides:
+  - type: title
+    heading: "functools.lru_cache"
+    subheading: "Python's built-in memoization"
+
+  - type: concept
+    heading: "What is Memoization?"
+    narration: >
+      Memoization caches a function's return value keyed by its arguments. Call
+      the function with the same arguments again — get the cached result without
+      re-running the function. It's a specialisation of caching where the key
+      IS the function's argument tuple.
+    bullets:
+      - "Key: tuple of function arguments (must all be hashable)"
+      - "Value: function's return value"
+      - "Same args → same result → cache it"
+      - "Only pure functions (no side effects, deterministic output)"
+
+  - type: code
+    heading: "Using @lru_cache"
+    narration: >
+      Decorate any function with @functools.lru_cache. maxsize sets the cache
+      capacity — oldest entries are evicted when full (Least Recently Used).
+      cache_info() reports hits, misses, maxsize, and current size.
+      cache_clear() resets the cache.
+    code: |
+      import functools
+
+      @functools.lru_cache(maxsize=128)
+      def expensive(x: str) -> str:
+          return x.upper()  # imagine slow Ollama call
+
+      expensive("hello")   # miss → computed
+      expensive("hello")   # hit  → instant
+      expensive("hello")   # hit  → instant
+
+      print(expensive.cache_info())
+      # CacheInfo(hits=2, misses=1, maxsize=128, currsize=1)
+
+  - type: concept
+    heading: "lru_cache vs SimpleCache"
+    narration: >
+      lru_cache has no TTL — entries live until eviction by size pressure or an
+      explicit cache_clear(). This is fine for pure functions whose output is
+      permanently valid for given inputs (token counting, string normalisation).
+      Use SimpleCache with TTL for LLM responses that may drift over time.
+    bullets:
+      - "lru_cache: no TTL; evicts by LRU when maxsize reached"
+      - "SimpleCache: TTL per entry; evicts by age"
+      - "Use lru_cache for pure, deterministic functions"
+      - "Use SimpleCache for LLM responses (may change, need TTL)"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      functools.lru_cache is Python's battle-tested memoization tool. Decorate
+      pure functions that are called repeatedly with the same arguments.
+      Exercise 4 has you build lru_memoize — a wrapper that applies lru_cache
+      to any arbitrary function reference.
+    bullets:
+      - "@functools.lru_cache(maxsize=N) decorates pure functions"
+      - "Arguments must be hashable (str, int, tuple — not list/dict)"
+      - "cache_info(): hits, misses, maxsize, currsize"
+      - "cache_clear(): reset for testing or invalidation"

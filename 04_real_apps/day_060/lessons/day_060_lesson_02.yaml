@@ -1,0 +1,67 @@
+day: 60
+lesson: 2
+title: "SimpleCache — TTL In-Memory Cache"
+slides:
+  - type: title
+    heading: "SimpleCache"
+    subheading: "Build a TTL cache from scratch"
+
+  - type: concept
+    heading: "Storage Layout"
+    narration: >
+      The simplest design stores each value alongside its expiry timestamp.
+      The internal dict maps a string key to a tuple of value and expires_at.
+      expires_at is a monotonic timestamp in seconds from an arbitrary epoch
+      — not a wall-clock time, so NTP corrections cannot disturb it.
+    bullets:
+      - "_store: dict  →  key: str  →  (value, expires_at: float)"
+      - "expires_at = time.monotonic() + ttl"
+      - "time.monotonic(): never goes backwards, safe for elapsed-time measurement"
+      - "Any Python value can be stored — strings, dicts, lists"
+
+  - type: code
+    heading: "set and get"
+    narration: >
+      set stores the value with its expiry. get retrieves it — but first checks
+      if the entry has expired and evicts it if so. This lazy eviction means
+      expired entries are cleaned up on the next access rather than by a
+      background sweeper.
+    code: |
+      def set(self, key: str, value, ttl: float = 60.0) -> None:
+          self._store[key] = (value, time.monotonic() + ttl)
+
+      def get(self, key: str):
+          entry = self._store.get(key)
+          if entry is None:
+              return None
+          value, expires_at = entry
+          if time.monotonic() > expires_at:
+              del self._store[key]   # lazy eviction
+              return None
+          return value
+
+  - type: concept
+    heading: "has, delete, clear, len"
+    narration: >
+      has delegates to get — if get returns None the key is absent or expired.
+      delete uses dict.pop with a default to avoid KeyError. clear empties the
+      dict and returns the count removed. len counts only non-expired entries
+      by iterating over stored expiry timestamps without modifying the dict.
+    bullets:
+      - "has(key): return self.get(key) is not None"
+      - "delete(key): self._store.pop(key, None)"
+      - "clear(): n = len(self._store); self._store.clear(); return n"
+      - "__len__: sum(1 for _, exp in self._store.values() if monotonic() <= exp)"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      A TTL cache is just a dict where each value is paired with an expiry
+      timestamp. Lazy eviction in get keeps the implementation simple. has()
+      lets you distinguish a cached None from an absent key. Today's Exercise 1
+      has you implement the full SimpleCache class.
+    bullets:
+      - "Store (value, expires_at) tuples"
+      - "Lazy eviction: delete on read, not on a timer"
+      - "has() distinguishes absent key from cached None"
+      - "time.monotonic() for TTL — never adjusted by NTP"
