@@ -1,0 +1,151 @@
+day: 56
+lesson: 5
+title: "The Doc-Upload AI App"
+duration_minutes: 14
+objectives:
+  - Design a DocStore class for in-memory document management
+  - Build a prompt that grounds the LLM in the document text
+  - Wire upload, storage, extraction, and Q&A into one FastAPI app
+  - Understand the truncation strategy for long documents
+
+slides:
+  - type: title
+    heading: "The Doc-Upload AI App"
+    subheading: "Day 56 · Lesson 5 of 5"
+
+  - type: concept
+    heading: "The Full Flow"
+    bullets:
+      - "User uploads a file → validate → extract text → store with doc_id"
+      - "User asks `POST /ask/{doc_id}?question=...`"
+      - "App looks up the doc text → builds a grounded prompt → calls Ollama → returns answer"
+      - "Each document has a unique ID; the AI only uses that document's text"
+      - "This is document-scoped RAG — the simplest form of grounded Q&A"
+    narration: >
+      The full flow is: upload → validate → extract → store → query. The doc_id
+      is the glue: the client gets it back from /upload, then uses it to call
+      /ask/{doc_id}. Between those two calls the app holds the extracted text in
+      memory — no repeated parsing per question.
+
+  - type: code
+    heading: "DocStore — In-Memory Document Registry"
+    language: python
+    code: |
+      import secrets
+
+      class DocStore:
+          def __init__(self):
+              self._store: dict[str, dict] = {}
+
+          def add(self, filename: str, text: str) -> str:
+              doc_id = secrets.token_urlsafe(8)
+              self._store[doc_id] = {"filename": filename, "text": text}
+              return doc_id
+
+          def get_text(self, doc_id: str) -> str | None:
+              return self._store.get(doc_id, {}).get("text")
+
+          def list_docs(self) -> list[dict]:
+              return [
+                  {"doc_id": k, "filename": v["filename"]}
+                  for k, v in self._store.items()
+              ]
+    narration: >
+      DocStore is a thin wrapper around a dict. add() generates a URL-safe token
+      as the doc_id — 8 bytes of CSPRNG randomness, base64url-encoded, giving
+      11 characters that are safe to include in URLs. get_text returns None for
+      unknown IDs so the route can raise 404. list_docs gives the metadata without
+      the full text — you don't want to return megabytes of document text in a
+      listing endpoint.
+
+  - type: code
+    heading: "build_doc_prompt — Grounding the LLM"
+    language: python
+    code: |
+      def build_doc_prompt(document_text: str, question: str,
+                           max_doc_chars: int = 4000) -> str:
+          snippet = document_text[:max_doc_chars]
+          return (
+              "You are a helpful assistant. Answer the question based only on "
+              "the document below. If the answer is not in the document, say so.\n\n"
+              f"DOCUMENT:\n{snippet}\n\n"
+              f"QUESTION: {question}"
+          )
+    narration: >
+      max_doc_chars truncates long documents to stay within the model's context
+      window. 4000 characters is roughly 1000 tokens — comfortable for llama3.2.
+      The instruction "based only on the document" is the key constraint that
+      prevents the model from answering from training data. "If the answer is not
+      in the document, say so" reduces hallucination further. This is the minimal
+      RAG prompt pattern — no retrieval, no chunking, just the full document in context.
+
+  - type: code
+    heading: "The Full API — Wiring It Together"
+    language: python
+    code: |
+      import ollama
+      from fastapi import FastAPI, File, HTTPException, UploadFile
+
+      _docs = DocStore()
+      app = FastAPI(title="Doc Upload AI API")
+
+      @app.post("/upload", status_code=201)
+      async def upload_doc(file: UploadFile = File(...)):
+          content = await file.read()
+          ok, err = validate_upload(content, file.filename or "unnamed",
+                                    ALLOWED_TYPES, file.content_type or "", MAX_SIZE)
+          if not ok:
+              raise HTTPException(status_code=400, detail=err)
+          text   = extract_text(content, file.content_type or "text/plain")
+          doc_id = _docs.add(file.filename, text)
+          return {"doc_id": doc_id, "filename": file.filename, "chars": len(text)}
+
+      @app.get("/documents")
+      def list_documents():
+          return {"documents": _docs.list_docs()}
+
+      @app.post("/ask/{doc_id}")
+      def ask(doc_id: str, question: str):
+          text = _docs.get_text(doc_id)
+          if text is None:
+              raise HTTPException(status_code=404, detail="Document not found")
+          prompt = build_doc_prompt(text, question)
+          reply  = ollama.chat(model="llama3.2",
+                               messages=[{"role": "user", "content": prompt}])
+          return {"reply": reply["message"]["content"], "doc_id": doc_id}
+    narration: >
+      The three routes map to the three user actions: upload, browse, ask.
+      /upload is async because file.read() is a coroutine; /documents and /ask
+      are sync because they only touch memory and Ollama's blocking SDK. Note
+      the endpoint is /documents not /docs — FastAPI reserves /docs for its
+      built-in Swagger UI. Ollama is called in /ask only — uploads are fast
+      even when the model is slow to respond.
+
+  - type: concept
+    heading: "Limitation: In-Memory Storage"
+    bullets:
+      - "Documents are lost on server restart — this is intentional for today"
+      - "Production upgrade path: store text in a database (Day 54 — SQLAlchemy)"
+      - "Files upgrade path: write to S3 or R2 instead of local disk"
+      - "Context limit upgrade: chunk documents + vector search (Days 11–14)"
+      - "Today's app is the skeleton every production doc-Q&A system is built on"
+    narration: >
+      The in-memory store is a deliberate simplification for today. When you need
+      to persist documents across restarts, the upgrade is clear: swap the dict
+      for a SQLAlchemy table (Day 54 patterns apply directly). The rest of the
+      code — validate, extract, prompt, ask — stays exactly the same.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "`DocStore` wraps a dict keyed by `secrets.token_urlsafe(8)` — simple, collision-free"
+      - "`build_doc_prompt`: truncate document first, then inject as a labelled DOCUMENT block"
+      - "Instruct the model to say 'not in document' — reduces hallucination on out-of-scope questions"
+      - "Upload → extract text → store text → answer from stored text (not bytes)"
+      - "The pattern: validate, extract, store, ground — scales from dict to full RAG pipeline"
+      - "Rename /documents away from /docs to avoid conflict with FastAPI's Swagger UI"
+    narration: >
+      Lesson 5 closes the loop: DocStore and build_doc_prompt are the last two
+      pieces of the document Q&A system. Combined with the upload, validation,
+      safe storage, and extraction from earlier lessons, you now have a complete
+      pipeline — upload any text or PDF, ask any question, get a grounded answer.

@@ -1,0 +1,119 @@
+day: 56
+lesson: 2
+title: "Validation — What to Accept and Reject"
+duration_minutes: 10
+objectives:
+  - Validate file size before processing or storing
+  - Validate file extension against a whitelist
+  - Return 400 Bad Request with a clear error message
+  - Understand the whitelist vs blacklist security model
+
+slides:
+  - type: title
+    heading: "Validation — What to Accept and Reject"
+    subheading: "Day 56 · Lesson 2 of 5"
+
+  - type: concept
+    heading: "Why Validate Uploads?"
+    bullets:
+      - "Unvalidated uploads are a classic attack surface"
+      - "An attacker can upload a 2 GB file to exhaust your RAM"
+      - "An attacker can rename a `.exe` or `.php` to `.txt` to bypass naive checks"
+      - "Empty files will crash extract_text if you're not careful"
+      - "Rule: **validate before you store, extract, or process**"
+    narration: >
+      File upload endpoints are entry points for abuse. Without size limits,
+      a single malicious user can fill your disk or exhaust memory. Without
+      extension checks, you might extract "text" from an executable. Validation
+      is the filter between the internet and your business logic.
+
+  - type: concept
+    heading: "Three Things to Check"
+    bullets:
+      - "**Empty?** — `len(content) == 0` → reject before anything else"
+      - "**Too large?** — `len(content) > max_bytes` → reject, reply 400"
+      - "**Right extension?** — `Path(filename).suffix.lower() in whitelist`"
+    narration: >
+      Read the bytes first (one await file.read()), then validate the bytes —
+      not the headers. The Content-Type header is entirely client-controlled.
+      A user can set content_type='text/plain' while uploading a binary executable.
+      Always derive the extension from the actual filename and check against a
+      fixed whitelist of extensions you know how to handle.
+
+  - type: code
+    heading: "validate_upload Helper"
+    language: python
+    code: |
+      from pathlib import Path
+
+      def validate_upload(
+          content: bytes,
+          filename: str,
+          allowed_extensions: list[str],
+          max_bytes: int,
+      ) -> tuple[bool, str]:
+          if len(content) == 0:
+              return False, "File is empty"
+          if len(content) > max_bytes:
+              return False, f"File too large ({len(content)} bytes, max {max_bytes})"
+          ext = Path(filename).suffix.lower()
+          if ext not in allowed_extensions:
+              return False, f"Extension '{ext}' not allowed"
+          return True, ""
+    narration: >
+      Return a (bool, str) tuple so the caller decides how to surface the error.
+      In a FastAPI route you'd raise HTTPException(status_code=400, detail=msg).
+      In a CLI you'd print it and exit. The function itself has no side effects
+      and is easy to unit-test — no request object needed.
+
+  - type: code
+    heading: "Integrating Validation into the Route"
+    language: python
+    code: |
+      from fastapi import FastAPI, File, HTTPException, UploadFile
+
+      ALLOWED = [".txt", ".pdf", ".md"]
+      MAX_SIZE = 5 * 1024 * 1024   # 5 MB
+
+      @app.post("/upload", status_code=201)
+      async def upload(file: UploadFile = File(...)):
+          content = await file.read()
+          ok, err = validate_upload(
+              content, file.filename or "unnamed", ALLOWED, MAX_SIZE
+          )
+          if not ok:
+              raise HTTPException(status_code=400, detail=err)
+          # ... store and process ...
+          return {"filename": file.filename, "size": len(content)}
+    narration: >
+      Read bytes once, then validate. If validation fails, raise HTTPException
+      with 400 — FastAPI turns that into {"detail": "..."} JSON. 201 Created is
+      the right status for a successful upload because you're creating a new
+      resource (the stored document).
+
+  - type: concept
+    heading: "Whitelist vs Blacklist"
+    bullets:
+      - "**Whitelist** (allow-list): explicitly list what IS allowed → `.txt`, `.pdf`"
+      - "**Blacklist** (deny-list): explicitly list what is NOT allowed → `.exe`, `.bat`"
+      - "Whitelist is safer — new extensions are rejected by default"
+      - "Blacklist is dangerous — attackers find extensions you forgot to ban"
+      - "Always use a whitelist for file uploads"
+    narration: >
+      If you blacklist exe, php, sh — what about .phtml, .phar, .htm, .htaccess?
+      The list of dangerous extensions is endless and operating-system-specific.
+      A whitelist of the 2-3 types you actually support is simpler and safer.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "Read bytes first, then validate — never trust client-provided metadata"
+      - "Check: empty → too large → wrong extension (in that order)"
+      - "Use a whitelist of allowed extensions, not a blacklist of forbidden ones"
+      - "Return (False, reason) from the validator; raise HTTPException(400) in the route"
+      - "`Path(filename).suffix.lower()` extracts the extension reliably"
+    narration: >
+      Always validate after reading bytes, never from headers alone. Content-Type
+      and filename are client-controlled strings — treat them as hints, not facts.
+      The tuple return style makes validators composable and easy to test in
+      isolation, separate from any HTTP framework.

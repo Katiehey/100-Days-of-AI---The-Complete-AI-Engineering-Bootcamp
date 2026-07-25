@@ -1,0 +1,116 @@
+day: 56
+lesson: 3
+title: "Safe Storage — Writing to Disk"
+duration_minutes: 10
+objectives:
+  - Sanitize filenames to prevent path traversal attacks
+  - Generate collision-free filenames with a random prefix
+  - Write file bytes to disk with pathlib
+  - Understand why storage naming matters for security
+
+slides:
+  - type: title
+    heading: "Safe Storage — Writing to Disk"
+    subheading: "Day 56 · Lesson 3 of 5"
+
+  - type: concept
+    heading: "The Two Dangers of File Storage"
+    bullets:
+      - "**Path traversal:** filename `../../etc/passwd` writes outside your upload dir"
+      - "**Name collision:** two users upload `report.pdf` — second overwrites first"
+      - "Both are solved by sanitizing the filename before writing"
+      - "Never use the client-provided filename as a path directly"
+    narration: >
+      Path traversal is a classic attack where the attacker controls a filename
+      like "../../etc/passwd" to write a file outside your intended directory.
+      Name collision is subtler — two users uploading "report.pdf" results in
+      one file silently overwriting the other. Both are solved in two lines.
+
+  - type: code
+    heading: "safe_filename — Strip and Randomize"
+    language: python
+    code: |
+      import re
+      import secrets
+      from pathlib import Path
+
+      def safe_filename(original: str) -> str:
+          name = Path(original).name          # strips ../../ prefixes
+          name = re.sub(r"[^\w\-.]", "_", name)  # replace special chars
+          return f"{secrets.token_hex(4)}_{name}"
+
+      print(safe_filename("../../etc/passwd"))
+      # → "3f9a1c2b_etc_passwd"
+
+      print(safe_filename("my report (v2).pdf"))
+      # → "a1b2c3d4_my_report__v2_.pdf"
+    narration: >
+      Path(original).name is the key safety move — it strips all directory
+      components. "../../etc/passwd" becomes just "passwd". The regex replaces
+      anything that isn't a word character, hyphen, or dot with an underscore,
+      so spaces and parentheses become underscores. secrets.token_hex(4) gives
+      8 hex chars of randomness — enough to prevent collisions for any realistic
+      upload volume. The original extension is preserved so you can still detect
+      the file type later.
+
+  - type: code
+    heading: "save_upload — Write to Disk"
+    language: python
+    code: |
+      def save_upload(content: bytes, filename: str, upload_dir: Path) -> Path:
+          upload_dir.mkdir(parents=True, exist_ok=True)
+          dest = upload_dir / safe_filename(filename)
+          dest.write_bytes(content)
+          return dest
+
+      # Usage
+      UPLOAD_DIR = Path("uploads")
+      path = save_upload(content, "report.pdf", UPLOAD_DIR)
+      print(path)   # uploads/3f9a1c2b_report.pdf
+    narration: >
+      mkdir(parents=True, exist_ok=True) creates the upload directory and any
+      missing parent directories — the first upload triggers creation so you
+      don't need to pre-create the folder. write_bytes is atomic on most systems
+      for small files; for large files, consider writing to a temp path then
+      renaming to avoid partially-written files being served.
+
+  - type: concept
+    heading: "Storage Strategy Choices"
+    bullets:
+      - "**Local disk** (today): fast, simple, works for one-server setups"
+      - "**Object storage** (production): S3, GCS, R2 — scales to millions of files"
+      - "**Key insight:** abstract storage behind a function now → swap later"
+      - "`save_upload(content, filename, upload_dir)` can become `upload_to_s3(content, key)` without touching route code"
+    narration: >
+      For the purposes of this course we write to local disk, which is fine for
+      development and small deployments. The important habit is isolating the
+      storage call behind a function. When you switch to S3 later, you only
+      change one function, not every route that handles uploads.
+
+  - type: concept
+    heading: "Security Checklist for File Storage"
+    bullets:
+      - "Strip directory components with `Path(name).name`"
+      - "Replace special characters with a safe regex"
+      - "Prepend a random prefix to prevent collisions and enumeration"
+      - "Store files OUTSIDE the web root (not inside /static/ or /public/)"
+      - "Never execute uploaded files — serve them as downloads only"
+    narration: >
+      Storing files outside the web root is important: if uploads were inside
+      /static/, a user who uploaded a Python .py or .html file could have it
+      served directly by the web server. The uploads/ folder should never be
+      directly accessible via HTTP — serve files through a controlled download
+      endpoint that checks permissions first.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`Path(original).name` strips path traversal attempts in one call"
+      - "`re.sub(r'[^\\w\\-.]', '_', name)` makes any filename filesystem-safe"
+      - "`secrets.token_hex(4)` prefix prevents collisions and guessable URLs"
+      - "`Path.write_bytes(content)` is the clean way to write binary files"
+      - "Abstract storage into a function so you can swap to S3 later"
+    narration: >
+      safe_filename and save_upload are two-function safety nets. Every upload
+      flows through them. The abstraction pays off when you swap to cloud storage —
+      save_upload becomes upload_to_s3, and no route code changes.

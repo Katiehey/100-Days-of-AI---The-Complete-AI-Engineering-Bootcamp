@@ -1,0 +1,137 @@
+day: 56
+lesson: 4
+title: "Text Extraction — Reading What Was Uploaded"
+duration_minutes: 10
+objectives:
+  - Decode plain text bytes with UTF-8 error handling
+  - Extract text from a PDF using pypdf
+  - Branch on content_type to select the right extractor
+  - Understand why text extraction is the bridge to the LLM
+
+slides:
+  - type: title
+    heading: "Text Extraction — Reading What Was Uploaded"
+    subheading: "Day 56 · Lesson 4 of 5"
+
+  - type: concept
+    heading: "The Bridge Between File and LLM"
+    bullets:
+      - "You have validated bytes. The LLM wants a string."
+      - "**Text files (.txt, .md):** decode bytes as UTF-8"
+      - "**PDF files (.pdf):** parse binary PDF format, extract page text"
+      - "Both reduce to a single `str` — the LLM doesn't care about the source format"
+      - "Extract once on upload, store the text — never re-extract on every question"
+    narration: >
+      Text extraction is the bridge between the binary world and the LLM world.
+      The LLM doesn't know or care whether content came from a PDF or a .txt file —
+      it just needs a string. Extracting on upload and storing the result means
+      every /ask call is fast; there is no repeated parsing.
+
+  - type: code
+    heading: "Plain Text Extraction"
+    language: python
+    code: |
+      def extract_text(content: bytes, content_type: str) -> str:
+          # PDF handled in a moment
+          return content.decode("utf-8", errors="replace")
+
+      text = extract_text(b"Hello, world!", "text/plain")
+      print(text)   # "Hello, world!"
+
+      # Non-UTF-8 bytes → replacement character U+FFFD instead of crash
+      text = extract_text(b"caf\xe9", "text/plain")
+      print(text)   # "caf<replacement char>"
+    narration: >
+      errors='replace' is the right default for user-uploaded files — you can't
+      assume they're valid UTF-8. Latin-1 encoded documents, Windows-1252 files,
+      and accidentally binary data all become readable strings with replacement
+      characters instead of raising UnicodeDecodeError. The replacement char
+      (U+FFFD) is harmless noise in LLM context.
+
+  - type: code
+    heading: "PDF Extraction with pypdf"
+    language: python
+    code: |
+      import io
+      import pypdf
+
+      def extract_text(content: bytes, content_type: str) -> str:
+          if "pdf" in content_type:
+              reader = pypdf.PdfReader(io.BytesIO(content))
+              return "\n".join(
+                  page.extract_text() or "" for page in reader.pages
+              )
+          return content.decode("utf-8", errors="replace")
+
+      with open("report.pdf", "rb") as f:
+          pdf_bytes = f.read()
+
+      text = extract_text(pdf_bytes, "application/pdf")
+      print(text[:200])
+    narration: >
+      pypdf.PdfReader accepts a file-like io.BytesIO — no need to write to disk.
+      extract_text() returns a string or None for image-only pages; the `or ""`
+      handles None gracefully. The pages iterator goes through every page in order,
+      and "\n".join puts them together. This is enough for most text-heavy PDFs
+      like reports, resumes, and articles — it won't extract text from scanned images.
+
+  - type: concept
+    heading: "Limitations of pypdf"
+    bullets:
+      - "Works great for: reports, articles, resumes, contracts — text-based PDFs"
+      - "Fails silently for: scanned PDFs — they're images, not text"
+      - "May scramble: PDFs with complex column layouts or text flow"
+      - "For scanned PDFs: OCR is needed (Day 68 — Document AI covers this)"
+      - "Today: text-based PDFs only — the most common case in practice"
+    narration: >
+      pypdf reads the PDF's internal text streams. A scanned PDF is just images —
+      there are no text streams, only pixel data. `extract_text()` returns an
+      empty string for such pages, which is why `or ""` is safe rather than
+      raising. For scanned documents, Day 68 covers OCR with Tesseract.
+
+  - type: concept
+    heading: "Why io.BytesIO?"
+    bullets:
+      - "`pypdf.PdfReader` expects a file-like object (`.read()` method)"
+      - "`io.BytesIO(content)` wraps bytes as an in-memory file — no disk I/O"
+      - "Same pattern for any library that wants to 'open a file': PIL, zipfile, xlrd"
+      - "Avoids creating temporary files — cleaner and faster for API request handling"
+    narration: >
+      Many Python libraries expect file-like objects rather than raw bytes — they
+      call .read(), .seek(), .tell() on whatever you pass. io.BytesIO bridges the
+      gap: it wraps a bytes object in the file interface without writing anything
+      to disk. You will use this pattern with PIL for images, zipfile for zips,
+      and xlrd/openpyxl for Excel files.
+
+  - type: code
+    heading: "Full extract_text with PDF + Plain Text"
+    language: python
+    code: |
+      import io
+      import pypdf
+
+      def extract_text(content: bytes, content_type: str) -> str:
+          if "pdf" in content_type:
+              reader = pypdf.PdfReader(io.BytesIO(content))
+              return "\n".join(p.extract_text() or "" for p in reader.pages)
+          return content.decode("utf-8", errors="replace")
+    narration: >
+      The "pdf" in content_type check handles application/pdf, application/x-pdf,
+      and any variant the client might send. Everything else falls through to
+      UTF-8 decode. This covers text/plain, text/markdown, text/csv — any format
+      that's fundamentally text. Four lines, two branches, handles the vast
+      majority of practical document upload scenarios.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`decode('utf-8', errors='replace')` — safe decoding, never raises"
+      - "`pypdf.PdfReader(io.BytesIO(content))` — PDF from bytes, no disk"
+      - "`page.extract_text() or ''` — handles image-only pages gracefully"
+      - "Branch on `'pdf' in content_type` — catch all PDF MIME variants"
+      - "Extract text once on upload, store it — don't re-extract per question"
+    narration: >
+      extract_text is four lines that handle the two most common document types.
+      The errors='replace' fallback and the `or ""` guard make it robust against
+      malformed input without raising. Add more branches (docx, csv) as needed —
+      the function signature stays the same.

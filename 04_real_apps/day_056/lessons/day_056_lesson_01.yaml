@@ -1,0 +1,110 @@
+day: 56
+lesson: 1
+title: "File Uploads in FastAPI"
+duration_minutes: 12
+objectives:
+  - Accept a file upload via multipart form in FastAPI
+  - Read the file bytes with await file.read()
+  - Access filename, content_type, and file size metadata
+  - Test upload endpoints in-process with TestClient
+
+slides:
+  - type: title
+    heading: "File Uploads in FastAPI"
+    subheading: "Day 56 · Lesson 1 of 5"
+
+  - type: concept
+    heading: "Why File Uploads?"
+    bullets:
+      - "Users want to upload documents, images, and data files — not just text"
+      - "File uploads power: CV parsers, doc Q&A, image analysis, CSV dashboards"
+      - "In HTTP, files are sent as **multipart/form-data** — a different encoding from JSON"
+      - "FastAPI makes this almost as easy as accepting JSON — one import, one type hint"
+    narration: >
+      JSON APIs handle structured text, but real users have files — resumes,
+      spreadsheets, PDFs, images. Multipart/form-data is the HTTP encoding for
+      file payloads; it encodes binary content alongside field metadata. FastAPI
+      abstracts all of this behind a single type annotation.
+
+  - type: concept
+    heading: "The Upload Types: File vs UploadFile"
+    bullets:
+      - "`File(...)` — the dependency that tells FastAPI 'this is a form field'"
+      - "`UploadFile` — the Python object wrapping the incoming file"
+      - "Annotated together: `file: UploadFile = File(...)`"
+      - "`UploadFile` is async-first — `await file.read()` reads the bytes"
+    narration: >
+      FastAPI separates the form-field declaration (File) from the type of the
+      field (UploadFile). File(...) is shorthand for "required multipart field".
+      UploadFile is a thin async wrapper around Python's SpooledTemporaryFile —
+      small files are held in RAM, large ones spill to disk automatically.
+
+  - type: code
+    heading: "Minimal Upload Endpoint"
+    language: python
+    code: |
+      from fastapi import FastAPI, File, UploadFile
+
+      app = FastAPI()
+
+      @app.post("/upload")
+      async def upload(file: UploadFile = File(...)):
+          content = await file.read()          # bytes
+          return {
+              "filename":     file.filename,   # original name
+              "content_type": file.content_type,
+              "size":         len(content),    # bytes
+          }
+    narration: >
+      The handler must be async def because file.read() is a coroutine.
+      file.filename and file.content_type come directly from the multipart
+      headers — they are whatever the client sent, so always validate before
+      trusting them. len(content) gives you the exact byte count.
+
+  - type: code
+    heading: "Testing Uploads with TestClient"
+    language: python
+    code: |
+      from starlette.testclient import TestClient
+
+      client = TestClient(app)
+
+      r = client.post(
+          "/upload",
+          files={"file": ("report.txt", b"Hello world", "text/plain")},
+      )
+      print(r.json())
+      # {"filename": "report.txt", "content_type": "text/plain", "size": 11}
+    narration: >
+      TestClient's files= parameter mirrors the requests library — a tuple of
+      (filename, content_bytes, content_type). The key "file" must match the
+      parameter name in the route handler. TestClient handles async handlers
+      transparently — no uvicorn needed in notebooks.
+
+  - type: concept
+    heading: "UploadFile Attributes"
+    bullets:
+      - "`file.filename` — original filename sent by the client (str | None)"
+      - "`file.content_type` — MIME type from Content-Type header (str | None)"
+      - "`await file.read()` — read all bytes (returns bytes)"
+      - "`await file.seek(0)` — rewind if you need to read again"
+      - "`await file.close()` — FastAPI calls this automatically at request end"
+    narration: >
+      Both filename and content_type can be None if the client doesn't send them,
+      so always use `file.filename or "unnamed"` and `file.content_type or ""`.
+      You can read the file multiple times by calling seek(0) to rewind, but for
+      most cases one read() is enough.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Import: `from fastapi import FastAPI, File, UploadFile`"
+      - "Handler must be `async def` — use `await file.read()`"
+      - "Install `python-multipart` — FastAPI needs it to parse multipart bodies"
+      - "Test with `TestClient(app)` and `files={'file': (name, bytes, type)}`"
+      - "Never trust client-provided filename or content_type — validate before use"
+    narration: >
+      The key is the async handler: UploadFile.read() is a coroutine, so the
+      route must be async def. TestClient handles async routes transparently.
+      python-multipart is a required dependency for parsing multipart bodies —
+      FastAPI raises an error at startup if it is missing.
