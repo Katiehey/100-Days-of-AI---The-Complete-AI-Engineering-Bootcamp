@@ -1,0 +1,191 @@
+day: "055"
+lesson: "04"
+title: "FastAPI Auth with Depends"
+slides:
+  - type: title
+    heading: "Protecting Routes with Depends"
+    subheading: "One dependency function — auth on any route for free"
+    narration: >
+      You can create and verify JWTs. Now you need to wire them into FastAPI so that
+      some routes require a valid token and others do not. Lesson 4 shows you how
+      FastAPI's Depends system makes this a one-liner on any route — and introduces
+      the two HTTP status codes that auth lives on: 401 and 403.
+
+  - type: concept
+    label: "depends"
+    heading: "FastAPI Depends — Dependency Injection"
+    body: >
+      `Depends` tells FastAPI: *call this function first and inject its return value*.
+
+      ```python
+      from fastapi import Depends
+
+      def require_json_body(req: Request) -> dict: ...
+
+      @app.post("/submit")
+      def submit(data: dict = Depends(require_json_body)):
+          # data is whatever require_json_body returned
+          ...
+      ```
+
+      You already used `Depends` implicitly — Pydantic models in handler
+      signatures are a form of it. Auth is just another dependency.
+    narration: >
+      FastAPI's Depends system is dependency injection. You write a function that
+      does some work — reading a header, checking a database, validating a token —
+      and annotate a handler parameter with Depends of that function. FastAPI calls
+      the function for you, and injects its return value into the handler. If the
+      dependency raises an HTTPException, FastAPI returns that error response and
+      never calls the handler. You have already been using this: the Pydantic model
+      in your handler signature is parsed and validated by FastAPI before your code
+      runs — that is the same mechanism. For auth, the dependency is a function
+      that reads the Authorization header, decodes the JWT, and returns the payload
+      — or raises 401.
+
+  - type: how_it_works
+    label: "httpbearer"
+    heading: "HTTPBearer + HTTPAuthorizationCredentials"
+    body: >
+      ```python
+      from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+      security = HTTPBearer()
+      # Reads the Authorization: Bearer <token> header.
+      # Returns HTTPAuthorizationCredentials(scheme='Bearer', credentials='<token>')
+      # Auto-raises 403 if the header is missing or not a Bearer token.
+      ```
+
+      `creds.credentials` is the raw token string — pass it to `decode_token`.
+    bullets:
+      - "`HTTPBearer` handles header parsing — no manual string splitting"
+      - "Missing/wrong header → auto 401 (before your code runs)"
+      - "Present Bearer token → your code runs with `creds.credentials`"
+      - "`creds.scheme` is always `'Bearer'` when the security check passes"
+    narration: >
+      HTTPBearer is a FastAPI security scheme that knows how to read the
+      Authorization header. When you declare it as a Depends parameter, FastAPI
+      reads the header, splits off the scheme and the credentials, and gives you
+      an HTTPAuthorizationCredentials object. If the header is missing entirely,
+      or if the scheme is not Bearer, HTTPBearer automatically raises 401 Unauthorized
+      before your dependency function even runs. When it does run, creds.credentials
+      is the raw token string — the part after Bearer space. You pass that to
+      decode_token and handle JWTError from there.
+
+  - type: code
+    label: "get_current_user"
+    heading: "The Auth Dependency"
+    code: |
+      from typing import Annotated
+
+      _security = HTTPBearer()
+
+      def get_current_user(
+          creds: Annotated[HTTPAuthorizationCredentials, Depends(_security)]
+      ) -> dict:
+          try:
+              return decode_token(creds.credentials)
+          except JWTError:
+              raise HTTPException(status_code=401, detail="Invalid or expired token")
+    narration: >
+      Here is get_current_user, the auth dependency. It declares its own dependency:
+      creds comes from Depends of the HTTPBearer instance. FastAPI chains the
+      dependencies: it calls HTTPBearer first to get the credentials, then calls
+      get_current_user with them. The function calls decode_token with the raw
+      token string. If the token is valid, it returns the decoded payload dict,
+      which becomes the user parameter in any route that depends on this function.
+      If decode_token raises JWTError, we raise HTTPException 401 — that is the
+      signal to the client that their token is bad and they need to log in again.
+
+  - type: code
+    label: "protected route"
+    heading: "Protecting a Route"
+    code: |
+      @app.get("/me")
+      def me(user: dict = Depends(get_current_user)):
+          return {"user_id": user["user_id"], "email": user["email"]}
+
+      @app.post("/chat")
+      def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
+          # user is the decoded JWT payload — we know who is asking
+          hist = _histories.setdefault(user["user_id"], [])
+          ...
+
+      # Public route — no Depends(get_current_user)
+      @app.post("/login")
+      def login(req: LoginRequest): ...
+    narration: >
+      Protecting a route is one word: Depends. Any route that declares
+      user equals Depends of get_current_user will require a valid Bearer token.
+      Without it, the caller gets 403. With a bad token, they get 401. With a
+      good token, they get the decoded payload. Routes without that parameter
+      are public — login and register obviously must be public, since the user
+      does not have a token yet when calling them. The rest is just your business
+      logic, now knowing exactly who is asking. For per-user data, use user
+      underscore id as the key in your store, exactly as the chat route does here.
+
+  - type: concept
+    label: "401 vs 403"
+    heading: "401 vs 403 — Which Means What"
+    body: >
+      | Code | Name | Means |
+      |---|---|---|
+      | `401` | Unauthorized | No valid credential — token missing, invalid, or expired |
+      | `403` | Forbidden | Valid credential but not allowed — wrong role, wrong resource |
+
+      Despite the name "Unauthorized", 401 really means *unauthenticated* —
+      try again with a valid token. 403 means *authenticated but not authorised* —
+      logging in again will not help.
+
+      FastAPI's `HTTPBearer` returns 401 when the header is absent — before your
+      code runs, so no auth dependency had a chance to run.
+    narration: >
+      The naming is confusing but the semantics matter. 401 Unauthorized means the
+      server cannot identify you — your token is missing, expired, or wrong. The
+      correct client action is to show a login form. 403 Forbidden means the server
+      knows who you are but will not let you do this — a regular user trying to
+      access an admin endpoint, for example. Showing a login form would not help
+      because logging in as the same user would give the same 403. FastAPI's
+      HTTPBearer returns 401 when there is no header at all — signalling that the
+      request is unauthenticated and the client should provide credentials. Once a
+      token is present and parsed, your code raises 401 for bad signatures or 403
+      for insufficient permissions (e.g. a regular user hitting an admin route).
+
+  - type: exercise
+    heading: "Exercise 4 — FastAPI Auth Dependency"
+    prompt: >
+      Implement `get_current_user` (catch `JWTError`, raise `HTTPException(401)`)
+      and `build_protected_api()` returning a FastAPI app with `GET /me` protected
+      by `Depends(get_current_user)`. The checks verify: no token → 401,
+      invalid token → 401, valid token → 200 with correct `user_id` and `email`.
+    hint: >
+      In `get_current_user`: `try: return decode_token(creds.credentials) except
+      JWTError: raise HTTPException(status_code=401, ...)`. In `build_protected_api`:
+      create `app = FastAPI()`, add `@app.get("/me")` whose handler takes
+      `user: dict = Depends(get_current_user)` and returns the two fields.
+    narration: >
+      Open exercise underscore 04. The provided block includes everything you built
+      in exercises 1 and 3, plus the HTTPBearer instance. Your job is get_current_user
+      and the protected route. Read the checks carefully: check one sends no header
+      and expects 401 — that is HTTPBearer doing its job before your function runs.
+      Check two sends a bad token and expects 401 — that is your JWTError catch.
+      Check three through five send a valid token and verify the response. Use
+      raise_server_exceptions equals False in TestClient so a NotImplementedError
+      from the stub does not crash the checks cell. Five green, then Lesson 5 builds
+      the complete register and login flow on top of everything you have made.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`Depends(fn)` — FastAPI calls `fn` and injects the result; raises propagate"
+      - "`HTTPBearer` parses `Authorization: Bearer <token>` — auto 401 if missing"
+      - "`get_current_user` dependency: decode → return payload, or raise 401"
+      - "Protected route: one `Depends(get_current_user)` parameter"
+      - "401 = unauthenticated (try logging in); 403 = unauthorized (login won't help)"
+    narration: >
+      To recap: FastAPI's Depends system chains function calls — dependencies run
+      before the handler and can raise to short-circuit it. HTTPBearer reads and
+      parses the Authorization header; get_current_user decodes the JWT and either
+      returns the payload or raises 401. Any route that declares user equals Depends
+      of get_current_user is protected. Routes without that declaration are public.
+      Lesson 5 puts this all together: registration, login, and a complete auth
+      API that you can run with uvicorn.

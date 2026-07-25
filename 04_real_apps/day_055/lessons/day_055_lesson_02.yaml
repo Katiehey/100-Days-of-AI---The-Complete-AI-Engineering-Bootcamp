@@ -1,0 +1,199 @@
+day: "055"
+lesson: "02"
+title: "API Keys — Machine-to-Machine Auth"
+slides:
+  - type: title
+    heading: "API Keys"
+    subheading: "A long random token — the simplest auth pattern"
+    narration: >
+      Before users and login flows, meet the simplest auth pattern: the API key.
+      One long random string, issued once, sent on every request. You have already
+      used API keys if you have ever called OpenAI, Stripe, or GitHub's API from
+      code. Lesson 2 shows you how they work and how to generate and compare them
+      safely.
+
+  - type: concept
+    label: "what is an api key"
+    heading: "What an API Key Is"
+    body: >
+      An API key is a long, random, unguessable string issued by the server and
+      sent by the client on every request:
+
+      ```
+      Authorization: Bearer sk_live_abc123xyz...
+      ```
+
+      The server looks it up (or hashes and compares) and either allows or rejects.
+
+      | Scenario | Auth pattern |
+      |---|---|
+      | User login from a browser | Password + JWT session |
+      | Server calling your API | API key in header |
+      | Dev tool / script | API key in `.env` |
+    narration: >
+      An API key is just a secret string — long enough that guessing it is
+      impossible, random enough that predicting it is impossible. The client
+      includes it in every request, typically in the Authorization header as a
+      Bearer token. The server receives it, checks it against its store, and
+      decides yes or no. There are no passwords to hash, no login forms, no
+      sessions. The key IS the credential. You have seen this pattern as a user
+      — the OpenAI API key in your dot env file, the Stripe secret key in your
+      backend config. Today you implement the server side: generating keys and
+      verifying them.
+
+  - type: concept
+    label: "cryptographic randomness"
+    heading: "secrets.token_urlsafe — Cryptographically Secure Keys"
+    body: >
+      A normal `random` call is predictable given the seed. API keys need the OS
+      CSPRNG (cryptographically secure pseudorandom number generator):
+
+      ```python
+      import secrets
+
+      key = secrets.token_urlsafe(32)
+      # → 'aBcDeFgH...'   43 URL-safe characters from 32 random bytes
+      ```
+
+      `secrets` is stdlib — no install. It reads from `/dev/urandom` (Linux/macOS)
+      or `CryptGenRandom` (Windows). The result is **impossible to predict**.
+    bullets:
+      - "`random` module — seeded, predictable, NOT safe for secrets"
+      - "`secrets` module — OS entropy, safe for tokens, keys, passwords"
+      - "32 bytes → 43 URL-safe base64 characters"
+      - "The key space is 2²⁵⁶ — brute force is computationally impossible"
+    narration: >
+      This is a subtle but critical point. Python's random module is seeded — often
+      with the current time. An attacker who knows approximately when you generated
+      a key can try all seeds near that time and eventually find the key. That is not
+      hypothetical; it has happened in production systems. The secrets module bypasses
+      the seeding problem entirely: it reads random bytes directly from the operating
+      system's entropy pool, which is seeded from hardware events like disk timing,
+      network interrupts, and keystroke timings. The result is genuinely
+      unpredictable. token_urlsafe of 32 gives you 32 bytes, which is two hundred
+      and fifty-six bits of entropy, encoded as a forty-three character string of
+      letters, digits, hyphens, and underscores — safe to put in a URL or header.
+
+  - type: concept
+    label: "timing attacks"
+    heading: "Timing Attacks and Constant-Time Comparison"
+    body: >
+      A regular `==` short-circuits: it stops comparing the moment it finds a
+      mismatch. An attacker can measure how long the comparison takes to guess
+      how many leading characters matched:
+
+      ```python
+      "abc" == "abc"  # fast (match)
+      "abc" == "xyz"  # very fast (mismatch on char 1)
+      "abc" == "abz"  # slightly slower (mismatch on char 3)
+      ```
+
+      `hmac.compare_digest` always compares every byte in constant time,
+      eliminating the timing signal.
+    narration: >
+      Here is an attack that sounds theoretical but has been exploited in real
+      systems. When you compare two strings with the equality operator, Python stops
+      the moment it finds the first character that differs. A string that matches the
+      first twenty characters takes longer to reject than one that fails immediately.
+      By sending thousands of requests and measuring the response time, an attacker
+      can infer how many leading characters of their guess matched — and eventually
+      reconstruct the full key. HMAC compare digest compares all bytes regardless of
+      where the mismatch occurs, so the timing is always the same. It takes one
+      extra import to do this right, and it eliminates an entire class of attack.
+
+  - type: how_it_works
+    label: "generate and verify"
+    heading: "generate_api_key and verify_api_key"
+    body: >
+      ```python
+      import secrets, hmac
+
+      def generate_api_key() -> str:
+          return secrets.token_urlsafe(32)
+
+      def verify_api_key(provided: str, stored: str) -> bool:
+          return hmac.compare_digest(provided.encode(), stored.encode())
+
+      # Usage:
+      key = generate_api_key()       # issue once, store on server
+      verify_api_key(key, key)       # True
+      verify_api_key("wrong", key)   # False — always in constant time
+      ```
+    narration: >
+      These two functions are the complete API key implementation. generate_api_key
+      calls secrets.token_urlsafe with 32 bytes and returns the result — nothing
+      else to do, because the randomness is all you need. verify_api_key encodes
+      both strings to bytes and passes them to hmac.compare_digest, which returns
+      True only if they are identical, having compared every byte regardless. On
+      your server, you store the key once when you issue it, and on every incoming
+      request you call verify_api_key with the header value and the stored key.
+      If you want to be extra careful, you can store the hash of the key rather
+      than the key itself, so a database breach does not expose the keys directly
+      — but for most cases, storing the key and revoking it immediately when
+      compromised is sufficient.
+
+  - type: code
+    label: "in a fastapi route"
+    heading: "Using an API Key in FastAPI"
+    code: |
+      from fastapi import Header, HTTPException
+
+      # at startup: store = {"sk_live_abc123": {"user_id": 1}}
+      API_KEYS: dict[str, dict] = {}
+
+      def verify_request_key(x_api_key: str = Header(...)) -> dict:
+          for stored_key, user in API_KEYS.items():
+              if verify_api_key(x_api_key, stored_key):
+                  return user
+          raise HTTPException(status_code=401, detail="Invalid API key")
+
+      @app.get("/data")
+      def get_data(user: dict = Depends(verify_request_key)):
+          return {"data": "...", "user_id": user["user_id"]}
+    narration: >
+      Here is how you wire an API key check into a FastAPI route. Header with the
+      ellipsis means the header is required — FastAPI returns 422 automatically if
+      it is missing. The dependency loops through the stored keys and calls
+      verify_api_key. A real implementation would use a database query for
+      efficiency; this illustrates the shape. Note that this uses a custom header
+      called X-API-Key rather than Authorization — both are valid patterns. The
+      Authorization: Bearer scheme you will use for JWTs starting in Lesson 3.
+      API keys shine for machine-to-machine calls where there is no interactive
+      user login, but for a browser app with a login form, JWTs are the better fit.
+
+  - type: exercise
+    heading: "Exercise 2 — API Keys"
+    prompt: >
+      Implement `generate_api_key()` using `secrets.token_urlsafe(32)` and
+      `verify_api_key(provided, stored)` using `hmac.compare_digest`. The checks
+      verify the key length, uniqueness, correct match, rejection of wrong keys,
+      and rejection of an empty string.
+    hint: >
+      Both functions are one-liners. The key insight is in what you are NOT doing:
+      no `==`, no `random`, no manual encoding. `secrets` and `hmac.compare_digest`
+      do exactly the right thing with no extra code. Encode strings to bytes with
+      `.encode()` before passing to `compare_digest`.
+    narration: >
+      Open exercise underscore 02. Two short functions. The point is not the code
+      length — it is learning which tools to reach for and why. Check two confirms
+      that two generated keys are never the same, which is the randomness guarantee.
+      Check four confirms that a wrong key is rejected. Check five tests an empty
+      string — a common edge case in auth code. Five green, then Lesson 3 moves
+      from keys to tokens: JWTs, which carry the user's identity inside the token
+      itself.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "API keys are long random strings — the simplest auth pattern"
+      - "`secrets.token_urlsafe(N)` — OS entropy, cryptographically safe"
+      - "`hmac.compare_digest` — constant-time comparison, no timing leakage"
+      - "API keys suit machine-to-machine; JWTs suit interactive user sessions"
+    narration: >
+      To recap: an API key is a long random string issued once by the server and
+      sent by the client on every request. Use secrets.token_urlsafe to generate
+      it — never the random module. Use hmac.compare_digest to verify it — never
+      the equality operator. The distinction between API keys and JWTs is about
+      who is talking: a script or server uses an API key; a user logging in via a
+      browser gets a JWT. Lesson 3 introduces JWTs — tokens that carry the user's
+      identity signed with a secret, so the server never needs a lookup table.

@@ -1,0 +1,189 @@
+day: "055"
+lesson: "05"
+title: "Registration, Login & the Auth API"
+slides:
+  - type: title
+    heading: "The Full Auth Flow"
+    subheading: "Register → Login → Token → Protected Routes"
+    narration: >
+      Lesson 5 is where everything comes together. You wire password hashing, JWT
+      creation, and FastAPI Depends into a complete auth API: a user registers with
+      email and password, logs in to receive a token, and uses that token to access
+      protected routes — including a chat endpoint where each user's conversation
+      history is private and persistent.
+
+  - type: concept
+    label: "the flow"
+    heading: "Four Steps, Three Endpoints"
+    body: >
+      The complete auth cycle:
+
+      1. **Register** — client sends `{email, password}` → server hashes, stores, returns `{id, email}`
+      2. **Login** — client sends `{email, password}` → server verifies, issues JWT → `{access_token}`
+      3. **Authenticate** — client sends `Authorization: Bearer <token>` on every request
+      4. **Authorise** — server validates token → reads user identity → serves private data
+
+      Steps 3 and 4 happen transparently via `Depends(get_current_user)`.
+    narration: >
+      Here is the full picture. Registration creates the account: the server hashes
+      the password and stores the user. Login authenticates: the server verifies the
+      password and if correct, returns a JWT. From that point on, the client includes
+      the token in every request header. The server validates the token on each
+      request using the Depends dependency — no session lookup, just signature
+      verification. And because the token contains the user id, the server knows
+      exactly whose data to serve. Steps three and four are invisible to your handler
+      code; they happen inside get_current_user before your route function runs.
+
+  - type: code
+    label: "register endpoint"
+    heading: "POST /register — Hash and Store"
+    code: |
+      class RegisterRequest(BaseModel):
+          email: str = Field(min_length=3)
+          password: str = Field(min_length=6)
+
+      @app.post("/register", status_code=201)
+      def register(req: RegisterRequest):
+          if req.email in _users:
+              raise HTTPException(status_code=409, detail="Email already registered")
+          uid = _next_id[0]; _next_id[0] += 1
+          _users[req.email] = {
+              "id": uid,
+              "email": req.email,
+              "hashed_password": hash_password(req.password),
+          }
+          return {"id": uid, "email": req.email}
+    narration: >
+      The register endpoint is the gateway. First, a duplicate check: if the email
+      is already registered, return 409 Conflict — not 400, because the request is
+      well-formed but conflicts with existing data. Then assign an id, hash the
+      password, store the user record, and return just the id and email — never
+      return the hash, never return the password. The status code is 201 Created
+      rather than 200 OK because a new resource was created. Pydantic enforces
+      min_length on both fields before your code runs, so you get automatic 422
+      for a password shorter than six characters or an email shorter than three.
+      In a production system you would also validate that the email looks like an
+      email address, but that is a detail for later.
+
+  - type: code
+    label: "login endpoint"
+    heading: "POST /login — Verify and Issue Token"
+    code: |
+      class LoginRequest(BaseModel):
+          email: str
+          password: str
+
+      @app.post("/login")
+      def login(req: LoginRequest):
+          user = _users.get(req.email)
+          if not user or not verify_password(req.password, user["hashed_password"]):
+              raise HTTPException(status_code=401, detail="Invalid credentials")
+          token = create_token({"user_id": user["id"], "email": req.email})
+          return {"access_token": token, "token_type": "bearer"}
+    narration: >
+      The login endpoint does two checks in one condition. First, does the user
+      exist? If not — or if the password does not match — raise 401. Note the
+      intentional vagueness: the message is invalid credentials, not email not found
+      or wrong password. Telling the caller which one failed would let an attacker
+      enumerate valid emails — a classic user enumeration vulnerability. One
+      consistent error message for both cases closes that gap. If both checks pass,
+      create a JWT with the user id and email in the payload and return it. The
+      client stores this token and sends it as Authorization: Bearer on every
+      subsequent request.
+
+  - type: code
+    label: "protected endpoints"
+    heading: "GET /me and POST /chat"
+    code: |
+      @app.get("/me")
+      def me(user: dict = Depends(get_current_user)):
+          return {"user_id": user["user_id"], "email": user["email"]}
+
+      @app.post("/chat")
+      def chat(req: ChatRequest, user: dict = Depends(get_current_user)):
+          uid  = user["user_id"]
+          hist = _histories.setdefault(uid, [])
+          hist.append({"role": "user", "content": req.message})
+          reply = ollama.chat(model=MODEL, messages=hist)["message"]["content"]
+          hist.append({"role": "assistant", "content": reply})
+          return {"reply": reply, "history_length": len(hist)}
+    narration: >
+      The protected endpoints are thin. slash me reads the user dict that
+      get_current_user injected and returns the two fields — a quick identity check.
+      slash chat uses the user id to key into a per-user history dict. Each user
+      has their own conversation that accumulates across requests. setdefault returns
+      the existing list or creates an empty one — a clean one-liner. Then the user
+      turn is appended, the full history is sent to Ollama so the model has context,
+      the reply is appended, and the result is returned. Two users can chat
+      simultaneously and their histories never mix, because user id is the key.
+
+  - type: concept
+    label: "secret key"
+    heading: "Keep SECRET_KEY Out of the Code"
+    body: >
+      ```python
+      # DON'T — secret in source code
+      SECRET_KEY = "my-secret"
+
+      # DO — read from environment
+      import os
+      SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-change-me")
+      ```
+
+      Anyone who can read your source code (or your git history) can forge tokens.
+      Use an environment variable; never commit the production secret.
+    bullets:
+      - "`.env` file locally; platform secrets / vault in production"
+      - "Generate with `python -c \"import secrets; print(secrets.token_hex(32))\"`"
+      - "Rotate immediately if exposed — all existing tokens become invalid"
+      - "A leaked secret lets anyone mint valid tokens for any user"
+    narration: >
+      This is the most important operational note for JWTs. Your SECRET_KEY is what
+      makes the signature meaningful. Anyone who holds it can create tokens claiming
+      to be any user in your system, bypassing every auth check. It must never appear
+      in your source code or your git history. Store it in an environment variable
+      — dotenv locally, the platform's secrets manager in production. If it ever
+      leaks, change it immediately: every existing token signed with the old key
+      becomes invalid, forcing all users to log in again, which is the correct
+      response to a key compromise. A strong secret key is at least 32 bytes of
+      random data — use secrets.token_hex 32 to generate it.
+
+  - type: exercise
+    heading: "Exercise 5 + Project — Registration, Login & auth_api.py"
+    prompt: >
+      Implement `register_user(email, password, users)` (hash + store, raise
+      `ValueError` on duplicate) and `login_user(email, password, users)` (verify
+      + `create_token`, raise `ValueError` on bad credentials). Then in the project,
+      implement `write_auth_api(path)` to generate `auth_api.py` and test the full
+      flow with TestClient: register → login → `/me`.
+    hint: >
+      `register_user`: check `if email in users`, assign incrementing id from
+      `_next_id`, store hashed password, return `{"id": uid, "email": email}`.
+      `login_user`: `user = users.get(email)` — if not user or not verify_password
+      raise ValueError; else return `create_token({"user_id": user["id"], "email": email})`.
+    narration: >
+      Open exercise underscore 05, then the project. Exercise 5 is the pure Python
+      logic: register and login without FastAPI. The checks verify duplicates raise,
+      login returns a decodable JWT, and wrong passwords raise. The project wires
+      everything into the generated auth_api.py. The solution checks run the full
+      flow: register, see 201; try a duplicate, see 409; login, get a token; hit
+      slash me with the token, see your email; hit slash me without a token, see
+      403. That full cycle is a working authenticated API. After the gate passes,
+      run uvicorn auth_api:app reload, open the docs, and try it live.
+
+  - type: summary
+    heading: "Lesson 5 & Day 55 Takeaways"
+    bullets:
+      - "Register: `hash_password` + store; return `{id, email}`; 409 on duplicate"
+      - "Login: `verify_password` → `create_token`; 401 on any failure (no enumeration)"
+      - "Protected route: `Depends(get_current_user)` → decoded payload as `user`"
+      - "Per-user data: key the store by `user['user_id']`"
+      - "`SECRET_KEY` from env var — never in source; rotate immediately if leaked"
+    narration: >
+      Day 55 in summary. You built auth from the ground up: bcrypt hashing with
+      passlib, cryptographic API keys with secrets and hmac, stateless sessions
+      with JWTs from python-jose, dependency injection with FastAPI Depends and
+      HTTPBearer, and the complete register-login-protect cycle. Each user now has
+      private data, the database from Day 54 knows whose chat belongs to whom, and
+      your backend has a door with a lock. Tomorrow, Day 56, you give users a way
+      to upload files — documents the AI can read and reason about.

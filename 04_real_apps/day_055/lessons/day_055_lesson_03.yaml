@@ -1,0 +1,188 @@
+day: "055"
+lesson: "03"
+title: "JWT — Stateless User Sessions"
+slides:
+  - type: title
+    heading: "JSON Web Tokens"
+    subheading: "Carry the user's identity inside the token — no session storage"
+    narration: >
+      API keys identify a client, but they do not carry information about the user.
+      JWTs — JSON Web Tokens — do both at once. The token contains a signed payload:
+      who you are, when the token expires, whatever else you need. The server
+      validates the signature and reads the payload without any database lookup.
+      Lesson 3 shows you how they work and how to create and verify them.
+
+  - type: concept
+    label: "jwt structure"
+    heading: "A JWT Is Three Base64 Sections"
+    body: >
+      ```
+      eyJhbGci...  .  eyJ1c2VyX2lk...  .  SflKxwRJSMeK...
+          ↑                 ↑                    ↑
+        header           payload              signature
+      (algorithm)   (your data + exp)   (HMAC of header+payload)
+      ```
+
+      Decode the payload and you see plain JSON:
+
+      ```json
+      {"user_id": 7, "email": "alice@example.com", "exp": 1753000000}
+      ```
+
+      The signature proves the payload has not been tampered with.
+    narration: >
+      A JWT is just three base64-encoded sections joined by dots. The header says
+      which algorithm was used to sign it — usually HS256, which is HMAC with
+      SHA-256. The payload is your data: whatever you put there, plus an exp field
+      for expiry. The signature is a cryptographic MAC of the header plus the
+      payload, computed with your secret key. Crucially, the payload is readable
+      by anyone — it is base64, not encrypted. But nobody can change it without
+      invalidating the signature. That is the guarantee: if the signature checks
+      out, the payload is exactly what your server put there.
+
+  - type: concept
+    label: "stateless"
+    heading: "Stateless vs Stateful Sessions"
+    body: >
+      | Approach | How the server knows who you are |
+      |---|---|
+      | Session cookie | Server stores `session_id → user_id` in a DB or Redis |
+      | JWT | Server reads the signed payload — no storage needed |
+
+      JWT advantages:
+      - **No session store** — scale to any number of servers without sharing state
+      - **Self-contained** — token carries email, role, expiry — no extra DB query
+      - **Short-lived** — expiry baked in; refresh token pattern for longer sessions
+    narration: >
+      Traditional web apps store sessions on the server: a random session id is
+      given to the browser as a cookie, and the server maps that id to the user's
+      data in a database or Redis. Every authenticated request requires a lookup.
+      JWTs flip this: the payload is in the token itself, signed with your secret.
+      On every request, the server verifies the signature — a cryptographic operation
+      that takes microseconds — and reads the payload directly. No database round
+      trip. No shared session store. This is why JWTs are the default for REST APIs,
+      especially when you have multiple backend servers: every server independently
+      validates the token with the same secret key, and there is nothing to synchronise.
+
+  - type: how_it_works
+    label: "jose jwt"
+    heading: "jwt.encode and jwt.decode"
+    body: >
+      ```python
+      from jose import jwt, JWTError
+      from datetime import datetime, timedelta
+
+      SECRET_KEY = "change-me-in-production"
+      ALGORITHM  = "HS256"
+
+      # create
+      payload = {"user_id": 7, "exp": datetime.utcnow() + timedelta(hours=1)}
+      token   = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+      # verify and decode
+      data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+      # → {"user_id": 7, "exp": 1753000000}
+      ```
+
+      `jwt.decode` validates the signature AND checks `exp` automatically.
+      Any problem → raises `JWTError`.
+    narration: >
+      The python-jose library gives you two functions. jwt.encode takes your payload
+      dict, the secret key, and the algorithm, and returns the JWT string. jwt.decode
+      takes the string plus the same secret and algorithm, verifies the signature,
+      checks the exp claim against the current time, and returns the payload as a
+      dict — or raises JWTError if anything fails. Notice the algorithm list on
+      decode: jose requires it to prevent algorithm-confusion attacks, where an
+      attacker crafts a token claiming it uses a different algorithm. Always pass
+      the explicit list. The secret key must be the same on encode and decode —
+      it is what links the issuer to the verifier. If the key changes, all existing
+      tokens become invalid immediately.
+
+  - type: code
+    label: "create and decode"
+    heading: "create_token and decode_token"
+    code: |
+      def create_token(data: dict, expires_in_minutes: int = 60) -> str:
+          payload = data.copy()
+          payload["exp"] = datetime.utcnow() + timedelta(minutes=expires_in_minutes)
+          return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+      def decode_token(token: str) -> dict:
+          return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+      # Usage:
+      tok = create_token({"user_id": 7, "email": "alice@example.com"})
+      data = decode_token(tok)   # {"user_id": 7, "email": "...", "exp": ...}
+    narration: >
+      The functions follow the same wrapping pattern as the password functions.
+      create_token copies the caller's payload — never mutate the input dict —
+      adds the exp claim, and encodes. decode_token delegates entirely to jwt.decode
+      and lets JWTError propagate to the caller, who decides how to handle it.
+      In a FastAPI dependency that becomes raise HTTPException 401. The sixty-minute
+      default is reasonable for a web app: short enough to limit damage if a token
+      is stolen, long enough that users are not constantly re-logging in. For
+      sensitive operations you can pass a shorter lifetime; for remember-me sessions
+      you issue a separate long-lived refresh token.
+
+  - type: concept
+    label: "jwtError"
+    heading: "When JWTError Fires"
+    body: >
+      `jwt.decode` raises `JWTError` on:
+
+      | Cause | What happened |
+      |---|---|
+      | Wrong signature | Token was tampered with or signed with a different key |
+      | `exp` in the past | Token has expired |
+      | Malformed token | Not a valid JWT (e.g. truncated, corrupted) |
+
+      All three are caught by `except JWTError` — you do not need to distinguish
+      them for a 401 response. Just: if decode fails, the user is not authenticated.
+    narration: >
+      JWTError is the single exception class that covers all the ways a token can
+      fail. Wrong key — JWTError. Expired — JWTError. Corrupted string — JWTError.
+      This is by design: from the server's perspective, all three mean the same
+      thing: this token is not valid, do not trust the caller. You catch JWTError
+      and respond with 401 Unauthorized. You do not need to tell the client which
+      failure it was — that would give an attacker information about what kind of
+      tampering they should try next. The principle is: on any decode failure, deny,
+      log the event, and let the client try logging in again.
+
+  - type: exercise
+    heading: "Exercise 3 — JWT Tokens"
+    prompt: >
+      Implement `create_token(data, expires_in_minutes=60)` and `decode_token(token)`.
+      The checks verify the three-part JWT format, that the payload round-trips
+      correctly, that an expired token raises `JWTError`, and that a tampered
+      token raises `JWTError`.
+    hint: >
+      In `create_token`: copy `data`, add `"exp"` = `datetime.utcnow() +
+      timedelta(minutes=expires_in_minutes)`, then `jwt.encode(payload, SECRET_KEY,
+      algorithm=ALGORITHM)`. In `decode_token`: `jwt.decode(token, SECRET_KEY,
+      algorithms=[ALGORITHM])`. Use `expires_in_minutes=-1` to create an
+      already-expired token for the expiry check.
+    narration: >
+      Open exercise underscore 03. Two functions, but four concepts: encode,
+      decode, expiry, and tamper detection. Check four uses a negative lifetime
+      to create a token that is already expired at the moment of creation — the
+      simplest way to test expiry without sleeping. Check five manually corrupts
+      the signature section to verify that the library catches it. Both should raise
+      JWTError. Five green, then Lesson 4 takes these tokens into FastAPI and makes
+      them the key that unlocks protected routes.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "JWT = base64(header) + base64(payload) + HMAC(header+payload, secret)"
+      - "Payload is readable — signed, not encrypted; never put secrets in it"
+      - "Stateless — server validates signature without a database lookup"
+      - "`jwt.encode` creates; `jwt.decode` verifies and returns payload or raises `JWTError`"
+      - "`exp` claim checked automatically; invalid/expired/tampered → `JWTError`"
+    narration: >
+      To recap: a JWT is a signed JSON payload. Base64-encoded, not encrypted, so
+      anyone who holds the token can read the payload — do not put secrets there.
+      jwt.encode creates the token; jwt.decode verifies the signature and the expiry,
+      returning the payload if valid or raising JWTError if not. The server never
+      stores sessions; it just validates the signature on every request. Lesson 4
+      wires this into FastAPI using Depends, so any route can require a valid token
+      with a single line.

@@ -1,0 +1,180 @@
+day: "055"
+lesson: "01"
+title: "Why Auth Matters & Password Hashing"
+slides:
+  - type: title
+    heading: "Authentication"
+    subheading: "Who are you — and can I trust that claim?"
+    narration: >
+      Every app you have built this section has had one silent vulnerability: anyone
+      who knows the URL can call it. Day 55 fixes that. You add users, login, and
+      protection — so only the person who registered can see their data. Lesson 1
+      starts at the foundation: why auth is necessary and how to store passwords
+      the right way.
+
+  - type: concept
+    label: "the auth gap"
+    heading: "Without Auth, Anyone Is the User"
+    body: >
+      Right now your chat API accepts any request. No login, no identity. That means:
+
+      - Anyone can POST to `/chat` — on your Ollama bill, under your limits
+      - Anyone can read any conversation — no privacy
+      - There is no "whose data is this?" in the database
+
+      Authentication answers two questions: **who are you?** (identity) and
+      **are you allowed?** (authorisation). Today covers identity.
+    narration: >
+      Think about what you built on Day 54. A FastAPI backend with a ChatStore.
+      Anyone on the network can POST to slash chat and start a conversation, and it
+      shows up in the same store as everyone else's. There is no wall, no door.
+      That is the auth gap. Without authentication, you cannot have private data,
+      you cannot charge per user, and you cannot stop abuse. Authentication answers
+      who are you — and once you know that, you can decide what they are allowed to
+      do. Lesson 1 covers the first step: storing users' passwords safely, because
+      that is the gate to everything else.
+
+  - type: concept
+    label: "never plaintext"
+    heading: "Never Store Plaintext Passwords"
+    body: >
+      Storing the raw password is catastrophic if the database leaks:
+
+      | Storage | Breach cost |
+      |---|---|
+      | Plaintext | Every user's password exposed immediately |
+      | MD5/SHA1 hash | Cracked in seconds via rainbow tables |
+      | Bcrypt hash | Expensive to crack even with GPU clusters |
+
+      The rule: **store only the hash, never the password itself**.
+      Verification re-hashes the candidate and compares.
+    narration: >
+      Here is a rule that has no exceptions: never store a password in plaintext.
+      Not even hashed with MD5 or plain SHA. If your database is ever stolen —
+      and breaches happen to the best companies — everyone's password is exposed.
+      MD5 and SHA hashes are reversible in seconds with precomputed lookup tables
+      called rainbow tables. Bcrypt is different: it is deliberately slow and
+      includes a random salt, so each hash is unique even for the same password.
+      An attacker who gets your database has to crack each hash individually, and
+      each attempt takes a quarter of a second. That turns a billion-entry wordlist
+      into a job that takes years.
+
+  - type: how_it_works
+    label: "bcrypt library"
+    heading: "bcrypt.hashpw and bcrypt.checkpw"
+    body: >
+      ```python
+      import bcrypt
+
+      salt   = bcrypt.gensalt()                          # random salt bytes
+      hashed = bcrypt.hashpw("my-password".encode(), salt)
+      # → b'$2b$12$KIXeLnP8...'  (salt embedded in hash)
+
+      stored = hashed.decode()                           # store as str
+
+      bcrypt.checkpw("my-password".encode(), stored.encode())  # → True
+      bcrypt.checkpw("wrong".encode(),       stored.encode())  # → False
+      ```
+
+      `gensalt()` creates a new random salt each call. `hashpw` combines it with
+      the password. `checkpw` extracts the salt from the stored hash and compares.
+    narration: >
+      The bcrypt library exposes three functions you need. gensalt generates a new
+      random salt each time — this is why two hashes of the same password are always
+      different. hashpw takes the password as bytes and the salt, and returns the
+      full bcrypt hash as bytes — something that starts with dollar-two-b-dollar and
+      has the cost factor and salt embedded right in the string. You decode that to
+      a Python str for storage. When it is time to verify, checkpw takes the
+      candidate password as bytes and the stored hash as bytes and returns True or
+      False — it extracts the embedded salt, re-hashes, and compares. You never
+      call the raw hash again; checkpw handles everything.
+
+  - type: code
+    label: "hash and verify"
+    heading: "hash_password and verify_password"
+    code: |
+      import bcrypt as _bcrypt_lib
+
+      def hash_password(password: str) -> str:
+          return _bcrypt_lib.hashpw(
+              password.encode(), _bcrypt_lib.gensalt()
+          ).decode()
+
+      def verify_password(plain_password: str, hashed_password: str) -> bool:
+          return _bcrypt_lib.checkpw(
+              plain_password.encode(), hashed_password.encode()
+          )
+
+      # Usage:
+      stored = hash_password("hunter2")
+      verify_password("hunter2", stored)   # True
+      verify_password("wrong",   stored)   # False
+    narration: >
+      The two wrapping functions hide the encode and decode ceremony from the rest
+      of the app. hash_password takes a plain str, encodes it to bytes, calls
+      hashpw with a fresh gensalt, and decodes the result back to a str. The
+      calling code works entirely in strings and never sees bytes. verify_password
+      encodes both arguments and calls checkpw. The value of the wrappers is the
+      same as always: if you ever change the algorithm or the encoding strategy,
+      you change one place. The FastAPI handlers call hash_password and
+      verify_password and get True or False without knowing anything about bcrypt.
+
+  - type: concept
+    label: "why bcrypt is slow"
+    heading: "Salts and Deliberate Slowness"
+    body: >
+      Bcrypt has two properties that make it auth-safe:
+
+      - **Random salt** — each hash is unique, so rainbow tables are useless
+      - **Cost factor** — hashing takes ~0.25 s at the default of 12 rounds
+
+      That 0.25 s is barely noticeable on login (once per session). But for an
+      attacker trying 10 billion passwords: 0.25 s × 10 000 000 000 ≈ 80 years.
+
+      MD5 runs in nanoseconds. That is the entire difference.
+    narration: >
+      Let me dwell on why bcrypt's slowness is a feature, not a bug. When you log
+      in, you enter your password once and wait a quarter of a second. You will never
+      notice. But an attacker who has your database and wants to crack passwords has
+      to try every candidate individually — and each one costs them a quarter of a
+      second of GPU time. A wordlist of ten billion common passwords becomes eighty
+      years of work. MD5 runs in nanoseconds; that same list takes hours. The cost
+      factor is configurable — the default of twelve rounds is the current industry
+      recommendation. As hardware gets faster, you raise the rounds to keep the
+      quarter-second target. That is bcrypt's design: the algorithm ages gracefully.
+
+  - type: exercise
+    heading: "Exercise 1 — Password Hashing"
+    prompt: >
+      Implement `hash_password(password)` using `pwd_context.hash` and
+      `verify_password(plain_password, hashed_password)` using `pwd_context.verify`.
+      The checks verify the hash format, correct/incorrect verification, and that
+      two hashes of the same password are never equal (the salt guarantee).
+    hint: >
+      Both functions are single-liners delegating to `pwd_context`. The important
+      thing to notice: `verify_password("hunter2", hash_password("hunter2"))` is
+      True, but `hash_password("hunter2") != hash_password("hunter2")` is also True
+      — same password, two different hashes, both verifiable.
+    narration: >
+      Open exercise underscore 01. The import of bcrypt is provided; you write the
+      two wrapping functions. Check four is the one to pay attention to: it calls
+      hash_password twice with the same password and asserts the two hashes differ.
+      That is the random salt doing its job. Five green means you have the foundation
+      of every auth system — a safe password store. Lesson 2 builds on top with
+      the simplest auth pattern of all: API keys.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Auth answers: who are you? (identity) + are you allowed? (authorisation)"
+      - "Never store plaintext passwords — store only the bcrypt hash"
+      - "`CryptContext.hash(password)` → random-salted bcrypt string"
+      - "`CryptContext.verify(plain, hashed)` → True/False (no raw comparison)"
+      - "Bcrypt is deliberately slow — that is what makes it attack-resistant"
+    narration: >
+      Lesson 1 in summary: authentication is how an app knows who is making a
+      request. The first building block is a safe password store: hash with bcrypt,
+      verify with the same context, and never compare hashes directly. The slowness
+      and the random salt are the security — they make rainbow tables useless and
+      brute force prohibitively expensive. Lesson 2 covers the second auth pattern:
+      API keys, which skip passwords entirely and issue a long random token instead.
