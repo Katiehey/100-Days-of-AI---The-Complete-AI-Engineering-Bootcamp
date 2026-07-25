@@ -1,0 +1,124 @@
+day: 57
+lesson: 3
+title: "Health Checks — Proving Your App Is Alive"
+duration_minutes: 10
+objectives:
+  - Implement a GET /health endpoint returning status, timestamp, and version
+  - Understand why load balancers require health checks
+  - Distinguish shallow health checks from deep dependency checks
+  - Test health endpoints with TestClient
+
+slides:
+  - type: title
+    heading: "Health Checks — Proving Your App Is Alive"
+    subheading: "Day 57 · Lesson 3 of 5"
+
+  - type: concept
+    heading: "Why Health Checks Exist"
+    bullets:
+      - "Load balancers route traffic to healthy instances only"
+      - "Platform calls `GET /health` every 30 seconds — 200 = alive, 5xx = remove"
+      - "Without a health check, a crashed-but-not-exited process receives traffic"
+      - "Also useful for you: `curl https://myapp.onrender.com/health` to verify deployment"
+      - "Standard path: `/health` (also common: `/healthz`, `/ping`, `/status`)"
+    narration: >
+      When you deploy to Render or Railway, the platform runs multiple instances
+      of your app and routes requests across them. It needs to know which instances
+      are actually working. Without a health endpoint, a instance that accepted
+      a connection but is deadlocked would keep receiving traffic. The health
+      endpoint is the simplest way to prove "this process is running and able
+      to respond to HTTP requests."
+
+  - type: code
+    heading: "The Minimal Health Endpoint"
+    language: python
+    code: |
+      from datetime import datetime
+      from fastapi import FastAPI
+
+      APP_VERSION = "1.0.0"
+      app = FastAPI()
+
+      @app.get("/health")
+      def health():
+          return {
+              "status": "ok",
+              "timestamp": datetime.utcnow().isoformat() + "Z",
+              "version": APP_VERSION,
+          }
+    narration: >
+      The health endpoint has NO dependencies: no database, no Ollama, no file
+      system. If the process can respond to HTTP, this returns 200. The timestamp
+      is useful for verifying the response is fresh (not cached). The version field
+      helps you confirm which code version is deployed — invaluable when you push
+      a fix and want to know if the new version is live. The "Z" suffix marks
+      UTC, avoiding time zone ambiguity.
+
+  - type: concept
+    heading: "Shallow vs Deep Health Checks"
+    bullets:
+      - "**Shallow (today):** just proves the HTTP server is alive — no dependency checks"
+      - "**Deep:** also checks Ollama, database, disk, external APIs"
+      - "Shallow is better for load balancer health — fast, no false negatives"
+      - "Deep is better for debugging — shows exactly which dependency is down"
+      - "**Pattern:** `/health` = shallow (always fast), `/health/deep` = deep (optional)"
+    narration: >
+      A deep health check that calls Ollama is problematic for load balancers:
+      if Ollama is slow to respond, the health check times out, the instance is
+      removed, traffic falls onto other instances, they also hit slow Ollama,
+      cascade failure. The shallow health check is deliberately minimal for this
+      reason. A separate /health/deep or /status endpoint can provide deep checks
+      for human debugging without risking the load balancer loop.
+
+  - type: code
+    heading: "Testing the Health Endpoint"
+    language: python
+    code: |
+      from starlette.testclient import TestClient
+
+      client = TestClient(app)
+      r = client.get("/health")
+
+      assert r.status_code == 200
+      data = r.json()
+      assert data["status"] == "ok"
+      assert "T" in data["timestamp"]   # ISO-8601 has T separator
+      assert data["version"] == "1.0.0"
+      print("Health check: ✅")
+    narration: >
+      The health endpoint is one of the easiest things to test — it takes no
+      input and has a fully deterministic output structure. The timestamp will
+      change between calls but it always has the ISO-8601 "T" separator.
+      In the DeploymentChecker you'll build in exercise 5, you'll run this
+      test programmatically as part of a pre-deployment checklist.
+
+  - type: concept
+    heading: "Render and Railway Health Check Config"
+    bullets:
+      - "Render: automatic if you have a `GET /health` route (detects 200)"
+      - "Railway: auto-detects HTTP service, polls configured health path"
+      - "Fly.io: configure in `fly.toml` under `[checks]`"
+      - "Timeout: platforms typically wait 5-30 seconds for a response"
+      - "Path: configure in platform settings if you use `/healthz` or `/ping`"
+    narration: >
+      Most platforms will discover your health endpoint automatically, but it's
+      worth checking your platform's documentation. Render checks the root path
+      by default but respects a configured health check path. The key requirement
+      is that it returns 200 within the timeout — don't do expensive work in the
+      health handler. If your platform lets you configure the path, pick /health
+      and document it; future team members will know where to look.
+
+  - type: summary
+    heading: "Lesson 3 Takeaways"
+    bullets:
+      - "`GET /health` returns `{status: 'ok', timestamp: ISO-8601, version: str}`"
+      - "No dependencies in the health handler — just prove HTTP works"
+      - "Shallow health check for load balancer; deep check (optional) for debugging"
+      - "`datetime.utcnow().isoformat() + 'Z'` — unambiguous UTC timestamp"
+      - "Platforms poll /health every 30 seconds — timeout/5xx = instance removed"
+      - "Test with TestClient: check status 200 + status='ok' in response JSON"
+    narration: >
+      The health endpoint is three lines of code that prevent a whole class of
+      production incidents. Every service you build should have one. It's also
+      the first thing to check when a deployed app stops responding — one curl
+      command tells you if the process is alive or not.

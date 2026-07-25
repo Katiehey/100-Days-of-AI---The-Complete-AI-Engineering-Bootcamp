@@ -1,0 +1,117 @@
+day: 57
+lesson: 4
+title: "Deployment Files — Procfile, requirements.txt, render.yaml"
+duration_minutes: 10
+objectives:
+  - Write a Procfile declaring the web process start command
+  - Generate a requirements.txt from package specifiers
+  - Understand what render.yaml / railway.toml tell the platform
+  - Know the role of $PORT in the start command
+
+slides:
+  - type: title
+    heading: "Deployment Files — Procfile, requirements.txt, render.yaml"
+    subheading: "Day 57 · Lesson 4 of 5"
+
+  - type: concept
+    heading: "What the Platform Needs to Know"
+    bullets:
+      - "**How to install dependencies:** `pip install -r requirements.txt`"
+      - "**How to start the app:** `uvicorn deploy_api:app --host 0.0.0.0 --port $PORT`"
+      - "**What kind of service it is:** a web process (vs a worker, cron, etc.)"
+      - "**What env vars to set:** SECRET_KEY, MODEL, MAX_UPLOAD_BYTES"
+      - "Deployment files encode all of this in text — committed to your repo"
+    narration: >
+      The platform reads your repository and needs to answer four questions:
+      what to install, how to start the app, what type of process it is, and
+      what environment to configure. Different platforms use different file
+      formats — Procfile, render.yaml, railway.toml, fly.toml — but they all
+      answer the same four questions.
+
+  - type: code
+    heading: "Procfile — The Universal Start Command"
+    language: text
+    code: |
+      web: uvicorn deploy_api:app --host 0.0.0.0 --port $PORT
+    narration: >
+      The Procfile is one line: "web:" declares a web process type, and the
+      rest is the shell command the platform runs. Two critical details: "--host
+      0.0.0.0" binds to all interfaces (not just localhost) so the platform can
+      route external traffic to the app. "$PORT" uses the port the platform
+      assigns — never hardcode 8000 here, or your app won't receive traffic.
+      Render, Railway, and Heroku all read Procfiles.
+
+  - type: code
+    heading: "requirements.txt — Dependency List"
+    language: text
+    code: |
+      bcrypt>=4.0.0
+      fastapi>=0.100.0
+      httpx>=0.24.0
+      ollama>=0.1.0
+      pypdf>=3.0.0
+      python-jose[cryptography]>=3.3.0
+      python-multipart>=0.0.5
+      uvicorn[standard]>=0.20.0
+    narration: >
+      Sort packages alphabetically — makes diffs readable when you add or remove
+      a dependency. Use >= version constraints rather than pinned ==, unless you
+      have a specific reason. The [standard] extra for uvicorn includes httptools
+      and uvloop for better performance. The [cryptography] extra for python-jose
+      is required for JWT RS256/HS256 support. The platform runs
+      "pip install -r requirements.txt" on every deploy.
+
+  - type: code
+    heading: "render.yaml — Render's Service Manifest"
+    language: yaml
+    code: |
+      services:
+        - type: web
+          name: doc-ai-api
+          env: python
+          buildCommand: pip install -r requirements.txt
+          startCommand: uvicorn deploy_api:app --host 0.0.0.0 --port $PORT
+          envVars:
+            - key: MODEL
+              value: llama3.2
+            - key: MAX_UPLOAD_BYTES
+              value: "5242880"
+            - key: SECRET_KEY
+              generateValue: true   # Render generates a random value
+    narration: >
+      render.yaml is Render's "infrastructure as code" format. It defines the
+      service type (web), the build and start commands, and the env vars. The
+      `generateValue: true` option tells Render to generate a secure random
+      value for SECRET_KEY — you never need to manually set it. Committing
+      render.yaml to your repo lets the platform create or update the service
+      automatically when you push.
+
+  - type: concept
+    heading: "Generating Deployment Files from Code"
+    bullets:
+      - "Hard to hand-edit YAML without making a mistake — generate it instead"
+      - "`generate_procfile(start_command)` → one-line string"
+      - "`generate_requirements(packages)` → sorted, newline-joined"
+      - "Generating from code means you can version-control the generator, not the files"
+      - "Same pattern as generating `deploy_api.py` — text files from Python strings"
+    narration: >
+      For this course, we generate deployment files programmatically in the
+      solution notebook. This is the same repr()-embedding pattern from Days 51-56.
+      The advantage: the generator is the source of truth, tests can verify the
+      generated content, and you can regenerate whenever the config changes.
+      In a real project you'd typically hand-write these files, but for a course
+      the generator approach is more educational.
+
+  - type: summary
+    heading: "Lesson 4 Takeaways"
+    bullets:
+      - "`Procfile`: `web: uvicorn app:app --host 0.0.0.0 --port $PORT`"
+      - "`requirements.txt`: sorted package specifiers, one per line"
+      - "`render.yaml`: service type, build command, start command, env vars"
+      - "Always `--host 0.0.0.0` — platform routes external traffic to all interfaces"
+      - "Always `--port $PORT` — platform assigns the port, you don't choose it"
+      - "`generateValue: true` for secrets — platform generates a secure random value"
+    narration: >
+      Three files: Procfile, requirements.txt, and render.yaml. Commit them to
+      your repo. Push to GitHub. Connect the repo in the Render dashboard.
+      That's the entire deployment process for a simple FastAPI app.

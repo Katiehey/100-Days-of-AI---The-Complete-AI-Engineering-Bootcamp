@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: doc-ai-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn deploy_api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MODEL
+        value: llama3.2
+      - key: MAX_UPLOAD_BYTES
+        value: "5242880"
+      - key: SECRET_KEY
+        generateValue: true

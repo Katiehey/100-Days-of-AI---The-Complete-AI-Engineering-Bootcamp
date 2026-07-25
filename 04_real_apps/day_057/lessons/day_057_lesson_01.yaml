@@ -1,0 +1,88 @@
+day: 57
+lesson: 1
+title: "Why Deployment? The Local-to-Production Gap"
+duration_minutes: 10
+objectives:
+  - Understand what changes when an app moves from local to production
+  - Identify the four pillars of deployed app configuration
+  - Recognize why hardcoded values break in production
+  - Name the platforms used for deploying Python web apps
+
+slides:
+  - type: title
+    heading: "Why Deployment? The Local-to-Production Gap"
+    subheading: "Day 57 · Lesson 1 of 5"
+
+  - type: concept
+    heading: "What Deployment Actually Means"
+    bullets:
+      - "**Local:** runs on your laptop, only you can use it"
+      - "**Deployed:** runs on a server, anyone on the internet can reach it"
+      - "The gap between those two states is what today is about"
+      - "Deployment = wrapping your code in a way the server can run it reliably"
+    narration: >
+      When your app runs on localhost:8000, you can test it, but it's not useful
+      to anyone else. Deployment puts it on a publicly reachable server. The core
+      insight of this day is that the gap between local and production is mostly
+      about configuration — not code. The logic stays the same; what changes is
+      how the app is told where to listen, what secrets to use, and how to behave.
+
+  - type: concept
+    heading: "Four Things That Change in Production"
+    bullets:
+      - "**Port:** platform assigns a random port via `$PORT` env var — you can't hardcode 8000"
+      - "**Secrets:** API keys and passwords come from env vars, not from your code"
+      - "**Process management:** platform starts/restarts the process — you declare the start command"
+      - "**HTTPS:** platform terminates TLS — your app only serves plain HTTP behind the proxy"
+    narration: >
+      These four changes are universal across Render, Railway, Fly.io, Heroku,
+      and every other PaaS. The platform owns the port (it routes traffic),
+      owns secret injection (you set them in a dashboard), owns process lifecycle
+      (it reads a Procfile or start command), and owns TLS termination (your app
+      never sees encrypted traffic). Your job is to design for these four.
+
+  - type: concept
+    heading: "Deployment Platforms for Python"
+    bullets:
+      - "**Render** — free tier, reads `render.yaml`, deploys from GitHub"
+      - "**Railway** — free starter tier, reads `Procfile`, one-click deploys"
+      - "**Fly.io** — Docker-based, excellent for apps needing persistent disk"
+      - "**Heroku** — the original PaaS, reads `Procfile`, paid-only now"
+      - "**All share the same ideas** — learn one, the rest are variations"
+    narration: >
+      The course focuses on Render and Railway because they have free tiers
+      and read simple deployment files. Fly.io is worth knowing for more complex
+      deployments that need Docker. Heroku pioneered the Procfile pattern that
+      everyone now copies. The concepts — Procfile, env vars, health checks —
+      are identical across all of them.
+
+  - type: concept
+    heading: "The 12-Factor App — Core Ideas"
+    bullets:
+      - "**Factor I:** One codebase, tracked in git — the code you push IS the deployment"
+      - "**Factor III:** Config in environment variables — never hardcode secrets or ports"
+      - "**Factor VI:** Processes are stateless — data goes in a database, not memory"
+      - "**Factor IX:** Fast startup and graceful shutdown — platform restarts on deploy"
+      - "These four factors cover 90% of what makes an app production-ready"
+    narration: >
+      The 12-Factor App is a methodology published by Heroku for building
+      software-as-a-service apps. You don't need to memorize all 12, but
+      factors I, III, VI, and IX are immediately practical. Factor III is
+      the most important: if you hardcode secrets or ports, your app will
+      break in production. Factor VI means in-memory state (like our DocStore
+      dict) is lost on each restart — a real production app persists to a database.
+
+  - type: summary
+    heading: "Lesson 1 Takeaways"
+    bullets:
+      - "Deployment = making your app reachable by others, not just you"
+      - "Port comes from `$PORT` env var — never hardcode it"
+      - "Secrets come from environment variables — never commit them to git"
+      - "Platform manages process lifecycle — you declare the start command"
+      - "Platform terminates HTTPS — your FastAPI app serves plain HTTP"
+      - "12-Factor: config in env vars, stateless processes, fast startup"
+    narration: >
+      The local-to-production gap is a configuration gap, not a code gap.
+      The same FastAPI app that runs on localhost:8000 will run in production
+      once it reads its port from $PORT and its secrets from env vars.
+      That is what exercises 1 through 5 will build up to.

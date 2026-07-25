@@ -1,0 +1,140 @@
+day: 57
+lesson: 5
+title: "The Deployment Checklist — DeploymentChecker"
+duration_minutes: 12
+objectives:
+  - Build a DeploymentChecker class that accumulates and reports check results
+  - Implement env var validation and health endpoint checks
+  - Understand why in-memory state doesn't survive deploys
+  - Know the pre-deployment checklist for a FastAPI app
+
+slides:
+  - type: title
+    heading: "The Deployment Checklist — DeploymentChecker"
+    subheading: "Day 57 · Lesson 5 of 5"
+
+  - type: concept
+    heading: "The Pre-Deployment Checklist"
+    bullets:
+      - "**Health endpoint:** GET /health returns 200 + status='ok'"
+      - "**Required env vars:** SECRET_KEY, PORT, MODEL are all set and non-empty"
+      - "**No hardcoded secrets:** SECRET_KEY not equal to 'change-me-in-production'"
+      - "**CORS configured:** frontend origin allowed in CORSMiddleware"
+      - "**Port from env:** app reads PORT from os.environ, not hardcoded"
+      - "Automate the checklist — humans forget, code doesn't"
+    narration: >
+      The pre-deployment checklist is the last line of defense before pushing to
+      production. Each item on the list has caused a production incident somewhere.
+      The pattern is to encode the checklist as code — a DeploymentChecker that
+      runs all checks and reports results — so you can run it in CI or before
+      every deploy. Missed health endpoint and the load balancer can't route
+      traffic. Missed SECRET_KEY and your JWTs are all signed with 'change-me-
+      in-production'.
+
+  - type: code
+    heading: "DeploymentChecker — Structure"
+    language: python
+    code: |
+      class DeploymentChecker:
+          def __init__(self):
+              self._checks: list[dict] = []
+
+          def add_check(self, name: str, passed: bool, detail: str = "") -> None:
+              self._checks.append({"name": name, "passed": passed, "detail": detail})
+
+          def report(self) -> dict:
+              total = len(self._checks)
+              passed_count = sum(1 for c in self._checks if c["passed"])
+              return {
+                  "passed": passed_count == total,
+                  "total": total,
+                  "checks": self._checks,
+              }
+    narration: >
+      DeploymentChecker accumulates results rather than printing them. This
+      separates data collection from display — the caller can format the report
+      however they want: print to terminal, write to a log file, post to a Slack
+      webhook, return as JSON from an API. The report() method aggregates:
+      passed is True only when every single check passes. This is intentional —
+      one broken check means the deployment is not ready.
+
+  - type: code
+    heading: "run_env_check and run_health_check"
+    language: python
+    code: |
+      def run_env_check(self, required_vars: list[str], env: dict) -> None:
+          ok, missing = check_env_vars(required_vars, env)
+          self.add_check("env_vars", ok,
+                         f"missing: {missing}" if not ok else "all present")
+
+      def run_health_check(self, app: FastAPI) -> None:
+          from starlette.testclient import TestClient
+          client = TestClient(app, raise_server_exceptions=False)
+          r = client.get("/health")
+          ok = r.status_code == 200 and r.json().get("status") == "ok"
+          self.add_check("health_endpoint", ok, f"status={r.status_code}")
+    narration: >
+      run_env_check delegates to the check_env_vars function from exercise 4.
+      run_health_check uses TestClient to call the real app in-process — this is
+      the same pattern used in all exercise checks. The detail string records
+      diagnostic information so you know not just that something failed but why.
+      Both methods call add_check — they're convenience methods on top of the
+      generic interface.
+
+  - type: code
+    heading: "Using the DeploymentChecker"
+    language: python
+    code: |
+      import os
+
+      checker = DeploymentChecker()
+      checker.run_env_check(["SECRET_KEY", "MODEL", "PORT"], dict(os.environ))
+      checker.run_health_check(app)
+      checker.add_check("no_debug", os.environ.get("DEBUG", "false") != "true",
+                        "disable DEBUG in production")
+
+      report = checker.report()
+      if report["passed"]:
+          print("✅ All checks passed — safe to deploy")
+      else:
+          for c in report["checks"]:
+              if not c["passed"]:
+                  print(f"  ❌ {c['name']}: {c['detail']}")
+    narration: >
+      You build up a checklist by calling add_check, run_env_check, run_health_check,
+      and any custom checks in sequence. At the end, report() gives you a dict you
+      can use to decide whether to proceed. In a CI pipeline you'd use
+      `sys.exit(0 if report['passed'] else 1)` to gate the deployment. The
+      structure is extensible — add whatever checks matter for your app.
+
+  - type: concept
+    heading: "Stateless Processes — What Survives Restarts"
+    bullets:
+      - "In-memory `_docs = {}` is wiped on every restart and on every new instance"
+      - "Platform restarts your app on every deploy — all in-memory data lost"
+      - "Platform may run 2+ instances — each has its own memory, they don't share"
+      - "**Production rule:** persist anything important to a database (Day 54)"
+      - "The Day 57 app is stateful-but-ephemeral — fine for learning, not for prod"
+    narration: >
+      This is Factor VI of the 12-factor app: stateless processes. When you deploy
+      to Render or Railway, the platform might run two instances of your app for
+      load distribution. User A uploads a file, it goes to instance 1's _docs dict.
+      User A's /ask request goes to instance 2 — 404, document not found. The fix
+      is a real database (Day 54's SQLAlchemy), but that requires a managed
+      database service. For today, the in-memory store demonstrates the concepts.
+
+  - type: summary
+    heading: "Lesson 5 Takeaways"
+    bullets:
+      - "`DeploymentChecker.add_check(name, passed, detail)` — accumulate results"
+      - "`run_env_check(required_vars, env)` — verify all required vars are set"
+      - "`run_health_check(app)` — TestClient GET /health, check 200 + status='ok'"
+      - "`report()` → `{passed, total, checks}` — passed=True only if ALL checks pass"
+      - "In-memory state doesn't survive platform restarts — use a database for persistence"
+      - "Automate the pre-deployment checklist — run it in CI before every deploy"
+    narration: >
+      DeploymentChecker is the culmination of today's exercises. It combines
+      the config-loading pattern, the health endpoint, and the env var checker
+      into a single pre-flight system. A version of this pattern lives in every
+      serious production deployment pipeline. The gap between "it works on my
+      laptop" and "it works in production" is exactly what this checklist closes.

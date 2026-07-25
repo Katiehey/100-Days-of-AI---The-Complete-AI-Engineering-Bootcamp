@@ -1,0 +1,121 @@
+day: 57
+lesson: 2
+title: "Environment Variables — The Right Way to Configure"
+duration_minutes: 12
+objectives:
+  - Read config from os.environ with sensible defaults
+  - Write a load_config helper that merges env vars over defaults
+  - Understand what never to hardcode in your code
+  - Use python-dotenv for local development convenience
+
+slides:
+  - type: title
+    heading: "Environment Variables — The Right Way to Configure"
+    subheading: "Day 57 · Lesson 2 of 5"
+
+  - type: concept
+    heading: "What Are Environment Variables?"
+    bullets:
+      - "Key-value pairs set in the OS shell — available to every process"
+      - "`export SECRET_KEY=abc123` in bash → `os.environ['SECRET_KEY']` in Python"
+      - "Deployment platforms have dashboards to set them — never in code"
+      - "`os.environ.get('KEY', 'default')` — safe read with fallback"
+      - "All values are **strings** — cast explicitly (`int(os.environ.get('PORT', '8000'))`)"
+    narration: >
+      Environment variables are the standard Unix mechanism for passing configuration
+      to processes without embedding it in source code. The platform (Render,
+      Railway) sets them in a dashboard before deployment; your code reads them
+      at startup. Since all env var values are strings, you must explicitly cast
+      to the type you need — int(os.environ.get("PORT", "8000")), not just
+      os.environ.get("PORT", 8000).
+
+  - type: code
+    heading: "Reading Config from the Environment"
+    language: python
+    code: |
+      import os
+
+      # All values are strings — cast explicitly
+      PORT       = int(os.environ.get("PORT", "8000"))
+      MODEL      = os.environ.get("MODEL", "llama3.2")
+      SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+      MAX_SIZE   = int(os.environ.get("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
+
+      print(f"Starting on port {PORT} with model {MODEL}")
+    narration: >
+      Put all config reads at the top of your module, not scattered through the
+      code. If a required var is missing, you'll know immediately on startup
+      rather than discovering it mid-request. The "change-me-in-production"
+      default for SECRET_KEY is a useful convention: the app works locally without
+      any setup, but the default is obviously wrong for production.
+
+  - type: concept
+    heading: "What Never to Hardcode"
+    bullets:
+      - "**Passwords and secrets:** API keys, SECRET_KEY, database passwords"
+      - "**Ports:** `8000` should be `int(os.environ.get('PORT', '8000'))`"
+      - "**Model names:** different environments may use different models"
+      - "**URLs:** dev hits localhost, staging hits staging, prod hits prod"
+      - "**Rule:** if it changes between environments, it's config, not code"
+    narration: >
+      A useful mental test: would this value need to change between your laptop,
+      a staging server, and production? If yes, it's configuration and belongs
+      in an env var. Hardcoded secrets are the most dangerous mistake — even
+      setting them in git history and then removing them is a security incident
+      because git history is permanent.
+
+  - type: code
+    heading: "load_config — the Helper Pattern"
+    language: python
+    code: |
+      def load_config(env_vars: dict, defaults: dict) -> dict:
+          """Override defaults with any matching env var keys."""
+          config = dict(defaults)          # copy, don't mutate defaults
+          for key, value in env_vars.items():
+              if key in config:            # only keys we declared
+                  config[key] = value
+          return config
+
+      # Usage
+      DEFAULTS = {"MODEL": "llama3.2", "PORT": "8000", "DEBUG": "false"}
+      config = load_config(dict(os.environ), DEFAULTS)
+      # config["PORT"] = "9000" if PORT=9000 in environment, else "8000"
+    narration: >
+      load_config is a clean alternative to reading env vars one by one.
+      The "only keys we declared" guard is important — otherwise every shell
+      variable (PATH, HOME, TERM) would end up in your config. The caller
+      passes os.environ directly, which makes the function easy to test
+      by passing a plain dict instead of touching the real environment.
+
+  - type: code
+    heading: "python-dotenv for Local Development"
+    language: python
+    code: |
+      # pip install python-dotenv
+      from dotenv import load_dotenv
+
+      load_dotenv()   # reads .env file into os.environ (local dev only)
+
+      import os
+      SECRET_KEY = os.environ.get("SECRET_KEY", "change-me")
+    narration: >
+      In production, env vars are set in the platform dashboard. Locally,
+      python-dotenv lets you keep them in a `.env` file. The key rule: NEVER
+      commit `.env` to git — add it to `.gitignore`. `load_dotenv()` does
+      nothing if the file doesn't exist, so it's safe to call unconditionally.
+      The app reads from os.environ either way; dotenv just pre-populates it.
+
+  - type: summary
+    heading: "Lesson 2 Takeaways"
+    bullets:
+      - "`os.environ.get('KEY', 'default')` — safe read with fallback"
+      - "All env var values are strings — cast to int/bool/float explicitly"
+      - "Never hardcode secrets, ports, model names, or URLs"
+      - "`load_config(env_vars, defaults)` — declare your config keys upfront"
+      - "`.env` file + python-dotenv for local dev — never commit it to git"
+      - "If a value changes between environments, it's config, not code"
+    narration: >
+      Environment variables are the universal interface between your code and
+      its runtime environment. The pattern — declare defaults, override from env,
+      fail fast on missing required vars — is identical on every platform.
+      Master it once and it works everywhere.
