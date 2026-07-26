@@ -1,0 +1,123 @@
+day: "068"
+lesson: 5
+title: "Building a Document Reader"
+slides:
+  - type: title
+    heading: "Building a Document Reader"
+    subheading: "DocumentReader — one class, two sources, structured output"
+    narration: >
+      The final lesson assembles all four components into a DocumentReader
+      class. You have seen this facade pattern before — ChatStore on Day 54,
+      VisionAnalyzer on Day 67. The pattern is the same: one object wraps
+      all dependencies, exposes a clean public interface, and accepts a mock
+      injection for testing.
+
+  - type: how_it_works
+    label: "DocumentReader"
+    heading: "DocumentReader Architecture"
+    body: >
+      Four components wired into one class:
+      preprocess → OCR → extract_numbers → return structured dict.
+    bullets:
+      - "read_image(img) → {text, numbers, chars, preprocess}"
+      - "read_pdf(pdf_bytes) → {pages: [{page, text, chars}], total_chars, page_count}"
+      - "read(source, source_type) → dispatches to the right method"
+      - "ocr_fn=None → Tesseract; pass mock for testing"
+    narration: >
+      The read method is a simple dispatcher — it delegates to read_image
+      or read_pdf based on source_type. The dict return values are consistent
+      enough that downstream code can inspect 'text' for an image result or
+      iterate 'pages' for a PDF result. In a production document pipeline you
+      would normalise these into a single schema — that is the Pydantic
+      extraction work in Day 69.
+
+  - type: code
+    label: "DocumentReader"
+    heading: "DocumentReader Class"
+    code: |
+      from document_reader import DocumentReader
+      from PIL import Image
+
+      # Testing mode — no Tesseract needed
+      mock_ocr = lambda img: 'Invoice Total $42.00\nTax $4.00'
+      dr = DocumentReader(ocr_fn=mock_ocr)
+
+      img = Image.new('RGB', (300, 100), 'white')
+      result = dr.read_image(img)
+      print(result['text'])
+      print(result['numbers'])    # [4.0, 42.0]
+      print(result['chars'])
+
+      # Dispatch via read()
+      result2 = dr.read(img, source_type='image')
+      assert result2['text'] == result['text']
+    narration: >
+      The mock is a lambda that ignores its argument and returns a fixed
+      string — the minimum interface required by ocr_fn. In production you
+      replace it with the real Tesseract path by omitting ocr_fn (or passing
+      None). The read method's source_type parameter means you can write a
+      single pipeline step that accepts either source type and passes the
+      right one to the right backend.
+
+  - type: code
+    label: "Full pipeline"
+    heading: "Receipt OCR Pipeline End-to-End"
+    code: |
+      from PIL import Image, ImageDraw
+
+      # Simulate a receipt image
+      img = Image.new('RGB', (250, 120), 'white')
+      draw = ImageDraw.Draw(img)
+      draw.text((10, 10),  'Coffee     $3.50', fill='black')
+      draw.text((10, 30),  'Sandwich   $7.25', fill='black')
+      draw.text((10, 50),  'Subtotal  $10.75', fill='black')
+      draw.text((10, 70),  'Tax        $0.86', fill='black')
+      draw.text((10, 90),  'TOTAL     $11.61', fill='black')
+
+      dr = DocumentReader()          # uses real Tesseract
+      result = dr.read_image(img)
+
+      print(result['text'])
+      print('Numbers found:', result['numbers'])
+      # Numbers found: [0.86, 3.5, 7.25, 10.75, 11.61]
+    narration: >
+      The full pipeline: create the image, call read_image (which preprocesses
+      then OCRs), and inspect the structured output. The sorted numbers list
+      makes it easy to find the total — max(result['numbers']) — or check
+      that the sum of items roughly equals the total. In Day 69 you will push
+      this further and use a vision LLM with a Pydantic schema to extract
+      line items as structured JSON.
+
+  - type: exercise
+    heading: "Exercise 5: Document Reader Pipeline"
+    prompt: >
+      Implement read_document(source, source_type='image', ocr_fn=None) -> dict.
+      For 'image': call preprocess_for_ocr(source), then ocr_image(preprocessed,
+      ocr_fn), then extract_numbers(text). Return {text, numbers, chars}.
+      For 'pdf': call extract_pdf_text(source). Return {pages, total_chars,
+      page_count}. Raise ValueError for unknown source_type.
+      All checks use mocks — no Tesseract or PDF file needed.
+    hint: >
+      if source_type == 'image': preprocess → ocr → numbers → return dict.
+      elif source_type == 'pdf': extract_pdf_text → return dict.
+      else: raise ValueError. Helper functions are provided in the given cell.
+    narration: >
+      The pipeline exercise ties Day 68 together: preprocessing, OCR, parsing,
+      and PDF extraction in one function. The dict output is the input to Day 69's
+      structured extraction step.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 68 Complete"
+    bullets:
+      - "DocumentReader facade: ocr_fn=None injection, two source types"
+      - "read_image: preprocess → OCR → numbers → {text, numbers, chars}"
+      - "read_pdf: pypdf pages → {pages, total_chars, page_count}"
+      - "read(source, source_type) dispatches to the right backend"
+      - "Tomorrow (Day 69): vision LLM + Pydantic → structured JSON from images"
+    narration: >
+      Day 68 is complete. You have a working OCR pipeline and PDF extractor.
+      The DocumentReader class handles both source types with a clean
+      mock-injection interface. Tomorrow you combine the vision LLM from
+      Day 67 with a Pydantic schema to extract structured data from images
+      — turning a receipt photograph into a typed Python object with validated
+      fields.

@@ -1,0 +1,138 @@
+day: "068"
+lesson: 2
+title: "Preprocessing for OCR"
+slides:
+  - type: title
+    heading: "Preprocessing for OCR"
+    subheading: "Grayscale, contrast, scale — three steps that matter most"
+    narration: >
+      Tesseract was designed for clean printed text on a white background.
+      Real scanned documents are often slightly skewed, low-contrast, or
+      small. Three preprocessing steps reliably improve OCR accuracy:
+      convert to greyscale, boost contrast, and upscale small images.
+      All three use Pillow tools you learned on Day 66.
+
+  - type: concept
+    label: "Why preprocess?"
+    heading: "Why Preprocessing Matters"
+    body: >
+      Tesseract's accuracy depends heavily on image quality. Small changes
+      to the input can shift accuracy from 60% to 98%.
+    bullets:
+      - "Low resolution: characters too small for the LSTM → missed/garbled"
+      - "Low contrast: text blends into background → binarisation fails"
+      - "Colour noise: colour channels add irrelevant variance → grayscale first"
+      - "Skew: words curve or tilt → segmentation breaks word boundaries"
+    narration: >
+      Tesseract's binarisation step uses Otsu's global threshold, which
+      works well when the text is clearly darker than the background. If
+      contrast is low — light grey text on a white receipt, for example —
+      the threshold ends up in the wrong place and many characters become
+      noise. Boosting contrast before Tesseract gets the image essentially
+      binarises it for the OCR engine. Resolution matters because the LSTM
+      recogniser expects characters to span at least 20–30 pixels tall;
+      anything smaller loses the distinguishing features of each character.
+
+  - type: how_it_works
+    label: "Preprocessing pipeline"
+    heading: "The Three-Step Preprocessing Pipeline"
+    body: >
+      Three operations in order: colour → grayscale, then contrast boost,
+      then resolution upscale if needed.
+    narration: >
+      Grayscale first — remove colour as a distraction. Then contrast
+      enhancement — make text black and background white. Then scale —
+      if the image is narrow (under 1000 pixels wide), upscale so characters
+      have enough pixels. Each step uses Pillow, so there are no extra
+      dependencies beyond what you installed on Day 66. The scale threshold
+      of 1000 pixels is a practical rule of thumb; the exact number depends
+      on your expected document types. For documents with small footnote text
+      you may want 1500 or more.
+
+  - type: code
+    label: "Preprocessing code"
+    heading: "preprocess_for_ocr Implementation"
+    code: |
+      from PIL import Image, ImageEnhance
+
+      def preprocess_for_ocr(img: Image.Image) -> Image.Image:
+          # Step 1: greyscale — one channel, no colour noise
+          out = img.convert('L')
+
+          # Step 2: boost contrast — dark text → black, background → white
+          out = ImageEnhance.Contrast(out).enhance(2.0)
+
+          # Step 3: upscale if too small — LSTM needs ≥20px tall chars
+          w, h = out.size
+          if w < 1000:
+              scale = 1000 / w
+              out = out.resize(
+                  (int(w * scale), int(h * scale)),
+                  Image.Resampling.LANCZOS
+              )
+          return out
+    narration: >
+      The contrast factor of 2.0 doubles the distance between each pixel
+      and the midpoint grey. A pixel at 200 (light grey) becomes 200 + (200-128)
+      × 1.0 ≈ 228 (near white). A pixel at 60 (dark grey) becomes 60 - (128-60)
+      ≈ -8 → clamped to 0 (black). The ImageEnhance class handles clamping
+      automatically — no overflow or wrapping. The LANCZOS resampling filter
+      preserves sharp character edges during upscaling, which matters more here
+      than for photos.
+
+  - type: code
+    label: "Before and after"
+    heading: "Comparing OCR With and Without Preprocessing"
+    code: |
+      import pytesseract
+      from PIL import Image
+
+      img = Image.open("faded_receipt.png")   # small, low-contrast scan
+
+      # Without preprocessing
+      raw_text = pytesseract.image_to_string(img)
+
+      # With preprocessing
+      preprocessed = preprocess_for_ocr(img)
+      clean_text   = pytesseract.image_to_string(preprocessed)
+
+      print(f"Raw chars:   {len(raw_text.strip())}")
+      print(f"Clean chars: {len(clean_text.strip())}")
+      # clean_text typically has more characters and fewer garbage symbols
+    narration: >
+      You will not always see an improvement — on a high-quality scan the
+      preprocessing makes no difference. But on a photograph of a document
+      (uneven lighting, perspective distortion) or a compressed JPEG, the
+      contrast boost and scale step frequently recover characters that the
+      raw image misses. The preprocessing step is fast — a few milliseconds —
+      so there is no cost to always applying it.
+
+  - type: exercise
+    heading: "Exercise 2: Preprocess for OCR"
+    prompt: >
+      Implement preprocess_for_ocr(img) -> Image.Image. Convert to grayscale
+      ('L' mode), boost contrast by a factor of 2.0 with ImageEnhance.Contrast,
+      then upscale to at least 1000 px wide using LANCZOS if the image is
+      narrower. Return the processed Image. No OCR call — pure PIL.
+    hint: >
+      img.convert('L') → then ImageEnhance.Contrast(out).enhance(2.0) →
+      then check w < 1000, compute scale = 1000/w, out.resize((int(w*scale),
+      int(h*scale)), Image.Resampling.LANCZOS). Return out.
+    narration: >
+      This exercise is pure Pillow — no Tesseract needed. It reinforces
+      the PIL patterns from Day 66 while building a production-quality
+      preprocessing step that you will plug into the document reader pipeline
+      in Exercise 5.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Grayscale: img.convert('L') — removes colour, one channel"
+      - "Contrast: ImageEnhance.Contrast(img).enhance(2.0) — make text black"
+      - "Scale: resize to ≥1000 px wide with LANCZOS — LSTM needs ≥20 px chars"
+      - "Order matters: colour first, then contrast, then scale"
+      - "Always preprocess before Tesseract on real-world documents"
+    narration: >
+      The preprocessing pipeline is settled. Next: PDF text extraction —
+      a different path where the text is already digital (no OCR needed),
+      unless the PDF is a scanned image embedded in a PDF wrapper.

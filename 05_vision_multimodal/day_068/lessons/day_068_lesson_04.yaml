@@ -1,0 +1,143 @@
+day: "068"
+lesson: 4
+title: "Parsing OCR Output"
+slides:
+  - type: title
+    heading: "Parsing OCR Output"
+    subheading: "Regex numeric extraction — receipts and invoices"
+    narration: >
+      OCR gives you a raw string — a dump of everything the engine could
+      read. For document AI you usually want structure: the total on a
+      receipt, the line items on an invoice, the date on a contract. This
+      lesson covers regex-based numeric extraction, the most common
+      post-processing step for financial documents.
+
+  - type: concept
+    label: "OCR output noise"
+    heading: "Why OCR Output Needs Parsing"
+    body: >
+      Raw OCR text is not clean. It contains layout artefacts, recognition
+      errors, and mixed content. Parsing extracts the signal.
+    bullets:
+      - "Spurious whitespace: 'T o t a l' instead of 'Total'"
+      - "Character substitutions: 'l' vs '1', 'O' vs '0', 'S' vs '5'"
+      - "Layout artefacts: column separators, page numbers, headers"
+      - "Mixed content: date strings, phone numbers, product codes, prices"
+    narration: >
+      Character substitutions are the most common source of errors in
+      numeric extraction. The LSTM recogniser sometimes confuses lowercase L
+      with 1, uppercase O with 0, or S with 5 — especially in fonts that
+      look similar for these pairs. This is why domain-specific post-processing
+      matters: if you know the field should be a price (positive float), you
+      can filter out values that are clearly wrong.
+
+  - type: how_it_works
+    label: "Regex for numbers"
+    heading: "Regex Pattern for Numeric Values"
+    body: >
+      A single regex pattern captures integers, decimals, and comma-separated
+      thousands in one pass.
+    narration: >
+      The pattern has two alternatives joined by '|'. The first alternative
+      matches comma-separated thousands notation like '1,234.56' using
+      repetition groups. The second matches plain integers and decimals.
+      The word-boundary anchors prevent matching partial numbers inside
+      longer tokens. After extraction, commas are stripped and the value is
+      cast to float. Sorting the result puts the values in ascending order,
+      which is convenient for finding the minimum and maximum (often the
+      individual items and the total on a receipt).
+
+  - type: code
+    label: "Number extraction"
+    heading: "extract_numbers Implementation"
+    code: |
+      import re
+
+      def extract_numbers(text: str) -> list:
+          pattern = (
+              r'\b\d{1,3}(?:,\d{3})*(?:\.\d+)?'   # 1,234.56
+              r'|\b\d+(?:\.\d+)?\b'                # 123 or 12.5
+          )
+          raw = re.findall(pattern, text)
+          result = []
+          for s in raw:
+              try:
+                  result.append(float(s.replace(',', '')))
+              except ValueError:
+                  pass
+          return sorted(result)
+
+      sample = 'Subtotal 12.50\nTax 1,00\nTotal $13.50'
+      print(extract_numbers(sample))
+      # [1.0, 12.5, 13.5]  — 1,00 → 1.0 (misread comma)
+    narration: >
+      The try/except ValueError around each conversion handles OCR
+      artefacts that look like numbers but are not valid floats after
+      comma removal — things like a lone comma or a trailing dot.
+      Sorting in ascending order is a stylistic choice — callers can
+      reverse it if they need descending. Notice that '1,00' (common
+      OCR misread of '1.00') becomes 1.0 after comma removal, which is
+      the correct value for a dollar amount of one dollar. In a production
+      system you would combine field detection (which label precedes the
+      number?) with numeric parsing.
+
+  - type: code
+    label: "Applied parsing"
+    heading: "Receipt Total Detection"
+    code: |
+      def find_total(text: str) -> float | None:
+          '''Find the line marked Total/TOTAL and extract its amount.'''
+          numbers_on_total_line = []
+          for line in text.splitlines():
+              if 'total' in line.lower():
+                  nums = extract_numbers(line)
+                  numbers_on_total_line.extend(nums)
+          if not numbers_on_total_line:
+              return None
+          return max(numbers_on_total_line)   # largest number on the total line
+
+      receipt_ocr = '''
+      Item 1    $5.99
+      Item 2    $3.50
+      Subtotal  $9.49
+      Tax       $0.76
+      TOTAL     $10.25
+      '''
+      print(find_total(receipt_ocr))  # 10.25
+    narration: >
+      find_total shows the typical document AI pattern: filter lines by a
+      keyword, extract numbers from those lines, pick the relevant one.
+      Taking max on the total line works because the total is usually the
+      largest number on that line and there is often only one. In practice
+      you would also handle cases like 'Grand Total' vs 'Subtotal' using
+      a priority list of keywords.
+
+  - type: exercise
+    heading: "Exercise 4: Extract Numbers from Text"
+    prompt: >
+      Implement extract_numbers(text: str) -> list[float].
+      Use re.findall to capture comma-separated numbers (1,234.56) and
+      plain decimals/integers. Strip commas from each match and cast to
+      float. Skip values that fail to convert. Return the result sorted
+      ascending. Pure Python — no PIL or Tesseract needed.
+    hint: >
+      pattern = r'\b\d{1,3}(?:,\d{3})*(?:\.\d+)?|\b\d+(?:\.\d+)?\b'
+      re.findall(pattern, text) → list of strings. float(s.replace(',',''))
+      in a try/except. sorted(result).
+    narration: >
+      Regex-based numeric extraction is pure Python — no imports beyond re.
+      It is the parsing core of any receipt, invoice, or form reader built
+      on OCR output.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "OCR output is noisy: substitutions, artefacts, mixed content"
+      - "re.findall with alternation: 1,234.56 | 123 | 12.5"
+      - "Strip commas before float() cast"
+      - "try/except ValueError: skip tokens that look numeric but are not"
+      - "sorted(): ascending order — max is the total, min is the smallest item"
+    narration: >
+      You have OCR, preprocessing, PDF extraction, and numeric parsing.
+      Lesson 5 wires all four into a DocumentReader class — the same
+      facade pattern you used for ChatStore in Section 4.

@@ -1,0 +1,139 @@
+day: "068"
+lesson: 3
+title: "PDF Text Extraction"
+slides:
+  - type: title
+    heading: "PDF Text Extraction"
+    subheading: "pypdf for text-based PDFs — Day 56 revisited"
+    narration: >
+      On Day 56 you used pypdf to extract text from uploaded PDF files.
+      Today you revisit it in the context of document AI — extracting
+      text per page, detecting scanned pages, and deciding whether to
+      use pypdf or fallback to OCR. The two approaches are complementary:
+      pypdf is instant for digital PDFs; Tesseract is needed for scanned pages.
+
+  - type: concept
+    label: "PDF types"
+    heading: "Text-Based vs Scanned PDFs"
+    body: >
+      Not all PDFs are equal. The right extraction strategy depends on
+      whether the text is stored digitally or embedded as an image.
+    bullets:
+      - "Text-based PDF: text is stored as Unicode strings in the PDF structure"
+      - "Scanned PDF: pages are raster images; no machine-readable text"
+      - "Hybrid: some pages digital, some scanned (common in mixed archives)"
+      - "Detection: chars == 0 on a page → scanned (fallback to OCR)"
+    narration: >
+      When you save a Word document as PDF, the text is stored digitally —
+      pypdf extracts it instantly with no OCR. When you scan a paper document
+      and save it as PDF, the pages are raster images wrapped in a PDF container.
+      pypdf's extract_text returns an empty string for those pages because there
+      are no text objects in the PDF structure. The detection heuristic is simple:
+      if chars == 0 after pypdf extraction, the page is probably scanned and
+      needs OCR. In Day 69 you will combine vision LLM + Pydantic to handle
+      scanned invoices end-to-end.
+
+  - type: code
+    label: "pypdf extraction"
+    heading: "pypdf Page-by-Page Extraction"
+    code: |
+      import io
+      import pypdf
+
+      def extract_pdf_text(pdf_bytes: bytes) -> list:
+          reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+          pages  = []
+          for i, page in enumerate(reader.pages, start=1):
+              text = page.extract_text() or ''
+              pages.append({
+                  'page':  i,
+                  'text':  text,
+                  'chars': len(text),
+              })
+          return pages
+
+      # Usage
+      with open('invoice.pdf', 'rb') as f:
+          result = extract_pdf_text(f.read())
+
+      for p in result:
+          status = 'ok' if p['chars'] > 0 else 'SCANNED (no text)'
+          print(f"Page {p['page']}: {p['chars']} chars — {status}")
+    narration: >
+      The `or ''` guard converts None (returned by pypdf when a page has no
+      text objects) to an empty string. This is the same pattern from Day 56.
+      enumerate starting at 1 makes the page numbers human-readable — matching
+      what Adobe and most PDF viewers show. The page count comes from
+      len(reader.pages) — no separate call needed.
+
+  - type: how_it_works
+    label: "Hybrid strategy"
+    heading: "Hybrid PDF Strategy: pypdf First, OCR Fallback"
+    body: >
+      A production document reader tries pypdf first and falls back to
+      OCR for pages with no extracted text.
+    narration: >
+      The hybrid strategy is: extract with pypdf, check chars per page,
+      and for any page where chars == 0 (or fewer than some threshold),
+      render the page as an image and run OCR. pypdf does not render pages
+      to images — for that you need the pdf2image package (which wraps
+      poppler). That is beyond today's scope but the architecture is clear:
+      the page iterator is the same, and the decision at each page is just
+      one if statement. Today's exercises focus on the pypdf path; the OCR
+      fallback is exercise 5's pipeline.
+
+  - type: code
+    label: "Metadata"
+    heading: "PDF Metadata and Page Count"
+    code: |
+      import io, pypdf
+
+      def pdf_info(pdf_bytes: bytes) -> dict:
+          reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+          meta   = reader.metadata or {}
+          return {
+              'page_count': len(reader.pages),
+              'title':      meta.get('/Title', ''),
+              'author':     meta.get('/Author', ''),
+              'creator':    meta.get('/Creator', ''),
+          }
+
+      # with open('report.pdf', 'rb') as f:
+      #     print(pdf_info(f.read()))
+    narration: >
+      PDF metadata is stored in the document's info dictionary. The keys
+      use PDF name syntax with a leading slash. pypdf's metadata property
+      returns a dict-like object; use .get with a default for optional fields.
+      The page_count is the most reliable piece of metadata — it is always
+      present. Title and author are often empty in machine-generated PDFs.
+
+  - type: exercise
+    heading: "Exercise 3: Extract PDF Text"
+    prompt: >
+      Implement extract_pdf_text(pdf_bytes: bytes) -> list[dict].
+      Use pypdf.PdfReader(io.BytesIO(pdf_bytes)) to read the PDF.
+      For each page (enumerate starting at 1), extract text with
+      page.extract_text() — guard against None with 'or ""'.
+      Return a list of dicts: [{page: int, text: str, chars: int}].
+      Use the minimal_pdf fixture provided — no file system needed.
+    hint: >
+      import pypdf, io. reader = pypdf.PdfReader(io.BytesIO(pdf_bytes)).
+      for i, page in enumerate(reader.pages, start=1): text = page.extract_text() or ''.
+      append {'page': i, 'text': text, 'chars': len(text)}.
+    narration: >
+      pypdf was introduced on Day 56 — this exercise reinforces page-level
+      iteration and the scanned-page detection pattern that the full document
+      reader pipeline uses.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "Text-based PDF: extract_text() returns non-empty → use directly"
+      - "Scanned PDF: extract_text() returns '' → needs OCR fallback"
+      - "pypdf.PdfReader(io.BytesIO(pdf_bytes)) — no file needed"
+      - "enumerate(reader.pages, start=1) — 1-based page numbers"
+      - "page.extract_text() or '' — guard against None"
+    narration: >
+      PDF extraction is clean for digital documents. Next: parsing the
+      output — extracting numeric values from OCR text, which is essential
+      for receipt and invoice processing.

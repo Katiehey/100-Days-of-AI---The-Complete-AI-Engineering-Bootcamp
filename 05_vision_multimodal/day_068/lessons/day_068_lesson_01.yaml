@@ -1,0 +1,136 @@
+day: "068"
+lesson: 1
+title: "How OCR Works"
+slides:
+  - type: title
+    heading: "OCR & Document AI"
+    subheading: "Day 68 — Turning images and PDFs into searchable text"
+    narration: >
+      Yesterday you gave images to a vision LLM and got text back. Today
+      you use a different tool — Tesseract OCR — for the same task. They
+      are complementary: Tesseract is fast, offline, and precise for clean
+      printed text; vision LLMs handle context, handwriting, and noisy
+      documents better. This day builds the toolkit to choose the right
+      approach. You will also extract text from PDFs using pypdf, which
+      you met on Day 56.
+
+  - type: concept
+    label: "What is OCR?"
+    heading: "Optical Character Recognition"
+    body: >
+      OCR converts a raster image of text (pixels) into a machine-readable
+      string. The image could be a scanned document, a photograph, or a
+      screenshot.
+    bullets:
+      - "Input: image containing text (PNG, JPEG, TIFF, ...)"
+      - "Output: UTF-8 string — same characters as visible in the image"
+      - "Classic pipeline: binarise → segment → recognise → post-process"
+      - "Modern engines (Tesseract 4+) use an LSTM-based recogniser"
+    narration: >
+      OCR was one of the first AI problems to reach production quality.
+      Tesseract, originally developed at HP in the 1980s and open-sourced
+      by Google in 2006, is now on version 5 with LSTM-based recognition.
+      It ships with trained models for over 100 languages and runs entirely
+      on-CPU — no GPU, no API key, no cost. For clean printed text it is
+      highly accurate and very fast. For handwriting, complex layouts, or
+      degraded images you need either preprocessing or a vision LLM.
+
+  - type: how_it_works
+    label: "Tesseract pipeline"
+    heading: "Tesseract's OCR Pipeline"
+    body: >
+      Tesseract processes an image in four stages before producing text.
+    bullets:
+      - "1. Binarise — convert to black-and-white using adaptive thresholding"
+      - "2. Deskew & segment — detect text blocks, columns, words, characters"
+      - "3. Recognise — LSTM network predicts character sequence per text line"
+      - "4. Post-process — language model corrects likely errors"
+    narration: >
+      Binarisation converts the greyscale image to pure black and white.
+      Adaptive thresholding adjusts the cutoff locally so uneven lighting
+      does not ruin the result. Segmentation uses heuristics to detect
+      text blocks, split columns, find word boundaries, and isolate
+      individual characters. The LSTM recogniser then reads each text
+      line as a sequence prediction problem. The language model stage
+      uses dictionaries and n-gram statistics to fix ambiguous characters
+      — 'l' vs '1', '0' vs 'O'. You can skip the language model with
+      --oem 3 --psm 6 flags if you are reading codes or numbers.
+
+  - type: concept
+    label: "pytesseract"
+    heading: "pytesseract — Python Binding"
+    body: >
+      pytesseract is a thin Python wrapper around the Tesseract command-line
+      binary. It handles the image → temp file → subprocess → stdout → string
+      pipeline.
+    bullets:
+      - "pip install pytesseract  (Python package)"
+      - "brew install tesseract   (macOS — the actual OCR binary)"
+      - "image_to_string(img)     → extracted text"
+      - "image_to_data(img)       → word-level bounding boxes + confidence"
+    narration: >
+      pytesseract is a wrapper, not a reimplementation. It serialises the PIL
+      Image to a temporary TIFF or PNG, calls the Tesseract binary as a
+      subprocess, captures stdout, and returns the string. This means Tesseract
+      must be installed as a system binary — it is not bundled in the Python
+      package. On macOS use brew install tesseract; on Ubuntu use
+      apt-get install tesseract-ocr. The ocr_fn injection pattern you
+      will use today means exercises run without Tesseract installed.
+
+  - type: code
+    label: "Basic usage"
+    heading: "pytesseract.image_to_string"
+    code: |
+      import pytesseract
+      from PIL import Image
+
+      img = Image.open("document.png")
+
+      # Basic OCR — returns a string
+      text = pytesseract.image_to_string(img)
+      print(text)
+
+      # With language and page-segmentation hints
+      text = pytesseract.image_to_string(
+          img,
+          lang='eng',
+          config='--psm 6'   # treat image as uniform block of text
+      )
+    narration: >
+      image_to_string is the main entry point. The lang parameter selects the
+      recognition model — eng for English, fra for French, deu for German, etc.
+      Multiple languages can be combined: lang='eng+fra'. The config parameter
+      passes flags directly to Tesseract. --psm 6 means page segmentation mode 6
+      — assume a single uniform block of text. The default is --psm 3 which runs
+      automatic layout analysis. For receipts and invoices, --psm 6 is often more
+      reliable because the layout is dense and varied.
+
+  - type: exercise
+    heading: "Exercise 1: OCR an Image"
+    prompt: >
+      Implement ocr_image(img, ocr_fn=None, lang='eng', config='') -> str.
+      If ocr_fn is provided, call it with the image and return the result.
+      Otherwise call pytesseract.image_to_string(img, lang=lang, config=config).
+      All checks use a mock ocr_fn so Tesseract is not required.
+    hint: >
+      if ocr_fn is not None: return ocr_fn(img). Otherwise: import pytesseract
+      inside the else branch; return pytesseract.image_to_string(img, lang=lang,
+      config=config).
+    narration: >
+      The ocr_fn injection pattern follows the same contract as describe_fn in
+      Day 67 — any callable that accepts the image and returns a string can act
+      as the OCR engine. This makes every downstream function testable without
+      Tesseract installed.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Tesseract: binarise → segment → LSTM recognise → language-model post-process"
+      - "pytesseract: Python wrapper — requires the Tesseract binary (brew install)"
+      - "image_to_string(img, lang='eng', config='') → text string"
+      - "--psm 6: treat as uniform text block (good for receipts)"
+      - "ocr_fn=None injection: swap Tesseract for a mock in all tests"
+    narration: >
+      The OCR machinery is clear. Next: image preprocessing — small, dark, or
+      blurry inputs hurt Tesseract accuracy significantly. Proper preprocessing
+      can double the character accuracy on difficult images.
