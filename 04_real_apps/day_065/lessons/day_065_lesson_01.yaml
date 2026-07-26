@@ -1,0 +1,77 @@
+day: 65
+lesson: 1
+title: "Adding Monitoring to Any App"
+slides:
+  - type: title
+    heading: "Adding Monitoring to Any App"
+    subheading: "Instrument an existing FastAPI app with metrics"
+
+  - type: concept
+    heading: "The Decorator vs Factory Choice"
+    narration: >
+      Day 061 built monitoring into the factory from the start. Today's pattern
+      is different: add monitoring to a FastAPI app that was already built.
+      The add_metrics_middleware function takes an existing app, adds the
+      middleware and endpoint, and returns the same app. This is useful when
+      you want to add monitoring to a third-party app, a legacy app, or any
+      app whose source you can't modify.
+    bullets:
+      - "Factory pattern: monitoring baked in at build time"
+      - "Decorator pattern: monitoring added after build (today)"
+      - "add_metrics_middleware(app, collector) → same app"
+      - "Useful for instrumenting apps you didn't build"
+
+  - type: code
+    heading: "add_metrics_middleware"
+    narration: >
+      The function defines the middleware and endpoint as inner functions using
+      FastAPI's decorator API, then returns the same app. Order matters:
+      register the middleware before routes that you want it to cover.
+      The @app.middleware decorator call modifies app in place just like
+      @app.get does. Returning app allows chaining with other decorators.
+    code: |
+      import time
+
+      def add_metrics_middleware(app: FastAPI,
+                                  collector: MetricsCollector) -> FastAPI:
+          @app.middleware("http")
+          async def _middleware(request, call_next):
+              start    = time.monotonic()
+              response = await call_next(request)
+              duration = (time.monotonic() - start) * 1000
+              collector.record(response.status_code, duration)
+              return response
+
+          @app.get("/metrics")
+          def _metrics():
+              return collector.summary()
+
+          return app    # same object — enables chaining
+
+  - type: concept
+    heading: "What /metrics Shows"
+    narration: >
+      The /metrics endpoint returns four numbers you should watch in
+      production. Requests is your traffic volume. Errors and error_rate tell
+      you if something is breaking. avg_latency_ms tells you if the model is
+      slow. A spike in any of these is a signal to investigate. Keep the
+      endpoint public for now — in production, protect it behind authentication
+      so competitors can't read your traffic stats.
+    bullets:
+      - "requests: total calls since last restart"
+      - "errors: calls that returned 4xx or 5xx"
+      - "error_rate: errors / requests (0 to 1)"
+      - "avg_latency_ms: mean response time in milliseconds"
+
+  - type: summary
+    heading: "Lesson 1 Complete"
+    narration: >
+      add_metrics_middleware instruments any FastAPI app in six lines. The
+      decorator pattern is flexible: it works on apps you didn't build, legacy
+      apps, and third-party components. The /metrics endpoint gives you
+      operational visibility with a single curl.
+    bullets:
+      - "@app.middleware('http'): wraps every request, runs before routes"
+      - "record after call_next: captures actual status code and duration"
+      - "GET /metrics → collector.summary(): live operational dashboard"
+      - "Return app: enables chaining with other post-build additions"

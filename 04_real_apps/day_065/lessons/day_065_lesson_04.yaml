@@ -1,0 +1,79 @@
+day: 65
+lesson: 4
+title: "Deploy Configuration Files"
+slides:
+  - type: title
+    heading: "Deploy Configuration Files"
+    subheading: "Generate all deployment files programmatically"
+
+  - type: concept
+    heading: "The Four Files Every App Needs"
+    narration: >
+      Every deployment platform needs the same four files. requirements.txt
+      lists the packages pip should install. Procfile tells the platform how
+      to start the server. render.yaml is infrastructure-as-code for the Render
+      platform. .env.example documents every environment variable the app needs
+      so the next person who clones the repo knows what to configure. Generate
+      them from a function instead of writing them by hand — consistent,
+      repeatable, and easy to update when your package list changes.
+    bullets:
+      - "requirements.txt — pip install -r requirements.txt"
+      - "Procfile — web: uvicorn app:app --host 0.0.0.0 --port $PORT"
+      - "render.yaml — IaC: service definition for Render"
+      - ".env.example — document required env vars (never secrets)"
+
+  - type: code
+    heading: "write_deploy_files"
+    narration: >
+      The files dict maps filename to content string. Iterating it writes each
+      one. The Procfile uses the module name from the function argument — so
+      the same function generates config for shipped_app.py or any other
+      module name. render.yaml uses str.format to fill in app_name and module.
+      The function returns the list of filenames so the caller can verify or
+      display them.
+    code: |
+      def write_deploy_files(directory, app_name="my-app",
+                             module="app", packages=None) -> list[str]:
+          base = Path(directory)
+          base.mkdir(parents=True, exist_ok=True)
+          pkgs = packages or ["fastapi", "uvicorn[standard]",
+                              "ollama", "httpx"]
+          files = {
+              "requirements.txt": "\n".join(pkgs) + "\n",
+              "Procfile":         (f"web: uvicorn {module}:app"
+                                   " --host 0.0.0.0 --port $PORT\n"),
+              "render.yaml":      RENDER_YAML_TMPL.format(
+                                      app_name=app_name, module=module),
+              ".env.example":     ENV_EXAMPLE,
+          }
+          for fname, content in files.items():
+              (base / fname).write_text(content, encoding="utf-8")
+          return list(files.keys())
+
+  - type: concept
+    heading: "Infrastructure as Code"
+    narration: >
+      render.yaml is infrastructure as code: the platform configuration lives
+      in the git repository alongside the application code. When you push a new
+      commit, Render reads render.yaml and knows how to build and start the
+      app. Secrets are not in render.yaml — they go in the platform dashboard
+      as environment variables. The sync: false setting tells Render not to
+      auto-generate the value; it expects the developer to paste it in manually.
+    bullets:
+      - "render.yaml in git: config changes are code-reviewed and reversible"
+      - "buildCommand: pip install -r requirements.txt"
+      - "startCommand: uvicorn shipped_app:app --host 0.0.0.0 --port $PORT"
+      - "Secrets: sync: false → paste real values in Render dashboard"
+
+  - type: summary
+    heading: "Lesson 4 Complete"
+    narration: >
+      write_deploy_files generates all four deployment files from a single
+      function call. The files dict pattern makes it easy to add more files
+      later. Infrastructure as code means deploy config is versioned, reviewed,
+      and repeatable.
+    bullets:
+      - "requirements.txt: '\\n'.join(packages) + '\\n'"
+      - "Procfile: uses $PORT env var, never hardcoded 8000"
+      - "render.yaml: IaC with app_name and module filled by .format()"
+      - ".env.example: documents required vars, never real values"

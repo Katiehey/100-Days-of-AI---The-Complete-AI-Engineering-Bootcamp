@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: writing-assistant
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn shipped_app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MODEL
+        value: llama3.2
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PORT
+        generateValue: false

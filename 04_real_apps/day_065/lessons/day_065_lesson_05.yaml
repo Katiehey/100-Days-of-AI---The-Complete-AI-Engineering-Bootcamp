@@ -1,0 +1,68 @@
+day: 65
+lesson: 5
+title: "Section 4 Capstone — Ship It"
+slides:
+  - type: title
+    heading: "Section 4 Capstone — Ship It"
+    subheading: "64 days of skills. One deployable, monetizable AI product."
+
+  - type: concept
+    heading: "What You've Built"
+    narration: >
+      Over 15 days in Section 4 you built every layer of a real AI product.
+      A FastAPI backend with Pydantic contracts. A Streamlit frontend. A full-stack
+      app with CORS. Persistent storage with SQLAlchemy. Authentication with
+      bcrypt and JWT. File uploads with PyPDF. Deployment to Render. Streaming
+      responses. Background jobs. Caching. Monitoring. A test suite with pytest.
+      Payments with Stripe. MVP scoping. Template engines. Integration tests.
+      Today you wire it all together into a single shippable product.
+    bullets:
+      - "Section 4: 15 days, 75 exercises, one complete product"
+      - "FastAPI + Pydantic + SQLAlchemy + bcrypt + Stripe + Ollama"
+      - "Monitoring + logging + caching + testing + deployment"
+      - "shipped_app.py: a real product ready for real users"
+
+  - type: concept
+    heading: "The Ship Checklist"
+    narration: >
+      Before pushing to production, run through this checklist. Tests pass.
+      Readiness check is green. No hardcoded secrets. Health endpoint returns ok.
+      Procfile uses $PORT. .env.example documents every variable. Rate limits
+      are set to sensible defaults. Error messages don't expose internal
+      implementation details. These are the habits that separate a product
+      from a demo.
+    bullets:
+      - "pytest test_shipped_app.py -v → all green"
+      - "check_readiness(client) → ready=True"
+      - "No hardcoded API keys, ports, or model names"
+      - "Procfile uses $PORT; requirements.txt is complete"
+
+  - type: concept
+    heading: "What Comes Next"
+    narration: >
+      Section 5 adds vision and multimodal capabilities: images, OCR, speech,
+      and video. Section 6 builds autonomous agents that use tools, plan, and
+      remember. Section 7 covers financial data, trading bots, and productizing
+      your work for real revenue. Every section builds on the engineering habits
+      from Section 4. Tests, monitoring, feature gating, and deployment are
+      the foundation everything else sits on.
+    bullets:
+      - "Section 5: vision, OCR, speech-to-text, video processing"
+      - "Section 6: agents, tool use, planning, multi-agent systems"
+      - "Section 7: financial data, trading bots, productizing for revenue"
+      - "All sections build on Section 4 engineering habits"
+
+  - type: summary
+    heading: "Day 065 Complete — Section 4 Complete"
+    narration: >
+      Capstone Build II is done. You have a shippable, monetizable AI product:
+      feature gating, rate limiting, Stripe payments, monitoring, a pytest suite,
+      and all deployment config. Section 4 is complete. Tomorrow: Section 5,
+      Vision and Multimodal AI.
+    bullets:
+      - "add_metrics_middleware: instrument any app in 6 lines"
+      - "run_test_battery: programmatic test runner, never raises"
+      - "check_readiness: pre-deploy gate — fail before push not after"
+      - "write_deploy_files: requirements + Procfile + render.yaml + .env.example"
+      - "run_integration_test: 8-check end-to-end smoke test"
+      - "shipped_app.py: the deliverable — run it, deploy it, charge for it"

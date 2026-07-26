@@ -1,0 +1,80 @@
+day: 65
+lesson: 2
+title: "Programmatic Test Runners"
+slides:
+  - type: title
+    heading: "Programmatic Test Runners"
+    subheading: "Run API tests from a notebook or script, collect all results"
+
+  - type: concept
+    heading: "pytest vs Programmatic Runners"
+    narration: >
+      pytest is the right tool for a CI pipeline. But sometimes you want to
+      run tests from a notebook, a deploy script, or a health-check endpoint
+      without invoking pytest as a subprocess. A programmatic test runner
+      takes a list of test cases, runs them all against a TestClient, and
+      returns a structured dict — never raising, always collecting. It is
+      not a replacement for pytest; it is a complement for situations where
+      pytest can't be called.
+    bullets:
+      - "pytest: for CI pipelines and developer workflows"
+      - "Programmatic runner: for notebooks, deploy scripts, health endpoints"
+      - "Never raises: one failure doesn't cancel the rest"
+      - "Returns structured dict: machine-readable pass/fail report"
+
+  - type: code
+    heading: "run_test_battery"
+    narration: >
+      Each test case is a plain dict with the five fields needed to make
+      one HTTP call and check its status. client.request handles any method.
+      The try/except inside the loop ensures a network error or unexpected
+      exception in one case doesn't skip subsequent cases. got=-1 for
+      exceptions makes failures visually obvious in the results list.
+    code: |
+      def run_test_battery(client, cases: list[dict]) -> dict:
+          results = []
+          for case in cases:
+              expected = case["expected_status"]
+              try:
+                  r   = client.request(case["method"], case["path"],
+                                       json=case.get("json"))
+                  got = r.status_code
+              except Exception as e:
+                  got  = -1
+                  case = {**case, "name": f"{case['name']} [ERROR: {e}]"}
+              passed = (got == expected)
+              results.append({"name": case["name"], "expected": expected,
+                              "got": got, "passed": passed})
+          passed_n = sum(1 for r in results if r["passed"])
+          return {"passed": passed_n,
+                  "failed": len(results) - passed_n,
+                  "total":  len(results),
+                  "results": results}
+
+  - type: concept
+    heading: "Designing Good Test Cases"
+    narration: >
+      A good battery covers four categories: happy path (the thing that should
+      work), sad path (inputs that should return errors), boundary conditions
+      (empty strings, zero values, maximum lengths), and security cases
+      (missing auth, forbidden features). Name each case clearly so the results
+      dict is self-documenting. The name appears in the failure report, so a
+      name like 'empty prompt gives 422' is more useful than 'test3'.
+    bullets:
+      - "Happy path: valid input → 200"
+      - "Sad path: invalid input → 422, unknown id → 404"
+      - "Boundary: empty string, zero, at-limit usage"
+      - "Name clearly: 'empty prompt → 422' beats 'test case 3'"
+
+  - type: summary
+    heading: "Lesson 2 Complete"
+    narration: >
+      run_test_battery complements pytest for situations where a subprocess
+      call isn't possible. A list of case dicts is easy to extend and review.
+      Never raise inside the loop — collect all results, then let the caller
+      decide what to do with failures.
+    bullets:
+      - "case dict: name, method, path, json, expected_status"
+      - "client.request(method, path, json=body) — generic for any verb"
+      - "try/except per case: one error doesn't abort the rest"
+      - "Return: {passed, failed, total, results} — machine-readable"

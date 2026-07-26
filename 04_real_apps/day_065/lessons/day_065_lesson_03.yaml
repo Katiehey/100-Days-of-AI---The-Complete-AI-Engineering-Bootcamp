@@ -1,0 +1,85 @@
+day: 65
+lesson: 3
+title: "Readiness Checks"
+slides:
+  - type: title
+    heading: "Readiness Checks"
+    subheading: "Automated gates that prevent broken builds reaching production"
+
+  - type: concept
+    heading: "What Is a Readiness Check?"
+    narration: >
+      A readiness check answers one question: is this app safe to expose to
+      real users right now? It is different from a health check. A health check
+      says 'the server is running'. A readiness check says 'the server is
+      running, the routes are wired up, validation is active, and the AI
+      pipeline produces output'. Kubernetes calls readinessProbes before
+      routing traffic to a new pod. Render and Railway call your health endpoint
+      before switching traffic to a new deploy. Our check_readiness function
+      is the pre-deploy version you run from a notebook.
+    bullets:
+      - "Health check: server is running (shallow)"
+      - "Readiness check: server is running AND routes work AND validation is active"
+      - "Kubernetes readinessProbe: calls /health before routing traffic"
+      - "check_readiness: notebook-level gate before you git push"
+
+  - type: code
+    heading: "check_readiness Pattern"
+    narration: >
+      Each check is a function that returns a bool and a detail string. An
+      inner run helper wraps it in try/except and appends the result. Ready is
+      the all() of all passed booleans. This pattern scales cleanly: adding a
+      new check is a two-line function plus one run call.
+    code: |
+      def check_readiness(client) -> dict:
+          checks = []
+          def run(name, fn):
+              try:
+                  passed, detail = fn()
+              except Exception as e:
+                  passed, detail = False, str(e)
+              checks.append({"name": name, "passed": passed, "detail": detail})
+
+          def _health():
+              r  = client.get("/health")
+              ok = r.status_code == 200 and r.json().get("status") == "ok"
+              return ok, f"status={r.status_code}"
+
+          def _validation():
+              r  = client.post("/generate", json={"prompt": "", "user_id": "x"})
+              return r.status_code == 422, f"got {r.status_code}, want 422"
+
+          run("health_ok",        _health)
+          run("validation_works", _validation)
+          # ... more checks ...
+
+          return {"ready": all(c["passed"] for c in checks), "checks": checks}
+
+  - type: concept
+    heading: "What to Check"
+    narration: >
+      Four checks cover the most critical failure modes. Health ensures the
+      server is reachable and the health endpoint is wired. Templates verifies
+      that the feature that requires pre-loaded data actually has it. Validation
+      confirms Pydantic constraints are active — a deploy that ships with
+      validation disabled would silently accept garbage inputs. Rate limit
+      confirms the 429 path works — a deploy with broken rate limiting could
+      cost real money if abused.
+    bullets:
+      - "health_ok: server reachable and health endpoint correct"
+      - "templates_exist: pre-loaded data was loaded successfully"
+      - "validation_works: Pydantic constraints active (empty → 422)"
+      - "rate_limit_works: basic generate path works (returns 200, not 429)"
+
+  - type: summary
+    heading: "Lesson 3 Complete"
+    narration: >
+      check_readiness is the pre-deploy notebook gate. Each check function
+      returns (bool, detail). The run wrapper handles exceptions. Ready is
+      the all() of all passed checks. Fail fast before git push, not after
+      Render deploys a broken build to 100 users.
+    bullets:
+      - "Readiness check = pre-deploy gate, not runtime health probe"
+      - "Inner run helper: try/except + append to checks list"
+      - "ready = all(c['passed'] for c in checks)"
+      - "One broken check → ready=False → don't deploy"
