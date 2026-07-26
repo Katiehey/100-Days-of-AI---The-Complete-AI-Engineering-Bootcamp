@@ -1,0 +1,136 @@
+day: "066"
+lesson: 2
+title: "Image Formats and I/O"
+slides:
+  - type: title
+    heading: "Image Formats and I/O"
+    subheading: "PNG, JPEG, BMP — and the BytesIO pattern"
+    narration: >
+      Images can be stored in many formats. Choosing the wrong one costs
+      quality or storage. This lesson covers the three formats you will
+      encounter most: PNG, JPEG, and BMP — and the in-memory I/O pattern
+      that lets you work with images as bytes rather than files.
+
+  - type: concept
+    label: "Raster formats"
+    heading: "PNG vs JPEG vs BMP"
+    body: >
+      The three most common raster formats differ in compression strategy
+      and intended use.
+    bullets:
+      - "PNG — lossless compression; supports transparency (RGBA); ideal for
+        screenshots and diagrams"
+      - "JPEG — lossy compression; no alpha; small files; ideal for photos"
+      - "BMP — uncompressed; exact pixel values; large files; legacy format"
+    narration: >
+      PNG uses lossless compression — every pixel is stored exactly. It
+      supports RGBA transparency. Use PNG for diagrams, screenshots, and
+      anything where you need exact pixel values. JPEG uses lossy
+      compression — it throws away information to make files much smaller.
+      It does not support transparency. Use JPEG for photographs. BMP is
+      uncompressed — it stores every byte of every pixel. The files are
+      large, but there is no compression artefact. You will mostly encounter
+      BMP in legacy pipelines or as an intermediate format.
+
+  - type: how_it_works
+    label: "BytesIO pattern"
+    heading: "In-Memory I/O with BytesIO"
+    body: >
+      io.BytesIO wraps a byte buffer as a file-like object. PIL can save to
+      and load from it. No file is ever written to disk.
+    narration: >
+      The BytesIO pattern is the backbone of image processing in APIs and
+      notebooks. Instead of writing a file to disk and reading it back, you
+      pass a buffer. This works because PIL treats BytesIO identically to a
+      real file. Three steps: create an empty buffer, save into it, seek back
+      to zero. From that point, you can pass the buffer to anything that
+      accepts a file-like object — or call getvalue to get raw bytes.
+
+  - type: code
+    label: "Format conversion"
+    heading: "Saving Different Formats"
+    code: |
+      import io
+      from PIL import Image
+
+      rgb = Image.new('RGB', (100, 100), color=(200, 100, 50))
+
+      # Save as different formats to BytesIO
+      def to_bytes(img, fmt):
+          buf = io.BytesIO()
+          img.save(buf, format=fmt)
+          return buf.getvalue()
+
+      png_data  = to_bytes(rgb, 'PNG')
+      jpeg_data = to_bytes(rgb, 'JPEG')
+      print(f"PNG : {len(png_data):,} bytes")
+      print(f"JPEG: {len(jpeg_data):,} bytes")  # typically much smaller
+
+      # RGBA → JPEG requires mode conversion (JPEG has no alpha)
+      rgba = rgb.convert('RGBA')
+      jpeg_safe = to_bytes(rgba.convert('RGB'), 'JPEG')
+    narration: >
+      The to_bytes helper is a pattern you will use throughout this section.
+      Create a BytesIO buffer, save into it with a format string, and call
+      getvalue to get the raw bytes. Notice that JPEG is typically much
+      smaller than PNG for photographic content. Also notice the RGBA to JPEG
+      issue: JPEG has no alpha channel, so you must convert RGBA to RGB
+      before saving as JPEG — Pillow will raise an error otherwise.
+
+  - type: code
+    label: "Round-trip"
+    heading: "Bytes → Image Round-trip"
+    code: |
+      import io
+      from PIL import Image
+
+      original = Image.new('RGB', (64, 64), color=(0, 200, 100))
+
+      # Encode to bytes
+      buf = io.BytesIO()
+      original.save(buf, format='PNG')
+      raw_bytes = buf.getvalue()
+
+      # Decode back from bytes
+      buf2 = io.BytesIO(raw_bytes)
+      restored = Image.open(buf2)
+      restored.load()          # force decoding before buffer goes away
+      print(restored.size, restored.mode)   # (64, 64) RGB
+    narration: >
+      To decode bytes back to a PIL Image, wrap them in a new BytesIO and
+      call Image.open. One critical detail: call restored.load() to force
+      Pillow to actually decode the image data before you close or reuse the
+      buffer. Pillow is lazy — it defers decoding until you access pixel
+      data. If the buffer gets garbage-collected first, you get a broken
+      image. Calling load makes the decode immediate and safe.
+
+  - type: exercise
+    heading: "Exercise 2: Image to Bytes"
+    prompt: >
+      Implement image_to_bytes(img, format='PNG') -> bytes. Save the PIL
+      Image to a BytesIO buffer and return the bytes. For JPEG output,
+      automatically convert RGBA or P mode images to RGB first.
+    hint: >
+      Create io.BytesIO(), call img.save(buf, format=format), then return
+      buf.getvalue(). Check img.mode before saving as JPEG.
+    narration: >
+      This exercise locks in the BytesIO pattern. Converting an image to bytes
+      is the gateway to every downstream operation: sending images over HTTP,
+      encoding as base64 for a vision model, or storing in a database. The
+      RGBA-to-RGB handling before JPEG is real production code — you will hit
+      this exact error when users upload transparent PNGs and you try to save
+      thumbnails as JPEG.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "PNG: lossless, supports RGBA; JPEG: lossy, photos only, no alpha"
+      - "io.BytesIO — file-like object; wraps bytes as a virtual file"
+      - "img.save(buf, format='PNG') → buf.getvalue() → bytes"
+      - "Always seek(0) before reading from a buffer"
+      - "JPEG does not support RGBA — convert to RGB first"
+    narration: >
+      You now have the I/O toolkit. BytesIO is the most important pattern in
+      this lesson — use it every time you want images as bytes rather than
+      files. Next lesson: how to change image geometry — resize, crop, and the
+      cover-and-crop pattern used by profile photos and card headers.

@@ -1,0 +1,142 @@
+day: "066"
+lesson: 4
+title: "Filters and Image Enhancement"
+slides:
+  - type: title
+    heading: "Filters and Image Enhancement"
+    subheading: "ImageFilter, ImageEnhance — blur, sharpen, brightness"
+    narration: >
+      Pillow provides two ways to change an image's appearance without
+      changing its size: convolution filters, which process pixel
+      neighbourhoods, and enhancement adjusters, which scale a property like
+      brightness or contrast globally. This lesson covers both.
+
+  - type: concept
+    label: "Convolution filters"
+    heading: "What is a Convolution Filter?"
+    body: >
+      A convolution filter replaces each pixel with a weighted average of its
+      neighbours. The weights (the kernel) determine the effect.
+    bullets:
+      - "BLUR — averages a wide neighbourhood; smooths noise"
+      - "SHARPEN — amplifies differences between a pixel and its neighbours"
+      - "EDGE_ENHANCE — highlights edges between regions"
+      - "CONTOUR — finds contours; output is mostly grey with dark edges"
+    narration: >
+      A convolution filter slides a small grid of weights — called a kernel —
+      across every pixel in the image. For each pixel, it multiplies the
+      weights by the pixel values in the neighbourhood and sums them. A blur
+      kernel has equal positive weights — averaging the neighbourhood. A
+      sharpen kernel has a large positive center and negative neighbours —
+      amplifying local differences. Edge filters have weights that respond
+      strongly to intensity gradients. Pillow's ImageFilter module provides
+      pre-built kernels for common effects.
+
+  - type: how_it_works
+    label: "ImageFilter"
+    heading: "PIL.ImageFilter"
+    body: >
+      Apply a filter with img.filter(ImageFilter.NAME). It returns a new
+      Image. The original is not modified.
+    narration: >
+      The filter method takes a filter object and returns a new Image. All of
+      the standard filters are attributes of ImageFilter: BLUR, SHARPEN,
+      SMOOTH, EDGE_ENHANCE, EDGE_ENHANCE_MORE, CONTOUR, EMBOSS, FIND_EDGES.
+      You can also create custom filters with ImageFilter.Kernel for full
+      control over the convolution weights — useful when you need a specific
+      effect that the presets do not cover.
+
+  - type: code
+    label: "Applying filters"
+    heading: "img.filter — Applying Convolution Filters"
+    code: |
+      from PIL import Image, ImageFilter
+      import numpy as np
+
+      # Create a noisy image — blur will visibly smooth it
+      rng = np.random.default_rng(42)
+      arr = rng.integers(0, 256, (100, 100, 3), dtype=np.uint8)
+      img = Image.fromarray(arr)
+
+      blurred   = img.filter(ImageFilter.BLUR)
+      sharpened = img.filter(ImageFilter.SHARPEN)
+      edges     = img.filter(ImageFilter.EDGE_ENHANCE)
+
+      print(blurred.size, blurred.mode)  # same size, same mode
+      # filter() always returns a new Image — original unchanged
+      print(img is blurred)  # False
+    narration: >
+      img.filter always returns a new Image. The filter is applied to every
+      pixel and the result is a new object — the original is never touched.
+      Note that most filters require RGB or L mode. If you have an RGBA image
+      and a filter raises an error, convert to RGB first with img.convert
+      RGB. The gradient image in this example makes filter effects visible
+      — on a solid-colour image, most filters produce little change because
+      there are no gradients to blur or sharpen.
+
+  - type: how_it_works
+    label: "ImageEnhance"
+    heading: "PIL.ImageEnhance — Brightness, Contrast, Colour"
+    body: >
+      ImageEnhance adjusters scale a global property. factor=1.0 is
+      unchanged. factor=0 gives a degenerate image (black, grey, etc.).
+    narration: >
+      While filters operate on pixel neighbourhoods, ImageEnhance adjusters
+      scale a single global property. Brightness multiplies every pixel value
+      by the factor. Contrast stretches the histogram. Color adjusts
+      saturation — factor 0 gives greyscale, factor 2 gives vivid colours.
+      Sharpness is similar to the SHARPEN filter but adjustable on a
+      continuous scale. All four follow the same API: pass the image to the
+      enhancer constructor, then call enhance with a float factor.
+
+  - type: code
+    label: "Enhancement"
+    heading: "ImageEnhance.Brightness and Contrast"
+    code: |
+      from PIL import Image, ImageEnhance
+
+      img = Image.new('RGB', (100, 100), color=(100, 100, 100))
+
+      bright = ImageEnhance.Brightness(img).enhance(2.0)  # 2x brighter
+      dark   = ImageEnhance.Brightness(img).enhance(0.5)  # half as bright
+      vivid  = ImageEnhance.Color(img).enhance(2.0)       # 2x saturation
+
+      # Values are clamped to 0–255 automatically
+      import numpy as np
+      arr = np.array(bright)
+      print(arr.mean())  # ≈ 200 (min(100*2, 255) = 200)
+    narration: >
+      The pattern is the same for all four enhancers. Construct with the
+      image, call enhance with a float. The result is a new Image. Values are
+      automatically clamped to the valid range — you cannot accidentally
+      overflow to negative pixel values. Chaining multiple enhancers is
+      common: first adjust brightness, then contrast, then sharpness.
+
+  - type: exercise
+    heading: "Exercise 4: Apply Filter"
+    prompt: >
+      Implement apply_filter(img, filter_name) -> Image.Image using the
+      provided _FILTERS dict. Look up the filter by name (case-insensitive).
+      Raise ValueError for unknown names. Return the filtered image.
+    hint: >
+      _FILTERS.get(filter_name.lower()) gives None for unknown names. Check
+      for None and raise ValueError. Otherwise call img.filter(f).
+    narration: >
+      Wrapping filter lookup in a string-keyed function is the right
+      engineering pattern — callers pass a name, not an ImageFilter constant.
+      This makes filters configurable from JSON or user input. The ValueError
+      gives a clear message instead of a confusing AttributeError, and the
+      lower() call makes the API case-insensitive.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "ImageFilter — convolution-based: BLUR, SHARPEN, EDGE_ENHANCE, CONTOUR"
+      - "img.filter(f) — returns a new Image; original unchanged"
+      - "ImageEnhance — global adjusters: Brightness, Contrast, Color, Sharpness"
+      - "ImageEnhance.Brightness(img).enhance(factor) — factor=1 unchanged"
+      - "Values always clamped to 0–255"
+    narration: >
+      Filters and enhancement complete. You now have the core toolkit: create,
+      load, save, resize, crop, filter, and enhance. The final lesson pulls
+      all of these together into a composable pipeline.

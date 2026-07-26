@@ -1,0 +1,127 @@
+day: "066"
+lesson: 1
+title: "Images in Python — PIL/Pillow"
+slides:
+  - type: title
+    heading: "Images in Python"
+    subheading: "Section 5, Day 66 — PIL/Pillow Fundamentals"
+    narration: >
+      Welcome to Section 5 — Vision and Multimodal. Over the next 13 days you
+      will give your AI apps eyes and ears, working with images, audio, and
+      video. Day 66 is the foundation: reading, creating, and inspecting
+      images entirely in Python using the Pillow library.
+
+  - type: concept
+    label: "What is a digital image?"
+    heading: "Pixels, Channels, and Modes"
+    body: >
+      An image is a rectangular grid of pixels. Each pixel stores one number
+      per channel. The mode string describes the channel layout.
+    bullets:
+      - "RGB — 3 channels (red, green, blue); standard for photos"
+      - "RGBA — 4 channels; RGB plus transparency (alpha)"
+      - "L — 1 channel (luminance); grayscale"
+      - "Each channel is an integer 0–255 (8-bit per channel)"
+    narration: >
+      Before writing any code, understand what a digital image actually is.
+      It is a rectangular grid — width times height pixels. Each pixel stores
+      one number per channel. RGB images have three channels: red, green, and
+      blue. RGBA adds a fourth transparency channel. L mode stores a single
+      luminance value per pixel — that is grayscale. The mode is something you
+      will query constantly in Pillow, so get familiar with it now.
+
+  - type: how_it_works
+    label: "Pillow"
+    heading: "The Pillow Library"
+    body: >
+      Pillow is the maintained fork of PIL. Install as pillow, import as PIL.
+      It is the de-facto standard for image I/O in Python — used by OpenCV
+      Python bindings, torchvision, scikit-image, and many others.
+    narration: >
+      Pillow ships on pip as the package named pillow, but you import it as
+      PIL. It is the lingua franca of Python imaging. OpenCV's Python
+      bindings, scikit-image, and torchvision all either accept Pillow images
+      or export to them. Once you know Pillow you can work with any image
+      library. You already have it installed in this course environment.
+
+  - type: code
+    label: "Creating images"
+    heading: "Image.new and Image.fromarray"
+    code: |
+      from PIL import Image
+      import numpy as np
+
+      # Solid-colour synthetic image — no file needed
+      img = Image.new('RGB', (200, 100), color=(255, 128, 0))
+      print(img.size)   # (200, 100) — width, height
+      print(img.mode)   # 'RGB'
+
+      # From a NumPy array — shape is (height, width, channels)
+      arr = np.random.randint(0, 255, (100, 200, 3), dtype=np.uint8)
+      img2 = Image.fromarray(arr)
+      print(img2.size)  # (200, 100) — PIL flips to (width, height)
+    narration: >
+      Image.new takes a mode string, a width-height tuple, and a colour. Note
+      that PIL size is always width-comma-height — not height-comma-width like
+      NumPy arrays. NumPy uses row-major order so the shape is height, width,
+      channels. When you convert between PIL and NumPy, this axis swap is the
+      number one cause of accidentally transposed images. Keep it front of
+      mind.
+
+  - type: code
+    label: "I/O"
+    heading: "Image.open, Image.save, and BytesIO"
+    code: |
+      import io
+      from PIL import Image
+
+      img = Image.new('RGB', (100, 100), color=(0, 128, 255))
+
+      # Save to / load from disk
+      img.save('test.png')
+      loaded = Image.open('test.png')
+      print(loaded.size, loaded.mode)  # (100, 100) RGB
+
+      # Save to / load from memory — no disk I/O
+      buf = io.BytesIO()
+      img.save(buf, format='PNG')
+      buf.seek(0)            # rewind before reading back!
+      reloaded = Image.open(buf)
+      print(reloaded.size)   # (100, 100)
+    narration: >
+      Image.save and Image.open both accept a file path or a BytesIO buffer.
+      When saving to a buffer, call buf.seek zero before reading it back —
+      writing advances the pointer to the end of the data. The in-memory
+      BytesIO pattern is essential for notebooks and APIs: you pass bytes
+      without touching the filesystem. You will use this pattern constantly in
+      the rest of this section.
+
+  - type: exercise
+    heading: "Exercise 1: Get Image Info"
+    prompt: >
+      Implement get_image_info(img) returning a dict with keys 'width',
+      'height', 'mode', and 'num_channels'. Use a lookup for known modes
+      (RGB=3, RGBA=4, L=1) and len(img.getbands()) for anything else.
+    hint: >
+      img.size returns (width, height). img.mode is a string like 'RGB'.
+      img.getbands() returns a tuple of band names.
+    narration: >
+      For your first exercise you will inspect an image and return structured
+      metadata. Every image pipeline starts with understanding what you are
+      working with — size, mode, channel count. This kind of info function
+      appears in every computer vision system and will be useful when you pass
+      images to vision models later in this section.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Image = pixel grid; each pixel has N values (one per channel)"
+      - "PIL modes: RGB (3ch), RGBA (4ch), L (1ch grayscale)"
+      - "Image.new — create synthetic images; no file required"
+      - "PIL size = (width, height); NumPy shape = (height, width, channels)"
+      - "BytesIO — in-memory I/O; always seek(0) before reading"
+    narration: >
+      The foundations are in place. You understand the pixel-channel-mode
+      model, you can create images without touching the filesystem, and you
+      know the size versus shape difference between PIL and NumPy. Next: how
+      image formats differ and when to choose each one.

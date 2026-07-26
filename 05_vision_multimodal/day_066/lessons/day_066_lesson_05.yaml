@@ -1,0 +1,126 @@
+day: "066"
+lesson: 5
+title: "Building an Image Pipeline"
+slides:
+  - type: title
+    heading: "Building an Image Pipeline"
+    subheading: "Composable transforms, ImageDraw, and the ImageProcessor pattern"
+    narration: >
+      Individual operations are useful, but production image processing always
+      involves chains of transforms: resize, then sharpen, then save. This
+      lesson shows how to compose operations into a reusable pipeline using the
+      chainable method pattern.
+
+  - type: concept
+    label: "Composition"
+    heading: "Why Chain Image Transforms?"
+    body: >
+      A pipeline is a sequence of pure transforms applied in order. Chainable
+      APIs return self after each step, enabling concise multi-step processing.
+    narration: >
+      Every real image processing system applies multiple transforms. A
+      profile photo pipeline might resize to 512 by 512, sharpen to
+      compensate for LANCZOS softening, then save as JPEG. Chaining is the
+      idiomatic Python pattern for this: each method mutates the object and
+      returns self, so you can write one expression per pipeline. The
+      alternative — assigning a new variable after every step — produces
+      cluttered code and makes it hard to see the transform sequence at a
+      glance.
+
+  - type: how_it_works
+    label: "Chainable methods"
+    heading: "The return-self Pattern"
+    body: >
+      Each transform method mutates self._img and returns self. The caller
+      can chain calls or use the result as a regular method call.
+    narration: >
+      The chainable pattern is straightforward: instead of returning a new
+      object or returning None, each method returns self. This means the call
+      result is the same object, and you can immediately call another method
+      on it. The only trade-off is that methods mutate the object rather than
+      returning copies — so if you need the intermediate state, call image to
+      get a copy before the next transform.
+
+  - type: code
+    label: "Chained pipeline"
+    heading: "ImageProcessor — Chainable API"
+    code: |
+      from image_utils import ImageProcessor
+
+      # Single expression, six operations
+      result = (
+          ImageProcessor.new(800, 600, color=(50, 100, 150))
+          .resize(400, 300)
+          .crop_center(300, 300)
+          .apply_filter("sharpen")
+          .adjust_brightness(1.1)
+          .adjust_contrast(1.2)
+      )
+      print(result.size)   # (300, 300)
+      print(result.mode)   # 'RGB'
+      raw_bytes = result.to_bytes("PNG")
+    narration: >
+      The ImageProcessor class you build today implements this pattern. Each
+      method returns self. You create a 800 by 600 image, resize it to half
+      size, crop a 300 by 300 square from the center, sharpen to counteract
+      LANCZOS blurring, and brighten and increase contrast slightly — all in
+      one expression. The result is still an ImageProcessor, so you can call
+      to_bytes or save on it.
+
+  - type: code
+    label: "ImageDraw"
+    heading: "ImageDraw — Annotating Images"
+    code: |
+      from PIL import Image, ImageDraw
+
+      img = Image.new('RGB', (200, 100), color=(240, 240, 240))
+      draw = ImageDraw.Draw(img)
+
+      # Draw rectangle and text
+      draw.rectangle([(10, 10), (190, 90)], outline=(200, 50, 50), width=3)
+      draw.text((20, 40), "Hello, Pillow!", fill=(50, 50, 200))
+
+      # Draw a circle (ellipse with equal axes)
+      draw.ellipse([(80, 30), (120, 70)], fill=(0, 200, 100))
+
+      img.save("annotated.png")
+    narration: >
+      ImageDraw lets you draw shapes and text directly onto an image. Create
+      a Draw object from an Image, and any drawing calls modify the underlying
+      image. This is useful for adding bounding boxes from object detection,
+      overlaying text labels, watermarking, or building charts entirely in
+      Pillow. In Day 68 you will use ImageDraw to create test images with text
+      that you then feed to OCR.
+
+  - type: exercise
+    heading: "Exercise 5: Image Pipeline"
+    prompt: >
+      Implement image_pipeline(img, steps) -> Image.Image. Each step is a
+      (op_name, params_dict) tuple. Support: 'resize' (width, height),
+      'crop' (width, height — center crop), 'grayscale' (no params),
+      'filter' (name), 'brightness' (factor), 'contrast' (factor).
+      Raise ValueError for unknown ops. Return the processed image.
+    hint: >
+      Start with result = img.copy(). For each op, update result. For 'crop',
+      use the same left/top calculation as crop_center. For 'filter', look up
+      in _FILTERS. For 'brightness' and 'contrast', use ImageEnhance.
+    narration: >
+      This final exercise ties the whole day together. You will implement a
+      mini-pipeline that chains all the operations you learned — resize, crop,
+      grayscale, filter, brightness, contrast. The steps-list design makes the
+      pipeline data-driven: you can specify a sequence in JSON and feed it
+      directly to image_pipeline without any code changes.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 66 Complete"
+    bullets:
+      - "Chain transforms by returning self from each mutating method"
+      - "ImageDraw — annotate images with shapes and text"
+      - "Data-driven pipelines: steps list specifies operations as data"
+      - "Tomorrow: pass images to a vision LLM via Ollama (Day 67)"
+    narration: >
+      Day 66 is complete. You can create, load, save, resize, crop, filter,
+      enhance, and pipeline images entirely in Python. The BytesIO and
+      programmatic-image patterns will carry forward through every day in this
+      section. Tomorrow you will pass these images to a vision language model
+      and get text descriptions back — the foundation of multimodal AI.

@@ -1,0 +1,134 @@
+day: "066"
+lesson: 3
+title: "Resize, Crop, and Geometry"
+slides:
+  - type: title
+    heading: "Resize, Crop, and Geometry"
+    subheading: "LANCZOS resampling, crop boxes, and the thumbnail pattern"
+    narration: >
+      Geometric transforms are the most common image operations in production.
+      You resize thumbnails, crop profile photos to squares, and create
+      consistent-size inputs for machine learning models. This lesson covers
+      resize, crop, and thumbnail — and when to use each one.
+
+  - type: concept
+    label: "Geometric transforms"
+    heading: "Resize vs Crop vs Thumbnail"
+    body: >
+      Three operations change image dimensions. They differ in how they
+      preserve content and aspect ratio.
+    bullets:
+      - "resize — scale to exact (w, h); may distort aspect ratio"
+      - "crop — cut a rectangular sub-region; no scaling"
+      - "thumbnail — scale DOWN to fit within a box; preserves aspect ratio;
+        modifies in place"
+    narration: >
+      Resize gives you exact output dimensions but may squish or stretch the
+      image if you do not match the aspect ratio. Crop cuts a rectangular
+      region — no scaling, just selecting pixels. Thumbnail is a convenience
+      method that scales an image down to fit within a bounding box while
+      preserving the aspect ratio. It only shrinks — it will not enlarge an
+      image. Choose based on what matters: exact dimensions or preserved
+      proportions.
+
+  - type: how_it_works
+    label: "Resampling"
+    heading: "LANCZOS Resampling"
+    body: >
+      When resizing, Pillow must combine or invent pixel values. The
+      resampling filter controls quality. LANCZOS (also called Sinc) produces
+      the sharpest results for photos and is the recommended default.
+    narration: >
+      Resampling is how Pillow maps old pixels to new pixels when the
+      dimensions change. NEAREST is the fastest — it just picks the closest
+      pixel — but produces blocky results. BILINEAR blends neighbouring
+      pixels. LANCZOS uses a much wider kernel and produces sharp, high
+      quality results at the cost of slightly more CPU time. For thumbnails
+      and profile images, always use LANCZOS. The constant lives at
+      Image.Resampling.LANCZOS in Pillow 9 and later.
+
+  - type: code
+    label: "Resize and crop"
+    heading: "img.resize and img.crop"
+    code: |
+      from PIL import Image
+
+      img = Image.new('RGB', (400, 300), color=(100, 150, 200))
+
+      # Exact resize
+      small = img.resize((200, 150), Image.Resampling.LANCZOS)
+      print(small.size)   # (200, 150)
+
+      # Crop a sub-region: box = (left, top, right, bottom)
+      crop = img.crop((100, 75, 300, 225))
+      print(crop.size)    # (200, 150) — right-left, bottom-top
+
+      # Center crop helper
+      def crop_center(img, w, h):
+          iw, ih = img.size
+          left = (iw - w) // 2
+          top  = (ih - h) // 2
+          return img.crop((left, top, left + w, top + h))
+
+      square = crop_center(img, 200, 200)
+      print(square.size)  # (200, 200)
+    narration: >
+      resize takes a width-height tuple and a resampling filter. crop takes a
+      box tuple: left, top, right, bottom. Note that right and bottom are
+      exclusive — they are the pixel coordinate just past the last included
+      pixel. The center-crop pattern is extremely common: compute the left and
+      top offsets by halving the difference between original and target
+      dimensions, then add the crop width and height to get right and bottom.
+
+  - type: code
+    label: "Thumbnail"
+    heading: "img.thumbnail — Aspect-Ratio-Safe Downscale"
+    code: |
+      from PIL import Image
+
+      img = Image.new('RGB', (1200, 800), color=(200, 100, 50))
+
+      # thumbnail modifies in place — make a copy first if needed
+      thumb = img.copy()
+      thumb.thumbnail((300, 300), Image.Resampling.LANCZOS)
+      print(thumb.size)  # (300, 200) — fits within 300x300, aspect preserved
+
+      # Fits within the box but may not fill it exactly
+      tall = Image.new('RGB', (100, 400))
+      tall.thumbnail((200, 200))
+      print(tall.size)   # (50, 200) — limited by height
+    narration: >
+      thumbnail is a convenience for making preview images. It scales the
+      image down to fit within the given bounding box while preserving the
+      aspect ratio. It never upscales. One important gotcha: thumbnail
+      modifies the image in place. If you need the original later, copy it
+      first. The output may not fill the full bounding box — it only
+      guarantees that both dimensions are at most the given limits.
+
+  - type: exercise
+    heading: "Exercise 3: Resize Image"
+    prompt: >
+      Implement resize_image(img, width, height) -> Image.Image. Resize the
+      image to the exact given dimensions using LANCZOS resampling. Return a
+      new Image; leave the original unchanged.
+    hint: >
+      Call img.resize((width, height), Image.Resampling.LANCZOS). PIL resize
+      always returns a new Image object.
+    narration: >
+      Resize is the most common single-image operation — profile photos,
+      ML model inputs, thumbnails — all require exact dimensions. Using
+      LANCZOS is the default recommendation for quality. This function will
+      be a building block in the image pipeline exercise.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "resize — exact dimensions; use LANCZOS for quality"
+      - "crop — cut a box (left, top, right, bottom); exclusive right/bottom"
+      - "thumbnail — aspect-ratio-safe downscale; modifies in place"
+      - "Center crop: left = (iw - w)//2, top = (ih - h)//2"
+      - "Image.Resampling.LANCZOS — the quality default (Pillow 9+)"
+    narration: >
+      Geometric transforms sorted. You now have resize, crop, and thumbnail.
+      Next lesson: convolution filters and enhancement — how to blur, sharpen,
+      and adjust brightness and contrast.
