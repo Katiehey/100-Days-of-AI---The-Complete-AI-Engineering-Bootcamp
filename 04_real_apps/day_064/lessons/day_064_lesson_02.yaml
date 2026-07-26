@@ -1,0 +1,85 @@
+day: 64
+lesson: 2
+title: "Content Storage Patterns"
+slides:
+  - type: title
+    heading: "Content Storage Patterns"
+    subheading: "From in-memory to database — when to upgrade"
+
+  - type: concept
+    heading: "Start In-Memory"
+    narration: >
+      For an MVP, an in-memory dict is the right storage choice. It's fast,
+      requires zero setup, and can be swapped for a database without changing
+      any other code — as long as the ContentStore interface stays the same.
+      A validated product with a hundred paying users can afford the database
+      migration. An unvalidated product that spends a week on migrations might
+      not survive to learn whether anyone would have paid.
+    bullets:
+      - "In-memory dict: zero setup, instant, good enough for MVP"
+      - "Same interface as a DB-backed version → swap later with zero app changes"
+      - "Start simple. Upgrade when the problem is real, not imagined"
+      - "Premature persistence = six hours of migrations before first customer"
+
+  - type: code
+    heading: "ContentStore Pattern"
+    narration: >
+      ContentStore wraps a dict with a clean four-verb interface: add, get,
+      list_user, count. The content_id is a random URL-safe token from the
+      secrets module. Each item is a plain dict — no ORM objects, no lazy
+      loading surprises. When you're ready to upgrade to SQLAlchemy, you
+      rewrite only this class; the FastAPI routes never change.
+    code: |
+      import secrets
+      from datetime import datetime
+
+      class ContentStore:
+          def __init__(self):
+              self._store: dict = {}
+
+          def add(self, user_id, prompt, content) -> str:
+              cid = secrets.token_urlsafe(8)
+              self._store[cid] = {
+                  "content_id": cid, "user_id": user_id,
+                  "prompt": prompt, "content": content,
+                  "created_at": datetime.utcnow().isoformat() + "Z",
+              }
+              return cid
+
+          def get(self, content_id) -> dict | None:
+              return self._store.get(content_id)
+
+          def list_user(self, user_id) -> list[dict]:
+              return [v for v in self._store.values()
+                      if v["user_id"] == user_id]
+
+          def count(self, user_id) -> int:
+              return sum(1 for v in self._store.values()
+                         if v["user_id"] == user_id)
+
+  - type: concept
+    heading: "The Upgrade Path"
+    narration: >
+      When in-memory is no longer enough — data is lost on restart and you need
+      it to survive — the upgrade is a rewrite of ContentStore only. The Day 54
+      SQLAlchemy pattern (mapped_column, Session, select().where()) replaces the
+      dict. The FastAPI routes call the same four methods: add, get, list_user,
+      count. The interface is the contract; the implementation is the detail.
+    bullets:
+      - "When to upgrade: users complain about data loss on restart"
+      - "SQLAlchemy ContentStore: same interface, dict → DB table"
+      - "app.py never changes — only ContentStore is rewritten"
+      - "This is the Facade pattern: implementation hidden behind an interface"
+
+  - type: summary
+    heading: "Lesson 2 Complete"
+    narration: >
+      In-memory storage is the right MVP choice. ContentStore hides the
+      implementation behind a four-verb interface. When data durability becomes
+      a real requirement, replace the dict with SQLAlchemy — app code stays
+      unchanged.
+    bullets:
+      - "ContentStore: add / get / list_user / count"
+      - "secrets.token_urlsafe(8) for unique, URL-safe content IDs"
+      - "created_at: datetime.utcnow().isoformat() + 'Z'"
+      - "Upgrade path: rewrite ContentStore only — not the routes"

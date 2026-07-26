@@ -1,0 +1,4 @@
+fastapi
+httpx
+ollama
+uvicorn[standard]

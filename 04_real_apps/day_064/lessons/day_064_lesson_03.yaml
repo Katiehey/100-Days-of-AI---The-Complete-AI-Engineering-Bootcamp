@@ -1,0 +1,82 @@
+day: 64
+lesson: 3
+title: "Template Engines"
+slides:
+  - type: title
+    heading: "Template Engines"
+    subheading: "Parameterised prompts that users can fill in"
+
+  - type: concept
+    heading: "Why Prompt Templates?"
+    narration: >
+      A blank text box is intimidating. Most users stare at it and give up.
+      Templates lower the activation energy: the user fills in three fields
+      instead of writing a prompt from scratch. They see results faster,
+      understand the product's value immediately, and are more likely to upgrade.
+      Templates also make the LLM's output more consistent — a well-crafted
+      template prompt reliably produces good results, while free-text prompts
+      are hit-or-miss.
+    bullets:
+      - "Blank box → templates: lower activation energy, faster first value"
+      - "Users fill in fields, not prompts — less cognitive work"
+      - "Consistent prompt structure → more consistent output quality"
+      - "Easy to curate: ship 4 templates, add more based on usage"
+
+  - type: code
+    heading: "The {placeholder} Pattern"
+    narration: >
+      Templates use curly-brace placeholders. re.findall extracts the required
+      variable names. Set subtraction finds what's missing. String replacement
+      fills each placeholder. The function accepts extra kwargs silently —
+      making it easy to pass a larger context dict without filtering it first.
+    code: |
+      import re
+
+      TEMPLATES = {
+          "email":  "Write a {tone} email to {recipient} about {topic}.",
+          "tweet":  "Write a {tone} tweet about {topic} in 280 chars.",
+      }
+
+      def render_template(template_str: str, **vars) -> str:
+          required = set(re.findall(r'\{(\w+)\}', template_str))
+          missing  = required - set(vars.keys())
+          if missing:
+              raise ValueError(f"Missing template variables: {missing}")
+          result = template_str
+          for key, value in vars.items():
+              result = result.replace(f"{{{key}}}", str(value))
+          return result
+
+      render_template(TEMPLATES["email"],
+                      tone="professional",
+                      recipient="Alice",
+                      topic="AI tools")
+      # → 'Write a professional email to Alice about AI tools.'
+
+  - type: concept
+    heading: "Why Not str.format?"
+    narration: >
+      Python's built-in str.format raises KeyError for the first missing
+      variable. Our render_template collects all missing variables at once
+      and reports them together. For a UI that shows the user which fields
+      to fill in, you need all of them — not a loop of fix-one, run, fix-next.
+      Extra kwargs are also handled gracefully — str.format raises KeyError on
+      extra keys in some contexts, while our version ignores them.
+    bullets:
+      - "str.format raises KeyError: first missing key only — not all"
+      - "render_template: reports ALL missing keys in one ValueError"
+      - "UI can show: 'Please fill in: recipient, topic' instead of 'recipient'"
+      - "Extra kwargs: silently ignored (pass a full context dict safely)"
+
+  - type: summary
+    heading: "Lesson 3 Complete"
+    narration: >
+      Template engines lower the barrier to first value and make outputs more
+      consistent. Our render_template uses regex to find required keys, set
+      subtraction to find missing ones, and string replace to substitute.
+      Error messages report all missing keys at once for better UX.
+    bullets:
+      - "re.findall(r'{(\\w+)}', template) → list of required key names"
+      - "missing = required - set(vars.keys()) → report all at once"
+      - "str.replace to fill each {key} — simple and robust"
+      - "Extra kwargs silently ignored — safe to pass full context dicts"

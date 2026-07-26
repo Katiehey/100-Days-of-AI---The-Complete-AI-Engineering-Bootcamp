@@ -1,0 +1,77 @@
+day: 64
+lesson: 5
+title: "Scaffold Generation"
+slides:
+  - type: title
+    heading: "Scaffold Generation"
+    subheading: "Writing working file skeletons from a notebook"
+
+  - type: concept
+    heading: "What Is a Scaffold?"
+    narration: >
+      A scaffold is a working skeleton — the minimum file structure needed for
+      a developer (or a future version of you) to continue building without
+      starting from scratch. It runs without errors, has meaningful TODO
+      comments where real logic belongs, and includes all the deployment and
+      dependency files. Generating it from a notebook is the same repr-string
+      pattern used throughout Section 4 for deliverable files.
+    bullets:
+      - "Scaffold: runs, has TODO stubs, documents what goes where"
+      - "Generated from notebook via repr() source embedding (Day 51 pattern)"
+      - "Includes: app.py, requirements.txt, Procfile"
+      - "Goal: a new developer can understand and extend it in one hour"
+
+  - type: code
+    heading: "write_scaffold Pattern"
+    narration: >
+      SCAFFOLD_FILES maps filename to content. write_scaffold iterates it,
+      creates the directory, and writes each file. The function returns the
+      list of filenames so callers can verify or display what was created.
+      exist_ok=True and parents=True make it idempotent — calling it twice
+      overwrites the files rather than erroring.
+    code: |
+      from pathlib import Path
+
+      SCAFFOLD_FILES = {
+          "app.py":           APP_SRC,          # embedded source string
+          "requirements.txt": "fastapi\nollama\nuvicorn[standard]\nhttpx\n",
+          "Procfile":         "web: uvicorn app:app --host 0.0.0.0 --port $PORT\n",
+      }
+
+      def write_scaffold(directory: str) -> list[str]:
+          base = Path(directory)
+          base.mkdir(parents=True, exist_ok=True)
+          for filename, content in SCAFFOLD_FILES.items():
+              (base / filename).write_text(content, encoding="utf-8")
+          return list(SCAFFOLD_FILES.keys())
+
+      files = write_scaffold("my_mvp")
+      # → ['app.py', 'requirements.txt', 'Procfile']
+
+  - type: concept
+    heading: "What Goes in Each File"
+    narration: >
+      app.py should be a runnable FastAPI app with TODO stubs — not a blank
+      file. requirements.txt needs one package per line, no version pins for
+      an MVP (add pins when you have a real reason). Procfile uses the $PORT
+      environment variable so Render and Railway assign the port dynamically.
+      Never hardcode port 8000 in the Procfile.
+    bullets:
+      - "app.py: runnable FastAPI + TODO comments where real logic goes"
+      - "requirements.txt: one package per line, no version pins for MVP"
+      - "Procfile: '$PORT' env var — never hardcode port 8000"
+      - "Optional: .gitignore, README.md, .env.example"
+
+  - type: summary
+    heading: "Day 064 Complete"
+    narration: >
+      Today you built the full Capstone Build I: scope the MVP, store content,
+      render templates, compose the API, and write the scaffold. Day 065
+      completes the product by adding tests, monitoring, and deployment config
+      to produce a shippable, monetizable AI app.
+    bullets:
+      - "plan_mvp: three-tier feature split in three list slices"
+      - "ContentStore: add/get/list_user/count over a dict"
+      - "render_template: regex → missing check → str.replace"
+      - "build_core_api: factory pattern wiring all components"
+      - "write_scaffold: SCAFFOLD_FILES dict → disk via Path.write_text"

@@ -1,0 +1,79 @@
+day: 64
+lesson: 4
+title: "API Architecture"
+slides:
+  - type: title
+    heading: "API Architecture"
+    subheading: "Composing reusable components into a product"
+
+  - type: concept
+    heading: "The Factory Pattern"
+    narration: >
+      Every FastAPI app in Section 4 has been built with a factory function:
+      build_api or build_core_api returns a new FastAPI instance. The
+      factory accepts dependencies as parameters — process_fn for the AI
+      call, initial_usage for testing rate limits. This one pattern enables
+      testability, composability, and dependency injection all at once.
+      It is the single most important architectural decision in Section 4.
+    bullets:
+      - "Factory function: build_api(...) -> FastAPI"
+      - "Dependencies injected: process_fn, initial_usage, plan"
+      - "Fresh instance per test: no shared state between test functions"
+      - "module-level app = build_api() for uvicorn deployment"
+
+  - type: concept
+    heading: "Route Categories"
+    narration: >
+      Every product API has the same four categories of routes. Infrastructure
+      routes (health, plan) are always public and cheap to call. Content routes
+      (generate, improve, history) are the core product and rate-limited. Admin
+      routes (clear cache, reset) are for operators and should be protected.
+      Template routes are read-only and can be aggressively cached.
+    bullets:
+      - "Infrastructure: GET /health, GET /plan — always public"
+      - "Content: POST /generate, POST /improve — rate-limited, billed"
+      - "History: GET /history/{user_id}, GET /content/{id} — read-only"
+      - "Admin: reset, clear — protect with auth or internal network"
+
+  - type: code
+    heading: "Composing Components"
+    narration: >
+      The factory creates all components and closes over them. ContentStore,
+      rate-limit state, and the plan all live in the closure — shared by all
+      routes in this app instance, isolated from other instances. Routes call
+      helper functions (check_rate_limit, render_template) for testable logic.
+    code: |
+      def build_core_api(plan="free", process_fn=None,
+                         initial_usage=0) -> FastAPI:
+          app   = FastAPI()
+          store = ContentStore()           # ← closure: per-instance
+          state = {"plan": plan, "usage": initial_usage}
+
+          @app.get("/health")
+          def health():
+              return {"status": "ok"}
+
+          @app.post("/generate")
+          def generate(req: GenerateRequest):
+              ok, reason = check_rate_limit(state["usage"], state["plan"])
+              if not ok:
+                  raise HTTPException(429, reason)
+              answer = process_fn(req.prompt) if process_fn else ...
+              state["usage"] += 1
+              cid = store.add(req.user_id, req.prompt, answer)
+              return {"content_id": cid, "content": answer}
+
+          return app
+
+  - type: summary
+    heading: "Lesson 4 Complete"
+    narration: >
+      The factory pattern is the architectural backbone of Section 4. A single
+      function creates the app, wires dependencies via closures, and returns
+      a testable FastAPI instance. Tests inject fake dependencies; production
+      uses real ones. The same code handles both cases.
+    bullets:
+      - "build_core_api: factory → fresh app + store + state per call"
+      - "Dependencies as parameters: process_fn, plan, initial_usage"
+      - "Closure binds store/state to all routes in that instance"
+      - "Tests: fake process_fn + initial_usage; prod: real ollama call"

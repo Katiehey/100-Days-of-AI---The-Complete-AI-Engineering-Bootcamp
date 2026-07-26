@@ -1,0 +1,76 @@
+day: 64
+lesson: 1
+title: "MVP Scoping"
+slides:
+  - type: title
+    heading: "MVP Scoping"
+    subheading: "Ship the smallest thing that proves people will pay"
+
+  - type: concept
+    heading: "Why MVPs Fail"
+    narration: >
+      Most MVPs fail not because the idea was bad, but because the scope was
+      too large. The builder adds six months of features before showing anyone.
+      By then, the market has moved, the money is gone, and the learning that
+      would have arrived in week two arrives in month eight — too late to pivot.
+      The fix is ruthless scoping: build only what's needed to answer the one
+      question that matters — will someone pay?
+    bullets:
+      - "Scope creep: adding features before validating demand"
+      - "The one question: will someone pay for this?"
+      - "Validate first, then build — not the other way around"
+      - "A half-finished product teaches you nothing"
+
+  - type: concept
+    heading: "The Three-Tier Feature Split"
+    narration: >
+      Write down every feature idea without judging them. Then sort them into
+      three buckets. Free tier gets the two or three features that demonstrate
+      core value. Pro tier gets the features that justify an upgrade. Backlog
+      gets everything else — not cancelled, just deferred until paying customers
+      tell you what they actually need.
+    bullets:
+      - "Free: 2-3 features that demonstrate the core value"
+      - "Pro: 2-3 features that justify paying money"
+      - "Backlog: everything else — deferred, not cancelled"
+      - "Rule: free must be genuinely useful, pro must be clearly better"
+
+  - type: code
+    heading: "plan_mvp in Code"
+    narration: >
+      The plan_mvp function makes scoping decisions explicit and auditable.
+      Three list slices convert a prioritised feature list into the three-tier
+      plan. Order the input list by priority — the first items go to free,
+      the next to pro. Slice past the end returns an empty list, so you
+      never need bounds checks.
+    code: |
+      def plan_mvp(features: list[str], free_count: int,
+                   pro_count: int) -> dict:
+          free    = features[:free_count]
+          pro     = features[free_count: free_count + pro_count]
+          backlog = features[free_count + pro_count:]
+          return {
+              "free_tier": free,
+              "pro_tier":  pro,
+              "backlog":   backlog,
+              "summary":   f"{len(free)} free / {len(pro)} pro / {len(backlog)} backlog",
+          }
+
+      features = ["basic_generate", "view_history",
+                  "advanced_chat", "export",         # pro
+                  "white_label", "custom_domain"]    # backlog
+
+      plan = plan_mvp(features, free_count=2, pro_count=2)
+      # summary: '2 free / 2 pro / 2 backlog'
+
+  - type: summary
+    heading: "Lesson 1 Complete"
+    narration: >
+      MVP scoping is the difference between shipping in two weeks and shipping
+      in eight months. Free tier proves value, pro tier justifies payment,
+      backlog defers everything else. plan_mvp makes the split explicit.
+    bullets:
+      - "Free: prove the value exists"
+      - "Pro: justify the price"
+      - "Backlog: validate before building"
+      - "plan_mvp: three list slices, one summary string"
