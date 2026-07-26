@@ -1,0 +1,76 @@
+day: 63
+lesson: 2
+title: "Rate Limiting by Plan"
+slides:
+  - type: title
+    heading: "Rate Limiting by Plan"
+    subheading: "Protect resources and enforce upgrade incentives"
+
+  - type: concept
+    heading: "Why Rate Limit?"
+    narration: >
+      A free AI app without rate limits will be abused: a single user could
+      make thousands of requests and exhaust your server. Rate limits protect
+      resources, create upgrade incentives, and are a standard contract between
+      API provider and consumer. HTTP 429 Too Many Requests is the standard
+      status code — clients can detect it and implement automatic backoff.
+    bullets:
+      - "Protect server resources from free-tier abuse"
+      - "Create a natural upgrade incentive (want more? upgrade)"
+      - "HTTP 429 Too Many Requests: standard rate-limit response"
+      - "Clients implement retry-with-backoff on 429"
+
+  - type: code
+    heading: "Per-Plan Daily Limits"
+    narration: >
+      Store limits in a DAILY_LIMITS dict keyed by plan name. float inf for
+      enterprise means the comparison usage_count >= float inf is always False
+      — enterprise users are never blocked. Unknown plans default to zero
+      requests allowed. FastAPI returns HTTPException 429 when the limit fires.
+    code: |
+      from fastapi import FastAPI, HTTPException
+
+      DAILY_LIMITS = {
+          "free":       10,
+          "pro":        1_000,
+          "enterprise": float("inf"),  # always allowed
+      }
+
+      def check_rate_limit(usage_count: int, plan: str) -> tuple[bool, str]:
+          limit = DAILY_LIMITS.get(plan, 0)
+          if usage_count >= limit:
+              return False, f"Daily limit reached for {plan!r} plan"
+          return True, ""
+
+      @app.post("/ask")
+      def ask(req: AskRequest):
+          ok, reason = check_rate_limit(state["usage"], state["plan"])
+          if not ok:
+              raise HTTPException(status_code=429, detail=reason)
+          ...
+
+  - type: concept
+    heading: "Testing Rate Limits"
+    narration: >
+      Testing a 10-request limit by making 10 real requests is slow and wastes
+      resources. Instead, accept an initial_usage parameter in the app factory.
+      Starting the app at usage=10 simulates a user who has already exhausted
+      their allowance — the very next request hits 429 immediately.
+    bullets:
+      - "initial_usage parameter: start the counter at any value"
+      - "Test the limit case: initial_usage=10 → next request → 429"
+      - "Test under the limit: initial_usage=5 → next request → 200"
+      - "No loop of 10 requests needed — clean and fast"
+
+  - type: summary
+    heading: "Lesson 2 Complete"
+    narration: >
+      Rate limiting enforces plan tiers at the API level. DAILY_LIMITS maps
+      plans to numeric caps. check_rate_limit compares usage to the cap and
+      returns a reason string so the 429 message is informative. FastAPI
+      raises HTTPException 429 when blocked.
+    bullets:
+      - "DAILY_LIMITS: plan → int (or float('inf') for unlimited)"
+      - "usage_count >= limit → 429 (check BEFORE calling Ollama)"
+      - "Increment usage only after a successful response"
+      - "initial_usage param makes the at-limit case instantly testable"

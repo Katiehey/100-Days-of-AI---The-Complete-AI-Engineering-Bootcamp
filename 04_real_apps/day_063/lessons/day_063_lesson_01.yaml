@@ -1,0 +1,66 @@
+day: 63
+lesson: 1
+title: "Feature Gating"
+slides:
+  - type: title
+    heading: "Feature Gating"
+    subheading: "Restrict capabilities by subscription plan"
+
+  - type: concept
+    heading: "What Is a Paywall?"
+    narration: >
+      A paywall is any gate that restricts access to a feature unless the user
+      has paid. The simplest form is a feature matrix: a dict that maps plan
+      names to sets of allowed features. One lookup replaces a tangle of
+      if-else checks scattered across your codebase.
+    bullets:
+      - "Feature matrix: plan → set of allowed features"
+      - "check_feature_access(plan, feature) → bool"
+      - "Centralised: add a feature in one place, not ten"
+      - "Safe by default: unknown plan → empty set → False"
+
+  - type: code
+    heading: "Feature Matrix"
+    narration: >
+      Define the matrix as a module-level constant. Each plan maps to a set
+      of feature strings. get() with a default empty set means any unknown plan
+      automatically has no access — secure by default.
+    code: |
+      FEATURE_MATRIX = {
+          "free": {"basic_chat", "view_history"},
+          "pro":  {"basic_chat", "view_history",
+                   "advanced_chat", "export", "api_access"},
+      }
+
+      def check_feature_access(plan: str, feature: str) -> bool:
+          return feature in FEATURE_MATRIX.get(plan, set())
+
+      check_feature_access("free", "export")      # False
+      check_feature_access("pro",  "export")      # True
+      check_feature_access("trial", "basic_chat") # False — safe default
+
+  - type: concept
+    heading: "Plan Tiers"
+    narration: >
+      Most SaaS products use three tiers: free (attracts users), pro (captures
+      most paying customers), and enterprise (large organisations needing
+      control, support, and volume). Design your feature matrix so each tier
+      is a strict superset of the tier below — users always gain features
+      when upgrading, never lose them.
+    bullets:
+      - "free → pro → enterprise: each tier is a superset of the one below"
+      - "Users upgrade for new features, never fear losing old ones"
+      - "Enterprise adds white-label, SLA, priority support"
+      - "Never gate core utility features behind pro — free must be useful"
+
+  - type: summary
+    heading: "Lesson 1 Complete"
+    narration: >
+      Feature gating turns a payment event into a capability change. A central
+      feature matrix is the clean way to manage it — one dict, one lookup
+      function, zero scattered conditionals.
+    bullets:
+      - "FEATURE_MATRIX: plan → frozenset of feature strings"
+      - "check_feature_access(plan, feature): one dict.get + in"
+      - "Unknown plan → empty set → False (safe default)"
+      - "Free tier must deliver real value to attract paying users"

@@ -1,0 +1,91 @@
+day: 63
+lesson: 3
+title: "Stripe Webhooks"
+slides:
+  - type: title
+    heading: "Stripe Webhooks"
+    subheading: "React to payment events in real time"
+
+  - type: concept
+    heading: "What Are Webhooks?"
+    narration: >
+      When a user pays through Stripe, your server needs to know. Stripe
+      notifies you via webhooks: HTTP POST requests sent to your /webhook
+      endpoint whenever a payment event occurs. Your server updates its
+      database based on the event type. The alternative — polling Stripe's API
+      every few seconds — is wasteful, slow, and misses events during downtime.
+    bullets:
+      - "Webhook: HTTP POST from Stripe to your server on each payment event"
+      - "Your server updates the user's plan immediately on payment"
+      - "Alternative (polling) is slow, wasteful, and unreliable"
+      - "Stripe retries webhooks for 3 days if your server is down"
+
+  - type: concept
+    heading: "Key Event Types"
+    narration: >
+      Stripe sends dozens of event types. For a subscription product, three
+      matter most. customer.subscription.created fires when a user subscribes,
+      customer.subscription.deleted when they cancel or are churned, and
+      invoice.payment_failed when a renewal fails. Map each to the database
+      change your app needs.
+    bullets:
+      - "customer.subscription.created → set plan = 'pro'"
+      - "customer.subscription.deleted → downgrade to plan = 'free'"
+      - "invoice.payment_failed → set status = 'past_due'"
+      - "Unknown events → 'ignored' (don't 400 — Stripe will retry forever)"
+
+  - type: code
+    heading: "Event Router"
+    narration: >
+      Use a PLAN_EVENTS dict to map event types to new plan values. This avoids
+      a long if-elif chain and makes it trivial to add new events. Always handle
+      the missing-customer case first — Stripe will send events for customers
+      who were deleted or were never in your database.
+    code: |
+      PLAN_EVENTS = {
+          "customer.subscription.created": "pro",
+          "customer.subscription.updated": "pro",
+          "customer.subscription.deleted": "free",
+      }
+
+      def process_webhook_event(event_type, payload, user_db):
+          cid = payload.get("customer_id", "")
+          if not cid:
+              return {"success": False, "action": "no_customer_id"}
+          if cid not in user_db:
+              return {"success": False, "action": "customer_not_found"}
+          if event_type in PLAN_EVENTS:
+              new_plan = PLAN_EVENTS[event_type]
+              user_db[cid]["plan"] = new_plan
+              return {"success": True, "action": f"plan_set_{new_plan}"}
+          if event_type == "invoice.payment_failed":
+              user_db[cid]["status"] = "past_due"
+              return {"success": True, "action": "status_set_past_due"}
+          return {"success": True, "action": "ignored"}
+
+  - type: concept
+    heading: "Webhook Security"
+    narration: >
+      Anyone can POST to your /webhook endpoint. Stripe proves its identity
+      with an HMAC-SHA256 signature in the Stripe-Signature header. Your
+      server recomputes the signature using the webhook secret from your Stripe
+      dashboard and rejects requests that don't match. Never skip signature
+      verification in production.
+    bullets:
+      - "Stripe-Signature header: HMAC-SHA256 of payload + timestamp"
+      - "stripe.Webhook.construct_event(payload, sig, secret) verifies it"
+      - "SignatureVerificationError or ValueError → return 400"
+      - "Webhook secret lives in STRIPE_WEBHOOK_SECRET env var"
+
+  - type: summary
+    heading: "Lesson 3 Complete"
+    narration: >
+      Webhooks are how Stripe tells your server that money moved. Map the three
+      key subscription events to database changes. Ignore unknown events
+      gracefully. Verify the signature in production to prevent spoofed events.
+    bullets:
+      - "POST /webhook: receive Stripe event, update user plan"
+      - "PLAN_EVENTS dict: event type → new plan value"
+      - "invoice.payment_failed → status = 'past_due'"
+      - "Unknown events → ignored (not an error)"
+      - "stripe.Webhook.construct_event → signature verification"

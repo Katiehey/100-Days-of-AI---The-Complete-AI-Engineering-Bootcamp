@@ -1,0 +1,79 @@
+day: 63
+lesson: 5
+title: "Productization Checklist"
+slides:
+  - type: title
+    heading: "Productization Checklist"
+    subheading: "From prototype to something you can charge for"
+
+  - type: concept
+    heading: "What Makes a Product?"
+    narration: >
+      A project becomes a product when strangers can use it, trust it, and pay
+      for it without your help. That requires four things beyond working code:
+      a paywall so you get paid, reliability so it doesn't break in production,
+      observability so you know when it does break, and onboarding so users
+      understand the value before they see a price.
+    bullets:
+      - "Paywall: Stripe Checkout + webhook → plan update"
+      - "Reliability: tests, error handling, health endpoint"
+      - "Observability: structured logs, /metrics, /health"
+      - "Onboarding: useful free tier → see value → upgrade"
+
+  - type: concept
+    heading: "The Free → Paid Funnel"
+    narration: >
+      The free tier is marketing, not charity. It lets users experience the
+      core value of your app before committing money. Design it to be genuinely
+      useful but clearly limited: 10 requests per day is enough to see the
+      product works, but not enough to replace a paid subscription. The upgrade
+      prompt should appear right when the user hits the limit, while frustration
+      and desire are both high.
+    bullets:
+      - "Free tier goal: enough to see value, not enough to replace pro"
+      - "Show the paywall at the moment of highest desire (limit hit)"
+      - "Use 429 response body to include upgrade URL"
+      - "Never gate the free tier so tightly that it feels useless"
+
+  - type: concept
+    heading: "What to Ship First"
+    narration: >
+      Scope ruthlessly. A paywall with three endpoints, a webhook handler, and
+      a feature gate is shippable in a weekend. Don't build a billing portal,
+      coupon codes, trial periods, or annual pricing on day one. Stripe offers
+      all of these — add them after you have paying customers. The goal of an
+      MVP is to find out if people will pay, not to build everything they might
+      ever want.
+    bullets:
+      - "MVP: POST /checkout + POST /webhook + feature gate = shippable"
+      - "Skip: billing portal, coupons, trials, annual pricing (add later)"
+      - "Ship: find out if people pay before building more features"
+      - "Stripe's customer portal handles subscription management for free"
+
+  - type: concept
+    heading: "Environment Variables"
+    narration: >
+      A productized app reads all secrets from environment variables — no
+      hardcoded keys, no secrets in git. The minimum set for a Stripe
+      integration is the secret key and the webhook secret. Store them in
+      a .env file locally (never commit it) and in your hosting platform's
+      environment settings in production.
+    bullets:
+      - "STRIPE_SECRET_KEY=sk_test_... or sk_live_..."
+      - "STRIPE_WEBHOOK_SECRET=whsec_... (from Stripe Dashboard → Webhooks)"
+      - ".env locally (never commit) → python-dotenv loads it"
+      - "Hosting platform: Render / Railway / Fly.io env settings"
+
+  - type: summary
+    heading: "Day 063 Complete"
+    narration: >
+      Today you built the payments layer: feature gating, rate limiting, Stripe
+      Checkout, and webhook event processing. The deliverable is a FastAPI app
+      that a stranger can pay to use. Days 64 and 65 turn this into a complete
+      deployed product.
+    bullets:
+      - "check_feature_access: plan → feature set lookup"
+      - "check_rate_limit: usage_count >= limit → 429"
+      - "process_webhook_event: event type → plan update"
+      - "build_checkout_api: mock-injectable Stripe client"
+      - "gated_api.py: full FastAPI with paywall, rate limit, webhooks"

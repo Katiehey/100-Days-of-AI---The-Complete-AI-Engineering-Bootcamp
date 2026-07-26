@@ -1,0 +1,90 @@
+day: 63
+lesson: 4
+title: "Stripe Checkout"
+slides:
+  - type: title
+    heading: "Stripe Checkout"
+    subheading: "Stripe-hosted payment pages — no card data on your server"
+
+  - type: concept
+    heading: "How Stripe Checkout Works"
+    narration: >
+      Stripe Checkout is a payment page hosted by Stripe. Your server creates
+      a checkout session via the API and returns a URL. The user is redirected
+      to that URL, enters their card details on Stripe's servers (never yours),
+      and Stripe redirects them back to your success URL after payment. This
+      means you are never in scope for PCI compliance on card data.
+    bullets:
+      - "Your server: POST to Stripe API → get checkout URL"
+      - "User: redirected to checkout.stripe.com (not your server)"
+      - "Card data stays on Stripe — you are never PCI-scoped"
+      - "After payment: Stripe redirects to your success_url"
+
+  - type: code
+    heading: "Creating a Session"
+    narration: >
+      Call stripe.checkout.Session.create with a price ID, success URL, and
+      cancel URL. The session object contains an id and a url field. Return the
+      URL to the client which redirects the user there. In test mode, use the
+      test card number 4242 4242 4242 4242 with any future date and CVC.
+    code: |
+      import stripe
+
+      stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
+
+      PLAN_PRICES = {"pro": "price_pro_monthly"}  # from Stripe dashboard
+
+      @app.post("/checkout")
+      def create_checkout(req: CheckoutRequest):
+          if req.plan not in PLAN_PRICES:
+              raise HTTPException(400, f"Unknown plan: {req.plan!r}")
+          session = stripe.checkout.Session.create(
+              payment_method_types=["card"],
+              line_items=[{"price": PLAN_PRICES[req.plan], "quantity": 1}],
+              mode="subscription",
+              success_url="https://yourapp.com/checkout/success"
+                          "?session_id={CHECKOUT_SESSION_ID}",
+              cancel_url="https://yourapp.com/checkout/cancel",
+          )
+          return {"session_id": session["id"], "checkout_url": session["url"]}
+
+  - type: concept
+    heading: "Testing Without Credentials"
+    narration: >
+      The real stripe module makes network calls. Tests should never do that.
+      Duck-type the Stripe client: any object with a checkout.Session.create
+      method works. In production, pass stripe (the real module). In tests,
+      pass a mock that returns a predictable fake session. The app code never
+      knows the difference.
+    bullets:
+      - "Duck-typed client: any object with .checkout.Session.create(**kw)"
+      - "Production: build_checkout_api(stripe_client=stripe)"
+      - "Tests: build_checkout_api(stripe_client=MockStripe())"
+      - "Same pattern as process_fn injection for Ollama"
+
+  - type: concept
+    heading: "Test Mode"
+    narration: >
+      Stripe's test mode uses keys starting with sk_test_ and pk_test_. All
+      test charges use fake card numbers — 4242 4242 4242 4242 always succeeds,
+      4000 0000 0000 0002 always declines. No real money moves and test data is
+      completely separate from live data. You can generate test API keys from
+      the Stripe dashboard at no cost.
+    bullets:
+      - "sk_test_... — test secret key (server-side, keep private)"
+      - "pk_test_... — test publishable key (client-side, public)"
+      - "4242 4242 4242 4242 — always succeeds in test mode"
+      - "4000 0000 0000 0002 — always declines (test declined-card flow)"
+
+  - type: summary
+    heading: "Lesson 4 Complete"
+    narration: >
+      Stripe Checkout shifts all card-handling to Stripe. Your server only
+      creates a session and receives a webhook when payment succeeds. Use
+      client injection to test without real credentials.
+    bullets:
+      - "stripe.checkout.Session.create → {id, url}"
+      - "Return checkout_url to client → redirect user"
+      - "After payment: Stripe POSTs to your /webhook endpoint"
+      - "Test mode: sk_test_ key, card 4242 4242 4242 4242"
+      - "Client injection: same code, swap real stripe for mock"
