@@ -1,0 +1,143 @@
+day: "069"
+lesson: 4
+title: "Retry and Validation"
+slides:
+  - type: title
+    heading: "Retry and Validation"
+    subheading: "safe_extract, validate_extraction — making the pipeline robust"
+    narration: >
+      Real vision LLMs are non-deterministic. A prompt that fails once may
+      succeed on the second attempt. And even when JSON parsing succeeds,
+      the extracted data may not match your schema. This lesson adds the
+      retry wrapper and validation function that make the pipeline production-ready.
+
+  - type: concept
+    label: "Why retry?"
+    heading: "Why Non-Deterministic LLMs Need Retries"
+    body: >
+      Temperature > 0 means the model samples different tokens each run.
+      A prompt that fails once (bad JSON) often succeeds the next time.
+    bullets:
+      - "Temperature > 0 → different output each call (stochastic sampling)"
+      - "JSON parse failure on run 1 ≠ JSON parse failure on run 2"
+      - "Retry is free: one extra API call costs pennies or nothing (Ollama)"
+      - "Retry cap: 2-3 retries is enough; beyond that, the prompt is probably wrong"
+    narration: >
+      With Ollama running locally there is no marginal cost to retrying.
+      With a paid API you pay per token, but 2-3 retries is still reasonable
+      insurance against a single bad run. The retry count should be small —
+      if the model consistently fails to produce valid JSON after 3 attempts,
+      the problem is with your prompt or your schema, not with random sampling.
+      Fix the prompt rather than increasing retries.
+
+  - type: code
+    label: "safe_extract"
+    heading: "safe_extract: Retry Wrapper"
+    code: |
+      import json
+
+      def safe_extract(img_b64, schema_cls, describe_fn=None,
+                       retries=2) -> dict | None:
+          for attempt in range(retries + 1):
+              try:
+                  return extract_from_image(
+                      img_b64, schema_cls, describe_fn=describe_fn
+                  )
+              except (ValueError, json.JSONDecodeError):
+                  if attempt == retries:
+                      return None   # exhausted all attempts
+          return None
+
+      # With always-failing mock: returns None after 3 attempts
+      def _bad(b64, p): return "I cannot determine the values."
+      result = safe_extract("b64==", Receipt, describe_fn=_bad, retries=2)
+      print(result)   # None
+
+      # With good mock: succeeds on first attempt
+      def _good(b64, p): return '{"merchant": "ACME", "total": 42.0}'
+      result = safe_extract("b64==", Receipt, describe_fn=_good)
+      print(result)   # {'merchant': 'ACME', 'total': 42.0}
+    narration: >
+      The for loop runs up to retries + 1 times. The try/except catches
+      both ValueError (no JSON found) and JSONDecodeError (malformed JSON)
+      — the two parse failures from extract_from_image. On the last attempt
+      it returns None rather than raising, so the caller can decide what to
+      do: log a warning, use a default, or surface an error to the user.
+      None is a clear signal — distinct from an empty dict, which might be
+      a valid schema response.
+
+  - type: how_it_works
+    label: "validate_extraction"
+    heading: "validate_extraction: Schema Conformance Check"
+    body: >
+      Validates an extracted dict against the Pydantic schema, returning a
+      (success, result) tuple — the same tuple pattern as Days 51 and 55.
+    narration: >
+      After safe_extract returns a dict, validate_extraction runs
+      model_validate to check that all required fields are present with
+      the correct types. It returns a tuple: (True, validated_model) on
+      success, or (False, error_message_string) on failure. The tuple
+      pattern lets the caller branch cleanly without a try/except at the
+      call site — check tuple[0], then use tuple[1] as either the model
+      or the error message.
+
+  - type: code
+    label: "validate_extraction"
+    heading: "validate_extraction Implementation"
+    code: |
+      from pydantic import BaseModel
+
+      def validate_extraction(data: dict, schema_cls) -> tuple:
+          try:
+              model = schema_cls.model_validate(data)
+              return (True, model)
+          except Exception as exc:
+              return (False, str(exc))
+
+      class Receipt(BaseModel):
+          merchant: str
+          total:    float
+
+      ok, result = validate_extraction({'merchant': 'ACME', 'total': 42.0},
+                                       Receipt)
+      print(ok, result.merchant)    # True ACME
+
+      ok2, err = validate_extraction({'merchant': 'ACME'}, Receipt)
+      print(ok2, err)   # False 'total' is required...
+    narration: >
+      Using bare Exception rather than pydantic.ValidationError means the
+      function handles any validation error — type errors, constraint
+      violations, and unexpected exceptions alike. The error message string
+      is human-readable, suitable for logging or displaying in a UI. The
+      (True, model) / (False, error_str) tuple is easier to use than
+      try/except at every call site.
+
+  - type: exercise
+    heading: "Exercise 4: Validate Extraction"
+    prompt: >
+      Implement validate_extraction(data: dict, schema_cls) -> tuple.
+      Try schema_cls.model_validate(data). On success return (True, model).
+      On any exception return (False, str(exc)).
+      Also implement safe_extract(img_b64, schema_cls, describe_fn=None,
+      retries=2) -> dict | None. Loop up to retries+1 times. On the last
+      attempt return None instead of raising. Catch ValueError and
+      json.JSONDecodeError.
+    hint: >
+      validate_extraction: try model_validate, except Exception as exc: return (False, str(exc)).
+      safe_extract: for attempt in range(retries+1): try extract_from_image, except ... if attempt==retries return None.
+    narration: >
+      Both functions complete the robustness layer of the extraction pipeline.
+      validate_extraction gives the caller a clean way to check schema
+      conformance without catching Pydantic exceptions everywhere.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "Temperature > 0: same prompt may fail once but succeed next attempt"
+      - "safe_extract: loop retries+1 times; return None on exhaustion"
+      - "Catch ValueError (no JSON) and JSONDecodeError (bad JSON)"
+      - "validate_extraction: (True, model) or (False, error_str) tuple"
+      - "Use model_validate (not model_validate_json) on a dict"
+    narration: >
+      Retry and validation are in place. The final lesson assembles everything
+      into an ImageExtractor class and a convenience pipeline function.

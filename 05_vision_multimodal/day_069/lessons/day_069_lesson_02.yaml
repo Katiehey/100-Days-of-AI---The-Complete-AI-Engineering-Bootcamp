@@ -1,0 +1,139 @@
+day: "069"
+lesson: 2
+title: "Parsing LLM JSON Responses"
+slides:
+  - type: title
+    heading: "Parsing LLM JSON Responses"
+    subheading: "Stripping markdown, finding JSON, handling noise"
+    narration: >
+      Even with the best prompt, vision LLMs sometimes return JSON wrapped
+      in markdown code blocks or preceded by explanation text. This lesson
+      builds the strip_json_from_response function that handles all common
+      response formats and delivers the clean JSON string that json.loads needs.
+
+  - type: concept
+    label: "LLM response noise"
+    heading: "Common LLM Response Patterns"
+    body: >
+      Three formats appear in practice. Your parser needs to handle all three.
+    bullets:
+      - "Plain JSON: bare JSON object — ideal, but models often add noise"
+      - "Markdown block: object wrapped in code fences — very common"
+      - "Prefixed JSON: natural-language preamble before the object — also common"
+    narration: >
+      Instruction-tuned models like Llama tend to wrap code in markdown fences
+      because they were trained to do that in chat contexts. A prompt saying
+      "return ONLY the JSON" reduces this, but does not eliminate it. Chat
+      models may add a natural-language preamble. The strip function uses
+      regex to handle both cases: first try to match a markdown code block,
+      then fall back to finding any bare JSON object in the string.
+
+  - type: code
+    label: "Stripping JSON"
+    heading: "strip_json_from_response Implementation"
+    code: |
+      import re, json
+
+      def strip_json_from_response(response: str) -> str:
+          # 1. Try markdown code block (```json ... ``` or ``` ... ```)
+          block = re.search(r'```(?:json)?\s*([\s\S]*?)```', response)
+          if block:
+              return block.group(1).strip()
+
+          # 2. Fall back: first {...} span in the string
+          obj = re.search(r'\{[\s\S]*\}', response)
+          if obj:
+              return obj.group(0).strip()
+
+          raise ValueError(
+              f"No JSON object found: {response[:200]!r}"
+          )
+
+      # Test with each format
+      print(strip_json_from_response('{"a": 1}'))             # plain
+      print(strip_json_from_response('```json\n{"a": 1}\n```'))  # code block
+      print(strip_json_from_response('Here: {"a": 1}'))       # prefixed
+    narration: >
+      The regex `(?:json)?` makes the language tag optional — code blocks
+      are written both as ```json and as ```. The `[\s\S]*?` inside the block
+      is a non-greedy match for any character including newlines — essential
+      because the JSON may span multiple lines. The fallback `{[\s\S]*}` is
+      greedy and will match the outermost braces in the string, which is what
+      you want for nested objects. If neither pattern matches, raise a
+      ValueError so the caller can retry.
+
+  - type: how_it_works
+    label: "Parse then validate"
+    heading: "Strip → json.loads → model_validate"
+    body: >
+      Three steps convert the raw LLM response into a validated Pydantic object.
+    narration: >
+      After stripping, json.loads converts the string to a Python dict —
+      this raises JSONDecodeError if the JSON is syntactically invalid. Then
+      model_validate converts the dict to a Pydantic model instance —
+      this raises ValidationError if the data does not match the schema
+      (wrong type, missing required field, constraint violation). Separating
+      these two steps makes it easy to distinguish syntax errors (retry the
+      LLM call) from semantic errors (the model extracted the wrong data).
+
+  - type: code
+    label: "Full parse step"
+    heading: "Full Parse Step: strip → loads → validate"
+    code: |
+      import json
+      from pydantic import BaseModel, ValidationError
+
+      class Receipt(BaseModel):
+          merchant: str
+          total:    float
+
+      def parse_response(response: str, schema_cls):
+          raw  = strip_json_from_response(response)   # handles markdown/noise
+          data = json.loads(raw)                       # raises JSONDecodeError
+          return schema_cls.model_validate(data)       # raises ValidationError
+
+      # Happy path
+      r = parse_response('{"merchant": "ACME", "total": 42.0}', Receipt)
+      print(r.merchant, r.total)   # ACME 42.0
+
+      # Type coercion: Pydantic converts "42.0" string → float
+      r2 = parse_response('{"merchant": "ACME", "total": "42.0"}', Receipt)
+      print(r2.total, type(r2.total))   # 42.0 <class 'float'>
+    narration: >
+      Pydantic v2 performs type coercion by default — the string "42.0" is
+      automatically converted to the float 42.0 when the field is declared
+      as `float`. This is very useful for vision LLM output because models
+      sometimes return numeric values as quoted strings. The coercion handles
+      this silently. A missing required field, however, raises a ValidationError
+      that you need to handle — either by retrying the LLM or by falling back
+      to a default.
+
+  - type: exercise
+    heading: "Exercise 2: Strip JSON from LLM Response"
+    prompt: >
+      Implement strip_json_from_response(response: str) -> str.
+      First try to match a markdown code block (```json...``` or ```...```).
+      If found, return the content inside the block stripped of whitespace.
+      Otherwise, use a regex to find the first {...} object in the string.
+      If nothing found, raise ValueError. Return the stripped JSON string only.
+    hint: >
+      re.search(r'```(?:json)?\s*([\s\S]*?)```', response) for code blocks.
+      re.search(r'\{[\s\S]*\}', response) for bare JSON objects.
+      Raise ValueError if neither matches.
+    narration: >
+      This function is the noise filter between the raw LLM output and your
+      JSON parser. Getting it right means all downstream functions can assume
+      they receive clean JSON strings.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Three LLM output patterns: plain JSON, markdown block, prefixed JSON"
+      - "```(?:json)?\\s*([\\s\\S]*?)``` — matches code blocks with optional 'json' tag"
+      - "\\{[\\s\\S]*\\} — matches outermost braces (greedy, handles nested)"
+      - "Try code block first; fall back to bare object; raise ValueError if none"
+      - "strip → json.loads → model_validate: three distinct failure points"
+    narration: >
+      The JSON stripping function is settled. Next: assembling the full
+      extraction function that takes image bytes and a schema class and
+      returns the parsed dict.

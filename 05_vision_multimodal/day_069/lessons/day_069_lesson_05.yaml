@@ -1,0 +1,135 @@
+day: "069"
+lesson: 5
+title: "ImageExtractor — End-to-End Pipeline"
+slides:
+  - type: title
+    heading: "ImageExtractor"
+    subheading: "PIL Image → validated Pydantic object in one call"
+    narration: >
+      All the pieces are ready. The final lesson puts them together in
+      an ImageExtractor class that accepts a PIL Image and a Pydantic
+      schema class and returns a validated typed object — the cleanest
+      possible interface for schema-guided image extraction.
+
+  - type: how_it_works
+    label: "ImageExtractor"
+    heading: "ImageExtractor Design"
+    body: >
+      One class, one method: extract(img) → validated Pydantic model.
+      The schema class is bound at construction time.
+    bullets:
+      - "ImageExtractor(schema_cls, model='llava', describe_fn=None)"
+      - ".extract(img, retries=2) → validated model instance"
+      - "Raises ValueError if all retries fail"
+      - "Raises ValidationError if JSON parsed but schema mismatch"
+    narration: >
+      Binding the schema_cls at construction time means you can create
+      separate extractor instances for different document types — a
+      ReceiptExtractor, a ProductExtractor, an InvoiceExtractor —
+      and reuse them across many images. The describe_fn injection is
+      still available for testing. The extractor encodes the image once
+      and calls safe_extract, which handles retries internally.
+
+  - type: code
+    label: "Usage"
+    heading: "Using ImageExtractor"
+    code: |
+      from pydantic import BaseModel
+      from image_extractor import ImageExtractor
+      from PIL import Image
+
+      class Receipt(BaseModel):
+          merchant: str
+          total:    float
+          items:    list[str] = []
+
+      # Testing — no Ollama needed
+      mock = lambda b64, p: '{"merchant": "ACME", "total": 42.0, "items": ["Coffee", "Bagel"]}'
+      extractor = ImageExtractor(schema_cls=Receipt, describe_fn=mock)
+
+      img = Image.new('RGB', (400, 200), 'white')
+      result = extractor.extract(img)
+
+      print(result.merchant)   # ACME
+      print(result.total)      # 42.0
+      print(result.items)      # ['Coffee', 'Bagel']
+      print(type(result))      # <class '__main__.Receipt'>
+    narration: >
+      The result is a fully typed Python object — not a dict, not a JSON
+      string. You can access fields with dot notation, use them in type-checked
+      code, serialise them back to JSON with model_dump, or store them in a
+      database. This is the difference between "the LLM returned some text
+      about the receipt" and "the receipt's total is 42.0 as a Python float."
+
+  - type: code
+    label: "Real schemas"
+    heading: "Real-World Schema Examples"
+    code: |
+      from pydantic import BaseModel, Field
+      from typing import Optional
+
+      class ReceiptItem(BaseModel):
+          name:  str
+          price: float
+
+      class Receipt(BaseModel):
+          merchant: str
+          date:     str = ""
+          items:    list[ReceiptItem] = []
+          subtotal: float = 0.0
+          tax:      float = 0.0
+          total:    float
+
+      class ProductLabel(BaseModel):
+          name:        str
+          brand:       str = ""
+          price:       Optional[float] = None
+          barcode:     str = ""
+          description: str = ""
+
+      class BusinessCard(BaseModel):
+          name:    str
+          title:   str = ""
+          email:   str = ""
+          phone:   str = ""
+          company: str = ""
+    narration: >
+      The schema can be as simple or as detailed as you need. Optional fields
+      with defaults give the LLM flexibility — it only needs to fill in the
+      fields it can see. Required fields (no default) force the LLM to extract
+      them or produce a ValidationError. Nested models like ReceiptItem work
+      because model_json_schema generates a $defs section and the LLM has
+      seen this pattern many times. The more constrained your schema, the
+      more precisely you need to word the extraction prompt.
+
+  - type: exercise
+    heading: "Exercise 5: Extract Pipeline"
+    prompt: >
+      Implement extract_pipeline(img, schema_cls, describe_fn=None) -> BaseModel.
+      Encode the PIL Image with image_to_base64. Call safe_extract to get a dict
+      (retries=2). If None, raise ValueError. Call validate_extraction to get
+      (ok, result). If not ok, raise ValueError(result). Return the validated model.
+      A complete pipeline: encode → extract → validate → return typed object.
+    hint: >
+      img_b64 = image_to_base64(img). data = safe_extract(img_b64, schema_cls,
+      describe_fn=describe_fn, retries=2). if data is None: raise ValueError.
+      ok, result = validate_extraction(data, schema_cls). if not ok: raise ValueError(result).
+      return result.
+    narration: >
+      extract_pipeline is the one-liner interface over the whole extraction
+      stack. It enforces the complete happy-path and raises ValueError for
+      any failure, giving callers a single exception type to handle.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 69 Complete"
+    bullets:
+      - "ImageExtractor binds schema_cls at construction — reusable across images"
+      - ".extract(img) → encode → safe_extract → validate → typed object"
+      - "Raises ValueError if extraction fails; ValidationError if schema mismatch"
+      - "Real schemas: nested models, Optional fields, list fields all supported"
+      - "Tomorrow (Day 70): AI image generation with mock-based exercises"
+    narration: >
+      Day 69 is complete. You can extract structured typed data from any image
+      using a vision LLM and a Pydantic schema. The pipeline handles markdown
+      noise, retries on parse failure, and validates types — all the robustness
+      you need for production document AI. Tomorrow is image generation.

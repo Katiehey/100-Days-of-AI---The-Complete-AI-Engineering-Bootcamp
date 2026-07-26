@@ -1,0 +1,140 @@
+day: "069"
+lesson: 3
+title: "The Extraction Function"
+slides:
+  - type: title
+    heading: "The Extraction Function"
+    subheading: "describe_fn injection + JSON pipeline end to end"
+    narration: >
+      Lessons 1 and 2 built the two components: the schema-aware prompt and
+      the JSON stripper. This lesson wires them into extract_from_image —
+      the core function that takes an image base64 string and a Pydantic
+      class and returns a dict. Like describe_image on Day 67, it accepts
+      a describe_fn mock for headless testing.
+
+  - type: how_it_works
+    label: "extract_from_image"
+    heading: "extract_from_image: Full Pipeline"
+    body: >
+      Three operations: build prompt → call LLM → strip + parse JSON.
+    narration: >
+      The function accepts an already-encoded base64 string, not a PIL Image,
+      because encoding is the caller's responsibility — following the encode-once
+      pattern from Day 67. The describe_fn parameter follows the same contract
+      as in Days 67 and 68: a callable(img_b64, prompt) -> str that returns the
+      raw LLM response string. When describe_fn is None, the function calls
+      Ollama llava directly.
+
+  - type: code
+    label: "extract_from_image"
+    heading: "extract_from_image Implementation"
+    code: |
+      import json
+
+      def extract_from_image(img_b64, schema_cls, describe_fn=None) -> dict:
+          prompt = build_extraction_prompt(schema_cls)
+
+          if describe_fn is not None:
+              response = describe_fn(img_b64, prompt)
+          else:
+              import ollama
+              resp = ollama.chat(
+                  model='llava',
+                  messages=[{
+                      'role':    'user',
+                      'content': prompt,
+                      'images':  [img_b64],
+                  }],
+              )
+              response = resp['message']['content']
+
+          raw  = strip_json_from_response(response)
+          return json.loads(raw)
+    narration: >
+      The function does not validate against the schema — it returns a raw dict.
+      This is a deliberate choice: you may want to inspect the raw dict before
+      validation, or handle validation errors differently from parse errors.
+      The caller decides what to do with the dict — call model_validate if they
+      want a typed object, or pass it to safe_extract's retry wrapper.
+
+  - type: code
+    label: "Testing"
+    heading: "Testing with a Mock describe_fn"
+    code: |
+      from pydantic import BaseModel
+
+      class ProductInfo(BaseModel):
+          name:     str
+          price:    float
+          category: str = ""
+
+      # Mock returns valid JSON — no Ollama needed
+      mock = lambda b64, prompt: '{"name": "Headphones", "price": 49.99}'
+
+      result = extract_from_image("fake_b64==", ProductInfo, describe_fn=mock)
+      print(result)          # {'name': 'Headphones', 'price': 49.99}
+      print(type(result))    # <class 'dict'>
+
+      # Now validate
+      obj = ProductInfo.model_validate(result)
+      print(obj.name, obj.price)   # Headphones 49.99
+    narration: >
+      Notice that the mock's return value is a JSON string — the same format
+      the real LLM would return. The test exercises the full strip → loads
+      pipeline, not just the business logic. If the mock returned a dict
+      directly, the test would bypass the JSON parsing step and miss any bugs
+      in strip_json_from_response or json.loads.
+
+  - type: code
+    label: "Error cases"
+    heading: "Handling Parse Failures"
+    code: |
+      # JSON syntax error → JSONDecodeError
+      bad_mock = lambda b64, p: '{"name": "Broken", "price": }'
+      try:
+          extract_from_image("b64==", ProductInfo, describe_fn=bad_mock)
+      except json.JSONDecodeError as e:
+          print(f"Syntax error: {e}")
+
+      # No JSON at all → ValueError from strip_json_from_response
+      no_json_mock = lambda b64, p: "I cannot see any structured data."
+      try:
+          extract_from_image("b64==", ProductInfo, describe_fn=no_json_mock)
+      except ValueError as e:
+          print(f"No JSON found: {e}")
+    narration: >
+      Two failure modes. JSONDecodeError means the model returned something
+      that looks like JSON but has syntax errors — a missing comma, an unquoted
+      key, a trailing comma. ValueError means the model did not return any JSON
+      at all. Both are retryable — asking the model again with the same image
+      often produces a valid response on the second or third attempt.
+
+  - type: exercise
+    heading: "Exercise 3: Extract from Image"
+    prompt: >
+      Implement extract_from_image(img_b64, schema_cls, describe_fn=None) -> dict.
+      Build the extraction prompt using build_extraction_prompt. Call describe_fn
+      if provided, otherwise call ollama.chat with model='llava'. Strip JSON from
+      the response with strip_json_from_response. Return json.loads(raw). Do not
+      validate against the schema — return a plain dict.
+    hint: >
+      Call build_extraction_prompt(schema_cls) → prompt. If describe_fn is not None:
+      response = describe_fn(img_b64, prompt). Then raw = strip_json_from_response(response).
+      Return json.loads(raw). The mock in checks returns a valid JSON string.
+    narration: >
+      extract_from_image is the core of the extraction pipeline. Every function
+      in today's day builds on it — safe_extract adds retries, validate_extraction
+      adds Pydantic validation, and extract_pipeline combines all three.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "extract_from_image: build prompt → call LLM → strip → json.loads → dict"
+      - "Returns a raw dict, not a validated model — caller decides how to use it"
+      - "Two failure types: JSONDecodeError (syntax) and ValueError (no JSON)"
+      - "Mock returns a JSON string — tests the full parse pipeline"
+      - "describe_fn=None injection: same pattern as Day 67 describe_image"
+    narration: >
+      The core extraction function is complete. Next: retry logic that calls
+      extract_from_image multiple times when it fails, plus Pydantic validation
+      to check that the extracted data matches the schema.

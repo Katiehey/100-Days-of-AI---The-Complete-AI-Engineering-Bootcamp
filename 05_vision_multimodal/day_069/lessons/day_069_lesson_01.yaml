@@ -1,0 +1,133 @@
+day: "069"
+lesson: 1
+title: "Schema-Guided Vision Extraction"
+slides:
+  - type: title
+    heading: "Multimodal Extraction"
+    subheading: "Day 69 — Vision LLM + Pydantic = structured data from images"
+    narration: >
+      Days 67 and 68 gave you two tools for reading images: a vision LLM that
+      returns free-form text, and OCR that returns a raw character stream.
+      Today you combine them into something more powerful: schema-guided
+      extraction. You describe the data you want as a Pydantic model, embed
+      the schema in the prompt, and the vision LLM returns a JSON object you
+      can validate and use directly in your application code.
+
+  - type: concept
+    label: "Schema-guided extraction"
+    heading: "What is Schema-Guided Extraction?"
+    body: >
+      You give the LLM both an image and a precise schema. The LLM acts as
+      a structured reading machine — extracting only the fields you asked for
+      in the exact format you specified.
+    bullets:
+      - "Input: image + Pydantic model class"
+      - "Output: validated Python object with correct types"
+      - "Zero-shot: no training data, no fine-tuning"
+      - "Fields: str, float, int, list, nested models — anything Pydantic supports"
+    narration: >
+      Schema-guided extraction is the bridge between vision LLMs and typed
+      application code. On Day 4 you used Pydantic to validate structured
+      output from a text LLM. Today the source is an image — a receipt, an
+      invoice, a product label, a screenshot — and the extraction engine is
+      a vision model. The schema constrains what the model returns, and
+      Pydantic validation ensures the types are correct before your code
+      uses the data.
+
+  - type: how_it_works
+    label: "The pipeline"
+    heading: "The Extraction Pipeline"
+    body: >
+      Four steps: encode the image, build a schema-aware prompt, call the
+      vision LLM, parse and validate the JSON response.
+    bullets:
+      - "1. Encode: PIL Image → base64 (image_to_base64 from Day 67)"
+      - "2. Prompt: embed model_json_schema() in the instruction"
+      - "3. Call: vision LLM returns a JSON string (ideally)"
+      - "4. Parse + validate: json.loads → model_validate → typed object"
+    narration: >
+      Each step has a failure mode. Encoding fails for corrupted images.
+      The LLM sometimes returns JSON wrapped in markdown code blocks or
+      preceded by explanation text. json.loads fails on malformed JSON.
+      model_validate fails when the LLM omits required fields or returns
+      the wrong type. In lesson 4 you will add a retry layer that handles
+      these failures systematically.
+
+  - type: concept
+    label: "Why embed the schema?"
+    heading: "Why Embed model_json_schema in the Prompt?"
+    body: >
+      JSON Schema is the LLM-friendly format for describing structured data.
+      Pydantic generates it automatically — you never write it by hand.
+    bullets:
+      - "model_json_schema() returns a dict describing all fields + types"
+      - "json.dumps(schema, indent=2) makes it readable in the prompt"
+      - "The LLM has seen thousands of JSON Schema examples in training"
+      - "It knows: 'type: number' means a float, 'type: string' means a str"
+    narration: >
+      JSON Schema is a standard format for describing the structure of a JSON
+      document. Pydantic v2 generates it from your model class automatically
+      — call model_json_schema() to get the dict, then json.dumps to convert
+      it to a string you can embed in the prompt. Vision LLMs have seen large
+      quantities of JSON Schema in their training data, so the format is
+      natural to them. The combination of a clear instruction and an explicit
+      schema dramatically increases the probability of a valid JSON response.
+
+  - type: code
+    label: "Schema in prompt"
+    heading: "Embedding a Pydantic Schema in the Prompt"
+    code: |
+      import json
+      from pydantic import BaseModel
+
+      class Receipt(BaseModel):
+          merchant: str
+          total:    float
+          date:     str = ""
+
+      schema_dict = Receipt.model_json_schema()
+      schema_json = json.dumps(schema_dict, indent=2)
+
+      prompt = (
+          "Extract structured data from this image and return ONLY valid JSON "
+          "matching this schema exactly:\n\n"
+          f"Schema:\n{schema_json}\n\n"
+          "Return ONLY the JSON object, nothing else."
+      )
+      print(prompt[:300])
+    narration: >
+      The prompt has three parts: the extraction instruction, the schema
+      block, and the output constraint. The output constraint — "Return ONLY
+      the JSON object, nothing else" — is the most important. Without it,
+      models often prefix their response with "Here is the extracted data:"
+      or wrap it in a markdown code block. Both make json.loads fail. The
+      constraint reduces that noise, and the strip_json_from_response function
+      in lesson 2 handles the cases that slip through.
+
+  - type: exercise
+    heading: "Exercise 1: Build Extraction Prompt"
+    prompt: >
+      Implement build_extraction_prompt(schema_cls) -> str.
+      Call schema_cls.model_json_schema() to get the schema dict.
+      Embed it in a prompt that instructs the model to return ONLY valid JSON.
+      The prompt must contain the word 'JSON' and all field names from the schema.
+    hint: >
+      json.dumps(schema_cls.model_json_schema(), indent=2) gives the schema as
+      a string. Build a prompt containing that string plus a clear instruction
+      to return only the JSON object.
+    narration: >
+      The extraction prompt is the single most important input to the pipeline.
+      A well-crafted prompt reliably produces parseable JSON. A vague prompt
+      produces explanation text around the JSON, requiring more post-processing.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Schema-guided extraction: image + Pydantic model → validated typed object"
+      - "model_json_schema() → JSON Schema dict; json.dumps → prompt-ready string"
+      - "Four steps: encode → prompt → call → parse+validate"
+      - "Output constraint: 'Return ONLY the JSON object' reduces noise"
+      - "Failures: markdown wrapping, extra text, wrong types, missing fields"
+    narration: >
+      The pipeline is clear. Next: handling the most common LLM failure — wrapping
+      JSON in markdown code blocks or adding explanation text before the JSON.
