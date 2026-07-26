@@ -1,0 +1,58 @@
+day: 62
+lesson: 1
+title: "Why Test Web Apps?"
+slides:
+  - type: title
+    heading: "Day 062 — Testing Web Apps"
+    subheading: "Ship with confidence"
+
+  - type: concept
+    heading: "The Cost of Not Testing"
+    narration: >
+      Every change to an API is a potential regression. Without tests, the only
+      way to know a change didn't break anything is to manually test every
+      endpoint after every commit. That doesn't scale. Tests do.
+    bullets:
+      - "Manual testing: slow, incomplete, forgotten under deadline pressure"
+      - "Automated tests: run in 2 seconds, catch regressions before users do"
+      - "CI/CD: every push runs the test suite — broken code never reaches production"
+      - "Tests are documentation: they describe exactly what the API should do"
+
+  - type: concept
+    heading: "What to Test in a Web API"
+    narration: >
+      Not every line needs a test, but every contract does. A contract is an
+      observable behaviour: status codes, response shapes, business rules.
+      Focus on happy paths (correct input → correct output), validation
+      (bad input → 422), and state transitions (create → delete → 404).
+    bullets:
+      - "Happy path: valid input → 200/201, correct response body"
+      - "Validation: empty/negative/wrong-type input → 422"
+      - "Not found: unknown ID → 404"
+      - "State transition: create then delete → resource is gone (404 on GET)"
+
+  - type: concept
+    heading: "TestClient — in-process testing"
+    narration: >
+      Starlette's TestClient runs the FastAPI app in the same process as the
+      test — no network, no port, no uvicorn. Tests are fast (milliseconds)
+      and fully isolated. The same TestClient pattern you have used since
+      Day 052 is exactly what pytest-based suites use.
+    bullets:
+      - "from starlette.testclient import TestClient"
+      - "TestClient(app) — wrap the ASGI app directly"
+      - "client.get/post/put/delete — synchronous HTTP calls, in-process"
+      - "No uvicorn, no network — runs in < 1ms per call"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Test web APIs by writing functions that call TestClient and assert on
+      status codes and response bodies. Focus on happy paths, validation errors,
+      and state transitions. Today you will build test helpers and a full test
+      suite for a CRUD API, then generate a real pytest file.
+    bullets:
+      - "Automated tests > manual testing for catching regressions"
+      - "TestClient: in-process, no network, fast"
+      - "Test contracts: status codes + response shape + business rules"
+      - "pytest discovers test_* functions automatically"

@@ -1,0 +1,66 @@
+day: 62
+lesson: 4
+title: "Parametrize & Regression Tests"
+slides:
+  - type: title
+    heading: "Parametrize & Regression Tests"
+    subheading: "DRY tests that catch real bugs"
+
+  - type: concept
+    heading: "pytest.mark.parametrize"
+    narration: >
+      When you need to test the same logic with many different inputs, parametrize
+      avoids copy-paste. pytest generates one test per row in the table and names
+      each test with the parameter values — making failures instantly identifiable.
+    bullets:
+      - "@pytest.mark.parametrize('name,price,expected', [...])"
+      - "One test run per row — pytest counts them separately"
+      - "Failed row named in output: test_create[Widget-0.0-422]"
+      - "Each row tests one boundary condition or equivalence class"
+
+  - type: code
+    heading: "Parametrize in practice"
+    narration: >
+      The test function body stays unchanged — pytest injects different values
+      for each row. You can mix valid and invalid inputs in the same table,
+      testing both the happy path and the validation error cases together.
+    code: |
+      import pytest
+
+      @pytest.mark.parametrize("name,price,expected", [
+          ("Widget", 9.99,  201),   # valid
+          ("",       9.99,  422),   # empty name
+          ("Widget", 0.0,   422),   # price must be > 0
+          ("Widget", -1.0,  422),   # negative price
+      ])
+      def test_create_item_validation(client, name, price, expected):
+          r = client.post("/items", json={"name": name, "price": price})
+          assert r.status_code == expected, (
+              f"name={name!r}, price={price}: expected {expected}, got {r.status_code}")
+
+  - type: concept
+    heading: "Regression Tests"
+    narration: >
+      A regression test documents a bug so it can never silently return. Write
+      the test first — it should FAIL, proving the bug exists. Fix the bug —
+      the test should PASS. Keep the test forever. Any future change that
+      reintroduces the bug will immediately cause the test to fail in CI.
+    bullets:
+      - "1. Discover a bug"
+      - "2. Write a test that FAILS (reproduces the bug)"
+      - "3. Fix the bug"
+      - "4. Confirm the test PASSES — keep it in the suite"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Parametrize eliminates copy-paste for table-driven testing. One function,
+      many inputs, all results visible. Regression tests document bugs as
+      executable code and prevent them from recurring silently. Exercise 3
+      builds a mini test runner; Exercise 4 has you write a regression test
+      that catches a real bug.
+    bullets:
+      - "@pytest.mark.parametrize: one test per row, named by parameters"
+      - "Include expected value in assertion message for parametrized tests"
+      - "Regression test: FAIL first, fix, then PASS — keep forever"
+      - "FAIL (AssertionError) vs ERROR (unexpected exception): different problems"

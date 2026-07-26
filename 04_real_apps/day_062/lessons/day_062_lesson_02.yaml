@@ -1,0 +1,64 @@
+day: 62
+lesson: 2
+title: "pytest Fundamentals"
+slides:
+  - type: title
+    heading: "pytest Fundamentals"
+    subheading: "Discovery, fixtures, and marks"
+
+  - type: concept
+    heading: "Test Discovery"
+    narration: >
+      pytest discovers tests automatically. It searches for files named test_*.py
+      or *_test.py, then finds functions named test_* inside them. You never
+      need to register a test — just name it correctly and pytest finds it.
+      Run pytest in a directory and it recursively discovers all tests.
+    bullets:
+      - "Files: test_*.py or *_test.py"
+      - "Functions: test_* inside those files"
+      - "Run: pytest test_app.py -v  (verbose: one line per test)"
+      - "Run: pytest -k 'delete'  (filter by name pattern)"
+
+  - type: code
+    heading: "A simple pytest test"
+    narration: >
+      A test function uses plain assert statements. pytest intercepts assertion
+      failures and rewrites them to show both sides of the comparison in the
+      output. No test class or setUp is needed for basic tests.
+    code: |
+      # test_app.py
+      from starlette.testclient import TestClient
+      from myapp import build_app
+
+      def test_health_returns_200():
+          client = TestClient(build_app())
+          r = client.get("/health")
+          assert r.status_code == 200          # clear failure: 'assert 500 == 200'
+          assert r.json()["status"] == "ok"    # shows actual value on failure
+
+  - type: concept
+    heading: "Fixtures — shared setup"
+    narration: >
+      When every test creates a TestClient, the setup is repeated everywhere.
+      pytest fixtures extract that setup into a single function decorated with
+      @pytest.fixture. pytest injects the fixture into any test that names it
+      as a parameter. A fixture runs once per test by default — each test gets
+      a fresh instance, so shared state is reset automatically.
+    bullets:
+      - "@pytest.fixture def client(): return TestClient(build_app())"
+      - "Any test that has 'client' as a parameter gets a fresh TestClient"
+      - "Fresh app per test: state reset automatically (no pollution)"
+      - "scope='session': one instance for the whole run (use rarely)"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      pytest discovers test_* functions in test_*.py files. Assert statements
+      give clear failure messages. Fixtures share setup across tests and reset
+      automatically per test. Today's deliverable is a real pytest file with
+      a @pytest.fixture for the TestClient.
+    bullets:
+      - "Naming: test_*.py files, test_* functions"
+      - "pytest -v: one line per test with pass/fail"
+      - "@pytest.fixture: shared setup, reset per test by default"
+      - "def test_foo(client): — fixture injected by pytest"

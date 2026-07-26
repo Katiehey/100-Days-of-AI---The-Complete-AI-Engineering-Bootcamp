@@ -1,0 +1,64 @@
+day: 62
+lesson: 3
+title: "Writing Good API Tests"
+slides:
+  - type: title
+    heading: "Writing Good API Tests"
+    subheading: "Clear failures, helpful messages"
+
+  - type: concept
+    heading: "The Anatomy of an API Test"
+    narration: >
+      Every API test has three phases: Arrange (set up the client and any
+      pre-conditions), Act (make the HTTP request), Assert (check the response).
+      Keeping these phases distinct makes tests readable and failures obvious.
+    bullets:
+      - "Arrange: create client, optionally create pre-existing data"
+      - "Act: client.get/post/delete (one HTTP call per test)"
+      - "Assert: status code, response body keys and values"
+      - "One concept per test — short tests are easier to debug"
+
+  - type: code
+    heading: "assert_response helper"
+    narration: >
+      A bare assert with no message gives unhelpful output on failure. A helper
+      function centralises the assertion pattern and produces informative messages
+      automatically. Include the actual response text so you never have to re-run
+      to see what the server actually returned.
+    code: |
+      def assert_response(response, expected_status, required_keys=()):
+          assert response.status_code == expected_status, (
+              f"Expected {expected_status}, got {response.status_code}: "
+              f"{response.text[:200]}")
+          data = response.json()
+          for key in required_keys:
+              assert key in data, f"Missing {key!r}: {data}"
+          return data
+
+      # usage:
+      data = assert_response(client.post("/items", json={...}), 201, ("id", "name"))
+
+  - type: concept
+    heading: "Validation Testing Pattern"
+    narration: >
+      Pydantic v2 validators generate 422 responses automatically. Your tests
+      should verify each validation rule fires correctly. Use parametrize to
+      test many input combinations without repeating the same assertion code.
+    bullets:
+      - "Empty required field → 422"
+      - "Negative price (Field(gt=0)) → 422"
+      - "Wrong type (string where int expected) → 422"
+      - "@pytest.mark.parametrize('name,price,expected', [...]) — table-driven"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Structure tests as Arrange-Act-Assert. Include actual values in assertion
+      messages — include response.text in status assertions. Test validation
+      errors as thoroughly as happy paths. Exercise 1 builds the assert_response
+      helper; Exercise 2 builds a parametrize helper for batch testing.
+    bullets:
+      - "Arrange → Act → Assert: one concept per test"
+      - "assert r.status_code == N, f'got {r.status_code}: {r.text[:200]}'"
+      - "assert key in data, f'missing {key!r}'"
+      - "Validation: test each Field constraint produces 422"

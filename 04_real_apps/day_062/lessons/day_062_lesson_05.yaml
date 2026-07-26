@@ -1,0 +1,61 @@
+day: 62
+lesson: 5
+title: "Test Isolation & Coverage"
+slides:
+  - type: title
+    heading: "Test Isolation & Coverage"
+    subheading: "Tests that don't interfere with each other"
+
+  - type: concept
+    heading: "Why Isolation Matters"
+    narration: >
+      Tests that share state are fragile — their results depend on execution
+      order. If test_create runs before test_list_empty, the list is no longer
+      empty and the second test fails. pytest fixtures with default scope
+      reset state per test, making each test independent.
+    bullets:
+      - "Shared state: test A creates an item; test B sees it unexpectedly"
+      - "Solution: fresh app instance per test (new in-memory store)"
+      - "@pytest.fixture def client(): return TestClient(build_app())"
+      - "build_app() creates a new app with empty state each call"
+
+  - type: concept
+    heading: "State Transition Tests"
+    narration: >
+      CRUD APIs have state: items are created, fetched, and deleted. The most
+      valuable tests exercise these transitions end-to-end. Create an item,
+      verify it can be fetched, delete it, verify it's gone. This tests that
+      the state machine works, not just individual endpoints in isolation.
+    bullets:
+      - "POST /items → store item"
+      - "GET /items/{id} → fetch item"
+      - "DELETE /items/{id} → remove item"
+      - "GET /items/{id} after delete → 404"
+
+  - type: concept
+    heading: "Coverage — What's Enough?"
+    narration: >
+      100% code coverage is possible but usually not the right goal. More
+      valuable: coverage of every HTTP status code your API returns, every
+      Pydantic validation constraint, and every state transition. For an AI
+      app, also test that the dependency injection pattern works with a fake
+      process_fn so tests run without Ollama.
+    bullets:
+      - "Coverage goal: every status code the API can return"
+      - "Coverage goal: every Field constraint (min_length, gt, ge, le)"
+      - "Coverage goal: every state transition (create/update/delete)"
+      - "AI app: fake process_fn in tests — no Ollama dependency"
+
+  - type: summary
+    heading: "Day 062 Complete"
+    narration: >
+      Today you built a complete testing toolkit: assert_response for clear
+      failure messages, parametrize_api for batch testing, a mini test runner,
+      a regression test, and a full CRUD test suite. The deliverable is a real
+      pytest file with fixtures and parametrize — ready to run with pytest -v.
+    bullets:
+      - "assert_response: clear messages, required key check"
+      - "parametrize_api: batch testing, collect all failures"
+      - "run_test_suite: mini pytest runner (pass/fail/error)"
+      - "@pytest.fixture: fresh state per test — no isolation bugs"
+      - "pytest test_app.py -v: runs the full suite in seconds"
