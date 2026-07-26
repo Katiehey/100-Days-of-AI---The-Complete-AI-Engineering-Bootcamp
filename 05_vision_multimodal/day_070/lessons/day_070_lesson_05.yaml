@@ -1,0 +1,125 @@
+day: "070"
+lesson: 5
+title: "ImageGenerator — Full Pipeline"
+slides:
+  - type: title
+    heading: "ImageGenerator"
+    subheading: "Full pipeline class — prompt to pixel"
+    narration: >
+      The individual functions are all in place. This lesson assembles
+      them into an ImageGenerator class that binds the generate_fn at
+      construction time, exposes generate, batch, and grid methods, and
+      provides a clean interface for the final exercise and the project.
+
+  - type: how_it_works
+    label: "ImageGenerator"
+    heading: "ImageGenerator Design"
+    body: >
+      Three methods, one per use case. generate is single-image, batch
+      is multi-prompt, grid is batch + stitch.
+    bullets:
+      - "ImageGenerator(model_id='...', generate_fn=None)"
+      - ".generate(prompt, ...) -> Image.Image — one prompt, one image"
+      - ".batch(prompts, ...) -> list[Image.Image] — list of prompts"
+      - ".grid(prompts, cols=2, ...) -> Image.Image — batch + stitch"
+    narration: >
+      The class binds generate_fn at construction time, same as VisionAnalyzer
+      on Day 67 and ImageExtractor on Day 69. This makes the object reusable
+      across many generate calls without passing the mock every time. The batch
+      and grid methods are thin wrappers: batch calls generate per prompt, grid
+      calls batch then create_image_grid. No logic is duplicated.
+
+  - type: code
+    label: "Usage"
+    heading: "Using ImageGenerator"
+    code: |
+      from PIL import Image
+      from image_generator import ImageGenerator
+
+      # Testing mode — no GPU
+      mock = lambda p, **kw: Image.new('RGB',
+             (kw.get('width', 512), kw.get('height', 512)), 'steelblue')
+      gen = ImageGenerator(generate_fn=mock)
+
+      # Single image
+      img = gen.generate('a sunset over mountains', width=256, height=256)
+      print(img.size, img.mode)   # (256, 256) RGB
+
+      # Batch
+      prompts = ['a cat', 'a dog', 'a bird']
+      imgs = gen.batch(prompts, width=128, height=128)
+      print(len(imgs))   # 3
+
+      # Grid
+      grid = gen.grid(prompts, cols=3, width=128, height=128)
+      print(grid.size)   # (384, 128) — 3 cols x 1 row
+    narration: >
+      The class interface is clean and consistent. A student building an image
+      generation app swaps the mock for a real generate_fn by changing one
+      argument in the constructor, not by modifying any route handler or
+      business logic. This is the injection pattern paying off at the
+      application level.
+
+  - type: code
+    label: "Real usage"
+    heading: "Using the Real Diffusion Pipeline"
+    code: |
+      # Install first: pip install diffusers transformers accelerate torch
+      # Then pull model: python -c "from diffusers import StableDiffusionPipeline; StableDiffusionPipeline.from_pretrained('runwayml/stable-diffusion-v1-5')"
+      # GPU strongly recommended (CPU will take ~10-30 minutes per image)
+
+      from image_generator import ImageGenerator, apply_style_template
+
+      gen = ImageGenerator(model_id='runwayml/stable-diffusion-v1-5')
+
+      # Apply a style template first
+      p = apply_style_template('a golden retriever on a beach', 'photorealistic')
+
+      # Generate one image
+      img = gen.generate(p['positive'], negative=p['negative'],
+                         steps=30, guidance_scale=7.5, seed=42)
+      img.save('output.png')
+      print('Saved output.png')
+    narration: >
+      The real pipeline requires GPU memory (4-8 GB for float16, 8-16 GB for
+      float32). Smaller models like stabilityai/stable-diffusion-2-1 have
+      the same API. On CPU, generation takes minutes per image — use the mock
+      for development and switch to real generation only for final outputs
+      or when GPU is available.
+
+  - type: exercise
+    heading: "Exercise 5: ImageGenerator Class"
+    prompt: >
+      Implement the ImageGenerator class:
+      - __init__(self, model_id='runwayml/stable-diffusion-v1-5', generate_fn=None)
+      - generate(self, prompt, negative='', width=512, height=512, steps=20,
+          guidance_scale=7.5, seed=42) -> Image.Image
+        Delegates to generate_image with self._generate_fn.
+      - batch(self, prompts, **kwargs) -> list[Image.Image]
+        Returns [self.generate(p, **kwargs) for p in prompts].
+      - grid(self, prompts, cols=2, **kwargs) -> Image.Image
+        Returns create_image_grid(self.batch(prompts, **kwargs), cols=cols).
+    hint: >
+      __init__: self._model_id = model_id; self._generate_fn = generate_fn.
+      generate: return generate_image(prompt, ..., generate_fn=self._generate_fn, ...).
+      batch: list comprehension over prompts. grid: batch then create_image_grid.
+    narration: >
+      ImageGenerator is the capstone of Day 70 — it wires all five exercises
+      into a single reusable object that can be dropped into any app or
+      notebook with one line of setup.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 70 Complete"
+    bullets:
+      - "ImageGenerator: generate_fn bound at construction, three methods"
+      - ".generate() delegates to generate_image with self._generate_fn"
+      - ".batch() maps generate over a list of prompts"
+      - ".grid() = batch + create_image_grid"
+      - "Tomorrow (Day 71): Vision + RAG — search images by content"
+    narration: >
+      Day 70 is complete. You can build text-to-image prompts, generate
+      images from code with a fully mockable pipeline, create variation
+      batches, and stitch results into comparison grids — all without
+      needing a GPU for development. Tomorrow is vision RAG, combining
+      the image analysis skills from Days 66-67 with the vector search
+      skills from Days 11-12.

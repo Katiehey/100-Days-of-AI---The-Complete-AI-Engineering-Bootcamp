@@ -1,0 +1,146 @@
+day: "070"
+lesson: 2
+title: "Prompt Engineering for Images"
+slides:
+  - type: title
+    heading: "Prompt Engineering for Images"
+    subheading: "Positive prompts, negative prompts, style templates"
+    narration: >
+      Image generation quality is highly sensitive to prompt wording. This
+      lesson covers the structure of effective prompts: quality tokens that
+      boost fidelity, negative prompts that prevent artefacts, and style
+      templates that apply a consistent look across any subject.
+
+  - type: concept
+    label: "Prompt anatomy"
+    heading: "Anatomy of an Image Generation Prompt"
+    body: >
+      An effective positive prompt has three layers: subject, style, and
+      quality. Order matters — Stable Diffusion gives more weight to tokens
+      earlier in the prompt.
+    bullets:
+      - "Subject: what to show — a golden retriever on a beach at sunset"
+      - "Style: visual treatment — oil painting, impressionist, watercolor"
+      - "Quality tokens: fidelity boosters — masterpiece, 8k, highly detailed"
+      - "Rule of thumb: subject first, style second, quality last"
+    narration: >
+      Diffusion models use a transformer text encoder that attends to all
+      tokens, but empirically tokens near the start of the prompt receive
+      slightly higher attention weight. Putting the main subject first ensures
+      the model centres the image on it. Style terms in the middle shape the
+      visual treatment. Quality tokens at the end nudge the model toward its
+      best-quality training examples.
+
+  - type: concept
+    label: "Negative prompts"
+    heading: "Negative Prompts"
+    body: >
+      Negative prompts tell the model what to avoid. They are as important
+      as positive prompts for consistent quality.
+    bullets:
+      - "Common negatives: blurry, low quality, watermark, text, cropped, ugly"
+      - "Style negatives: cartoon (for photorealistic), realistic (for anime)"
+      - "Anatomy negatives: extra fingers, deformed, disfigured"
+      - "Negative prompt works via classifier-free guidance — opposite direction in latent space"
+    narration: >
+      During each denoising step, the U-Net is run twice — once conditioned
+      on the positive prompt and once on the negative prompt. The final
+      denoising direction is the positive direction minus the negative
+      direction, scaled by guidance_scale. This means negative prompts
+      actively steer the image away from unwanted concepts at every single
+      denoising step, not just as a post-filter.
+
+  - type: code
+    label: "Style templates"
+    heading: "Style Templates"
+    code: |
+      STYLE_TEMPLATES = {
+          'cinematic': {
+              'positive': 'cinematic lighting, film grain, dramatic shadows',
+              'negative': 'flat lighting, cartoon, illustration',
+          },
+          'photorealistic': {
+              'positive': 'photorealistic, 8k uhd, high detail, DSLR',
+              'negative': 'painting, drawing, blur, watermark',
+          },
+          'watercolor': {
+              'positive': 'watercolor painting, soft edges, artistic',
+              'negative': 'photorealistic, sharp, digital art',
+          },
+      }
+
+      def apply_style_template(base_prompt, template_name, templates=None):
+          tmpl = (templates or STYLE_TEMPLATES)[template_name]
+          pos = base_prompt + ', ' + tmpl['positive']
+          return {'positive': pos, 'negative': tmpl['negative']}
+
+      result = apply_style_template('a mountain lake', 'cinematic')
+      print(result['positive'][:60])   # a mountain lake, cinematic lighting...
+      print(result['negative'][:40])   # flat lighting, cartoon, illustration
+    narration: >
+      Templates separate reusable style DNA from the per-image subject.
+      The same photorealistic template applied to a dozen different subjects
+      produces a consistent visual look. Templates also make it easy to do
+      A/B comparisons — generate the same subject with watercolor vs cinematic
+      and show both to a user. The negative prompt from the template is
+      essential: photorealistic negative prevents the model from adding
+      painterly artefacts, which it would otherwise add because painting
+      examples are plentiful in training data.
+
+  - type: code
+    label: "Prompt composition"
+    heading: "Composing Prompts Programmatically"
+    code: |
+      def build_prompt(subject, style='', quality_tags=None, negative_tags=None):
+          parts = [subject]
+          if style: parts.append(style)
+          if quality_tags: parts.extend(quality_tags)
+          positive = ', '.join(p.strip() for p in parts if p.strip())
+          negative = ', '.join(t.strip() for t in (negative_tags or []) if t.strip())
+          return {'positive': positive, 'negative': negative}
+
+      p = build_prompt(
+          subject='a golden retriever on a beach at sunset',
+          style='oil painting, impressionist',
+          quality_tags=['masterpiece', 'best quality'],
+          negative_tags=['blurry', 'low quality', 'watermark'],
+      )
+      print(p['positive'])
+      # a golden retriever on a beach at sunset, oil painting,
+      # impressionist, masterpiece, best quality
+    narration: >
+      Programmatic prompt construction makes it easy to vary individual
+      components systematically — swap subjects while keeping style and quality
+      constant, or compare styles on the same subject. It also prevents typos
+      in repeated quality tokens and makes prompts easy to serialise to JSON
+      for logging and reproducibility.
+
+  - type: exercise
+    heading: "Exercise 2: Apply Style Template"
+    prompt: >
+      Implement apply_style_template(base_prompt, template_name, templates=None) -> dict.
+      Look up template_name in templates (or STYLE_TEMPLATES if None). Raise ValueError
+      for unknown names with the message: f'Unknown style template {template_name!r}.
+      Available: {list(tmpl_dict.keys())}'. Prepend base_prompt to the template's positive
+      string with ', ' separator. Return the template's negative unchanged.
+      Return {'positive': str, 'negative': str}.
+    hint: >
+      tmpl_dict = templates if templates is not None else STYLE_TEMPLATES.
+      tmpl = tmpl_dict.get(template_name) — if None: raise ValueError.
+      pos = base_prompt + ', ' + tmpl['positive'] if base_prompt.strip() else tmpl['positive'].
+    narration: >
+      Style templates are the fastest way to improve image quality
+      programmatically. This function is the core of any template system
+      that lets users pick a visual style from a menu.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Prompt order: subject → style → quality tokens"
+      - "Negative prompts steer every denoising step away from unwanted concepts"
+      - "Common negatives: blurry, low quality, watermark, text, cropped"
+      - "Style templates: reusable positive/negative pairs per visual style"
+      - "Programmatic composition: build_prompt returns a dict with positive/negative"
+    narration: >
+      Prompt engineering is in place. Next: the core generation function and
+      how all parameters wire together into a single generate_image call.

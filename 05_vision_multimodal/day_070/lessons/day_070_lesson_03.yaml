@@ -1,0 +1,139 @@
+day: "070"
+lesson: 3
+title: "The Generation Function"
+slides:
+  - type: title
+    heading: "The Generation Function"
+    subheading: "generate_image — parameters, mocking, reproducibility"
+    narration: >
+      Lessons 1 and 2 built the prompt layer. This lesson assembles
+      generate_image — the single function that accepts a prompt and all
+      generation parameters and returns a PIL Image. Like describe_image
+      on Day 67, it accepts a generate_fn mock for headless testing.
+
+  - type: how_it_works
+    label: "generate_image"
+    heading: "generate_image: Full Signature"
+    body: >
+      All generation parameters have sensible defaults. generate_fn is the
+      test injection point — same pattern as describe_fn and ocr_fn.
+    narration: >
+      The function signature captures the five dimensions of a generation
+      request: what to generate (prompt, negative), what size (width, height),
+      how much quality (steps), how literally to follow the prompt
+      (guidance_scale), and which starting noise to use (seed). All have
+      defaults that work well for general use. The generate_fn parameter
+      is the test injection point — when not None, the function is called
+      instead of the real diffusion pipeline.
+
+  - type: code
+    label: "generate_image"
+    heading: "generate_image Implementation"
+    code: |
+      from PIL import Image
+
+      def generate_image(prompt, negative='', generate_fn=None,
+                         width=512, height=512, steps=20,
+                         guidance_scale=7.5, seed=42) -> Image.Image:
+          if generate_fn is not None:
+              return generate_fn(prompt, negative=negative, width=width,
+                                 height=height, steps=steps,
+                                 guidance_scale=guidance_scale, seed=seed)
+          # Real diffusers implementation (lazy import)
+          from diffusers import StableDiffusionPipeline
+          import torch
+          pipe = StableDiffusionPipeline.from_pretrained(
+              'runwayml/stable-diffusion-v1-5',
+              torch_dtype=torch.float32,
+          )
+          generator = torch.Generator().manual_seed(seed)
+          result = pipe(prompt, negative_prompt=negative or None,
+                        width=width, height=height,
+                        num_inference_steps=steps,
+                        guidance_scale=guidance_scale,
+                        generator=generator)
+          return result.images[0]
+    narration: >
+      The lazy import of diffusers and torch means the module imports cleanly
+      even if those packages are not installed. The pipeline is only loaded
+      when generate_fn is None and a real generation is requested. For
+      exercises and tests, generate_fn is always provided, so the diffusers
+      import never runs. This is the same deferred-import pattern used for
+      ollama in Days 67-69.
+
+  - type: code
+    label: "Testing"
+    heading: "Testing generate_image with a Mock"
+    code: |
+      def mock_gen(prompt, **kwargs):
+          w = kwargs.get('width', 512)
+          h = kwargs.get('height', 512)
+          return Image.new('RGB', (w, h), 'steelblue')
+
+      # Test size propagation
+      img = generate_image('a cat', generate_fn=mock_gen,
+                           width=256, height=128)
+      assert img.size == (256, 128)    # width x height
+      assert img.mode == 'RGB'
+
+      # Test default size
+      img2 = generate_image('a dog', generate_fn=mock_gen)
+      assert img2.size == (512, 512)
+
+      print('Tests passed')
+    narration: >
+      The mock captures all keyword arguments, including width and height,
+      and returns an Image of the correct size. This tests the full call
+      chain: generate_image receives the parameters, passes them to
+      generate_fn, and returns the result. Every aspect of the function
+      except the actual diffusion computation is exercised.
+
+  - type: concept
+    label: "Reproducibility"
+    heading: "Seeds and Reproducibility"
+    body: >
+      The same prompt + seed always produces the same image. This is the
+      key to iterative prompt refinement and variation generation.
+    bullets:
+      - "seed=42: same every run — use for testing and comparison"
+      - "Different seeds, same prompt: explore the same concept differently"
+      - "torch.Generator().manual_seed(seed): sets per-call random state"
+      - "Save seed with image metadata for exact reproduction later"
+    narration: >
+      Seeds are the primary tool for systematic image exploration. To compare
+      two prompts fairly — for example, to see if a style change improves
+      quality — run both with the same seed. To generate a batch of variations
+      on a theme — same prompt, different compositions — use different seeds.
+      The generate_variations function in Exercise 4 automates this pattern:
+      it generates N images of the same prompt with seeds 42, 1042, 2042, ...
+
+  - type: exercise
+    heading: "Exercise 3: Generate Image"
+    prompt: >
+      Implement generate_image(prompt, negative='', generate_fn=None, width=512,
+      height=512, steps=20, guidance_scale=7.5, seed=42) -> Image.Image.
+      If generate_fn is not None: return generate_fn(prompt, negative=negative,
+      width=width, height=height, steps=steps, guidance_scale=guidance_scale,
+      seed=seed). Otherwise, use diffusers.StableDiffusionPipeline (lazy import).
+      The exercises all test with a mock, so the diffusers path is not required
+      to be tested here.
+    hint: >
+      if generate_fn is not None: return generate_fn(prompt, negative=negative, width=width,
+      height=height, steps=steps, guidance_scale=guidance_scale, seed=seed).
+      The mock returns Image.new('RGB', (width, height), 'steelblue').
+    narration: >
+      generate_image is the hub of the whole pipeline. All higher-level
+      functions call it. Getting the parameter forwarding right means every
+      downstream function inherits correct behaviour automatically.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "generate_image: prompt + 6 params + generate_fn → PIL Image"
+      - "generate_fn=None: lazy import diffusers, load pipeline on demand"
+      - "Lazy import: module loads cleanly even without diffusers installed"
+      - "Same seed + prompt = same image (reproducibility)"
+      - "Mock captures kwargs, returns Image.new of correct size — tests all wiring"
+    narration: >
+      The core generation function is settled. Next: generating multiple
+      images and creating a variation grid.

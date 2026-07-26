@@ -1,0 +1,126 @@
+day: "070"
+lesson: 1
+title: "How Diffusion Models Work"
+slides:
+  - type: title
+    heading: "Image Generation"
+    subheading: "Day 70 — Diffusion models, prompts, and offline exercises"
+    narration: >
+      Day 69 extracted structured data from existing images. Today you create
+      images from scratch using text prompts and diffusion models. You will
+      learn how diffusion models work, how to engineer effective prompts, and
+      how to build a generation pipeline with full mock injection so exercises
+      run offline without a GPU.
+
+  - type: concept
+    label: "Diffusion models"
+    heading: "How Diffusion Models Generate Images"
+    body: >
+      Diffusion models learn to reverse a noise process. Training adds random
+      noise to real images step by step until only noise remains. The model
+      learns to reverse that process — starting from pure noise and
+      progressively denoising toward a clean image.
+    bullets:
+      - "Forward pass: clean image → add noise → pure noise (training only)"
+      - "Reverse pass: pure noise → denoise step by step → clean image (inference)"
+      - "Each denoising step uses the text prompt as a guide"
+      - "More steps = higher quality but slower (20-50 steps typical)"
+    narration: >
+      At inference time, generation starts from a tensor of pure Gaussian noise
+      and runs the denoising loop for N steps (typically 20-50). At each step,
+      the model predicts the noise component and subtracts a fraction of it,
+      guided by the text embedding. The result after all steps is a
+      photorealistic image matching the prompt. This is why generation is slower
+      than classification — it runs the neural network dozens of times.
+
+  - type: concept
+    label: "Key parameters"
+    heading: "Key Generation Parameters"
+    body: >
+      Four parameters control generation quality and style. Understanding them
+      lets you get consistent, high-quality outputs without trial and error.
+    bullets:
+      - "steps: denoising iterations — 20 for fast, 50 for high quality"
+      - "guidance_scale: prompt adherence strength — 7.5 is standard (higher = more literal)"
+      - "seed: random starting noise — same seed + same prompt = same image"
+      - "width/height: output size — must be multiples of 8; 512x512 is standard"
+    narration: >
+      The guidance scale (also called CFG scale, from Classifier-Free Guidance)
+      controls how strongly the denoising process follows the text embedding.
+      At scale 1, the image is nearly random. At scale 7.5 it follows the
+      prompt closely. Above 12-15, images become over-saturated and unnatural.
+      The seed controls the initial noise tensor — pin it to reproduce results
+      or vary it to explore the prompt's latent space.
+
+  - type: how_it_works
+    label: "Stable Diffusion"
+    heading: "Stable Diffusion Architecture"
+    body: >
+      Stable Diffusion has three components: a text encoder, a U-Net denoiser,
+      and a VAE decoder.
+    bullets:
+      - "Text encoder (CLIP): converts prompt to embedding vector"
+      - "U-Net denoiser: predicts noise at each step, guided by text embedding"
+      - "VAE decoder: converts low-res latent to full-resolution pixel image"
+      - "Latent diffusion: noise process runs in latent space (64x64) not pixel space (512x512)"
+    narration: >
+      Stable Diffusion runs the denoising loop in a compressed latent space
+      rather than full pixel space, which is why it's fast enough to run on
+      consumer hardware. The VAE encodes a 512x512 image to a 64x64 latent,
+      the denoising loop runs at 64x64, and the VAE decoder expands the final
+      latent back to 512x512. The CLIP text encoder converts the prompt into a
+      768-dimensional embedding vector that guides each denoising step.
+
+  - type: code
+    label: "generate_fn pattern"
+    heading: "The generate_fn Injection Pattern"
+    code: |
+      from PIL import Image
+
+      # Mock: returns a plain-colour image — no GPU, no diffusers
+      def mock_gen(prompt, **kwargs):
+          w = kwargs.get('width', 512)
+          h = kwargs.get('height', 512)
+          colour = (100, 149, 237)   # cornflower blue
+          return Image.new('RGB', (w, h), colour)
+
+      # All generation functions accept generate_fn=None
+      # When None: calls the real diffusion pipeline
+      # When a callable: calls the mock instead
+      img = generate_image('a sunset over mountains',
+                           generate_fn=mock_gen, width=256, height=256)
+      print(img.size, img.mode)   # (256, 256) RGB
+    narration: >
+      The generate_fn=None injection pattern is the same approach used for
+      describe_fn on Day 67 and ocr_fn on Day 68 — a callable that replaces
+      the real model call in tests and headless CI. The mock returns a PIL
+      Image of the right size and mode, exercising all the surrounding
+      pipeline code without GPU or internet access.
+
+  - type: exercise
+    heading: "Exercise 1: Build Prompt"
+    prompt: >
+      Implement build_prompt(subject, style='', quality_tags=None, negative_tags=None) -> dict.
+      Join subject, style, and quality_tags (skip empty) into a comma-separated
+      positive string. Join negative_tags into a negative string. Return
+      {'positive': str, 'negative': str}. Empty lists or None produce empty strings.
+    hint: >
+      parts = [subject]; if style: parts.append(style); if quality_tags: parts.extend(quality_tags).
+      positive = ', '.join(p.strip() for p in parts if p.strip()).
+      negative = ', '.join(t.strip() for t in (negative_tags or []) if t.strip()).
+    narration: >
+      A clean prompt-builder is the foundation of any image generation pipeline.
+      Separating positive and negative into structured parts makes prompts easy
+      to compose programmatically from templates and user input.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Diffusion models: denoise from pure noise using text guidance"
+      - "steps 20-50, guidance_scale 7-12, seed for reproducibility"
+      - "Stable Diffusion: text encoder + U-Net denoiser + VAE decoder"
+      - "Latent diffusion: runs at 64x64 in latent space, expands to 512x512"
+      - "generate_fn=None injection: same pattern as describe_fn, ocr_fn"
+    narration: >
+      The theory is in place. Next: prompt engineering — how to write prompts
+      that reliably produce high-quality images in specific styles.

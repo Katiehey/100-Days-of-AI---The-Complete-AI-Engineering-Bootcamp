@@ -1,0 +1,124 @@
+day: "070"
+lesson: 4
+title: "Variations and Grids"
+slides:
+  - type: title
+    heading: "Variations and Grids"
+    subheading: "generate_variations, create_image_grid"
+    narration: >
+      A single image rarely captures the best interpretation of a prompt.
+      Professional image generation workflows always generate multiple
+      variations and compare them side by side. This lesson builds the
+      two functions that enable this: generate_variations creates N images
+      with different seeds, and create_image_grid stitches them into a
+      single comparison image.
+
+  - type: concept
+    label: "Variations"
+    heading: "Why Generate Multiple Variations"
+    body: >
+      Diffusion models are stochastic. The same prompt with different
+      starting noise produces different compositions, lighting, and details.
+    bullets:
+      - "Variation 1 might have better composition, variation 3 better lighting"
+      - "N=4 variations covers the most common distinct interpretations"
+      - "Compare variations by generating with seeds 0, 1000, 2000, 3000"
+      - "Pick the best one, refine its seed with prompt changes"
+    narration: >
+      Because generation starts from random noise, each run is like a random
+      draw from a distribution of images that match the prompt. Some draws are
+      excellent, some mediocre. Generating 4-8 variations lets you select the
+      best composition before investing time in higher-quality settings (more
+      steps, larger size). Using seeds 0, 1000, 2000, ... makes the variation
+      set deterministic and reproducible.
+
+  - type: code
+    label: "generate_variations"
+    heading: "generate_variations Implementation"
+    code: |
+      def generate_variations(base_prompt, n_variations,
+                               generate_fn=None, **kwargs):
+          images = []
+          for i in range(n_variations):
+              seed = i * 1000 + 42    # 42, 1042, 2042, ...
+              img = generate_image(base_prompt, generate_fn=generate_fn,
+                                   seed=seed, **kwargs)
+              images.append(img)
+          return images
+
+      mock = lambda p, **kw: Image.new('RGB', (64, 64), 'steelblue')
+      variations = generate_variations('a lighthouse', 4, generate_fn=mock)
+      print(len(variations), variations[0].size)   # 4 (64, 64)
+    narration: >
+      The seed formula `i * 1000 + 42` ensures seeds are well-separated —
+      seeds that are close together (0, 1, 2) often produce similar-looking
+      images because the initial noise tensors are correlated. Seeds 1000 apart
+      are reliably distinct. The `**kwargs` forwarding passes width, height,
+      steps and guidance_scale through to generate_image, so all generation
+      parameters can be controlled from the caller.
+
+  - type: code
+    label: "create_image_grid"
+    heading: "create_image_grid Implementation"
+    code: |
+      import math
+      from PIL import Image
+
+      def create_image_grid(images, cols=2):
+          if not images:
+              raise ValueError('images list must not be empty')
+          cols = max(1, min(cols, len(images)))
+          rows = math.ceil(len(images) / cols)
+          w, h = images[0].size
+          grid = Image.new('RGB', (cols * w, rows * h), 'white')
+          for i, img in enumerate(images):
+              col = i % cols
+              row = i // cols
+              if img.size != (w, h):
+                  img = img.resize((w, h), Image.Resampling.LANCZOS)
+              grid.paste(img, (col * w, row * h))
+          return grid
+
+      # 4 images, 2 columns → 2x2 grid of (64,64) = (128, 128)
+      imgs = [Image.new('RGB', (64, 64), c) for c in ['red','blue','green','yellow']]
+      grid = create_image_grid(imgs, cols=2)
+      print(grid.size)   # (128, 128)
+    narration: >
+      The grid function uses ceiling division for rows so odd numbers of images
+      are handled: 3 images in 2 columns gives 2 rows (2+1). The `min(cols,
+      len(images))` guard prevents cols being larger than the number of images,
+      which would create an absurdly wide grid with empty columns. Images are
+      resized to match the first image's dimensions if they differ — this
+      handles the case where mock images have different sizes than real ones.
+
+  - type: exercise
+    heading: "Exercise 4: Variations and Grid"
+    prompt: >
+      Implement two functions:
+      1. generate_variations(base_prompt, n_variations, generate_fn=None, **kwargs)
+         -> list[Image.Image]. Use seed = i * 1000 + 42 for each variation.
+         Forward kwargs to generate_image.
+      2. create_image_grid(images, cols=2) -> Image.Image. Raise ValueError for
+         empty list. Cap cols to len(images). Use math.ceil for rows. Build
+         Image.new('RGB', (cols*w, rows*h), 'white'). Paste each image at its
+         grid position (col*w, row*h). Resize mismatched images to (w, h).
+    hint: >
+      generate_variations: for i in range(n_variations): seed = i*1000+42; append generate_image(..., seed=seed, **kwargs).
+      create_image_grid: cols = max(1, min(cols, len(images))); rows = math.ceil(len(images)/cols); w,h = images[0].size.
+    narration: >
+      generate_variations and create_image_grid together form the exploration
+      loop: generate N → view grid → pick best seed → refine prompt. They are
+      the practical foundation of any image generation UI or API.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "Generate 4-8 variations per prompt to cover distinct interpretations"
+      - "Seeds i*1000+42: well-separated, deterministic, reproducible"
+      - "create_image_grid: ceiling division for rows, min(cols, n) guard"
+      - "Grid paste: position = (col*w, row*h)"
+      - "Resize mismatched images to match first image size"
+    narration: >
+      Variation generation and grid display are complete. The final lesson
+      wraps everything into an ImageGenerator class and connects to the
+      full pipeline.
