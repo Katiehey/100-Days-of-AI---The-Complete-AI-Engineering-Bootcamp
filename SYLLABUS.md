@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–67 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–4 complete. Days 66–67 (Images in Python, Vision LLM) complete. Days 68–100 pending (next: Day 68 — OCR & Document AI).
+**Authoring status:** Days 1–68 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–4 complete. Days 66–68 (Images in Python, Vision LLM, OCR & Document AI) complete. Days 69–100 pending (next: Day 69 — Multimodal Extraction).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
