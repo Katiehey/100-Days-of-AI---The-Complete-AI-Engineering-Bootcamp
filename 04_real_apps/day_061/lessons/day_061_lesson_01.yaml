@@ -1,0 +1,59 @@
+day: 61
+lesson: 1
+title: "Why Monitoring Matters"
+slides:
+  - type: title
+    heading: "Day 061 — Monitoring & Logging"
+    subheading: "See what production does"
+
+  - type: concept
+    heading: "You Can't Fix What You Can't See"
+    narration: >
+      A deployed app that nobody monitors is effectively a black box. When
+      something breaks at 3am, you need to know: what broke, when it broke,
+      how long it was broken, and how many users were affected. Without
+      monitoring, you're debugging blind.
+    bullets:
+      - "Observability: can you understand the system's internal state from its outputs?"
+      - "Three pillars: logs (what happened), metrics (how often/fast), traces (where time went)"
+      - "Today: logs + metrics — the foundation every production app needs"
+      - "Traces (OpenTelemetry) come later — Day 61 covers the fundamentals"
+
+  - type: concept
+    heading: "Logs vs Metrics vs Traces"
+    narration: >
+      Logs are timestamped event records — what happened and when. Metrics are
+      numeric measurements aggregated over time — how many and how fast.
+      Traces follow a single request through every service it touches. You need
+      all three eventually, but logs and metrics are where you start.
+    bullets:
+      - "Logs: 'POST /ask 200 OK in 350ms' — discrete events with context"
+      - "Metrics: 'avg latency 350ms, error rate 0.3%' — aggregates over time"
+      - "Traces: 'FastAPI → Ollama took 340ms of the 350ms' — distributed timing"
+      - "Today: logs with Python logging module + metrics with a simple collector"
+
+  - type: concept
+    heading: "The Cost of Not Monitoring"
+    narration: >
+      A common pattern: ship without monitoring, something breaks in production,
+      users complain before the team notices. Monitoring catches problems before
+      users do. Error rate spikes before user-reported tickets. Latency trends
+      up before the app becomes unusably slow.
+    bullets:
+      - "Reactive debugging: user reports bug → team scrambles → no data to work with"
+      - "Proactive monitoring: error rate alert fires → team investigates → fix before users notice"
+      - "Even one /health endpoint + error rate alert is vastly better than nothing"
+      - "Logging and metrics take an hour to add and save hours of debugging"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Monitoring is not optional for production AI apps. Logs tell you what
+      happened. Metrics tell you how often and how fast. Today you will build
+      both from scratch using Python's stdlib logging module and a simple
+      MetricsCollector class.
+    bullets:
+      - "Observability: logs + metrics + traces"
+      - "Logs: discrete events; metrics: numeric aggregates"
+      - "Error rate + latency are the two most important metrics"
+      - "Add monitoring before shipping, not after something breaks"

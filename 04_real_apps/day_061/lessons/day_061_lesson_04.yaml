@@ -1,0 +1,71 @@
+day: 61
+lesson: 4
+title: "Metrics — Counting What Matters"
+slides:
+  - type: title
+    heading: "Request Metrics"
+    subheading: "Counting requests, errors, and latency"
+
+  - type: concept
+    heading: "The Four Golden Signals"
+    narration: >
+      Google's SRE book defines four signals that cover most production problems.
+      For an AI API, all four matter. Saturation is the hardest to measure — it
+      usually means your Ollama GPU is at 100% utilisation and requests are
+      queuing. Start with error rate and latency; add the others as you grow.
+    bullets:
+      - "Latency: how long requests take (avg, p95, p99)"
+      - "Traffic: how many requests per second"
+      - "Errors: what fraction of requests fail (4xx/5xx)"
+      - "Saturation: how full is your resource (GPU, queue depth)"
+
+  - type: code
+    heading: "MetricsCollector"
+    narration: >
+      A simple accumulator stores request count, error count, and a list of
+      latency samples. summary() computes error rate and average latency on
+      demand. For a single-server app, this list-based approach is fine.
+    code: |
+      class MetricsCollector:
+          def __init__(self):
+              self._requests = 0
+              self._errors   = 0
+              self._latencies: list[float] = []
+
+          def record(self, status_code: int, duration_ms: float) -> None:
+              self._requests += 1
+              if status_code >= 400:
+                  self._errors += 1
+              self._latencies.append(duration_ms)
+
+          def summary(self) -> dict:
+              avg  = sum(self._latencies) / len(self._latencies) if self._latencies else 0.0
+              rate = self._errors / self._requests if self._requests else 0.0
+              return {"requests": self._requests, "errors": self._errors,
+                      "avg_latency_ms": round(avg, 1), "error_rate": round(rate, 3)}
+
+  - type: concept
+    heading: "FastAPI Middleware"
+    narration: >
+      Middleware wraps every request. The @app.middleware decorator registers
+      an async function that receives request and call_next. Measure time before
+      call_next, record metrics after. The response status code and duration are
+      available to record in the collector.
+    bullets:
+      - "@app.middleware('http') async def m(request, call_next): ..."
+      - "start = time.monotonic() before call_next"
+      - "response = await call_next(request) — runs the route"
+      - "collector.record(response.status_code, duration_ms) after"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Track requests, errors, and latency. Use MetricsCollector.record() inside
+      FastAPI middleware to capture every request automatically. Expose
+      summary() via GET /metrics so operators can check the app's health.
+      Exercise 3 builds MetricsCollector; Exercise 4 wires it into FastAPI.
+    bullets:
+      - "status_code >= 400 counts as an error (4xx client error, 5xx server error)"
+      - "error_rate = errors / requests (0.0 if no requests)"
+      - "@app.middleware('http'): wraps every request, including errors"
+      - "GET /metrics: operational dashboard in one curl command"

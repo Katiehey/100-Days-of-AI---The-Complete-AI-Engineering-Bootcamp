@@ -1,0 +1,67 @@
+day: 61
+lesson: 3
+title: "Structured Logging — JSON Lines"
+slides:
+  - type: title
+    heading: "Structured Logging"
+    subheading: "One JSON object per log line"
+
+  - type: concept
+    heading: "Plain Text vs Structured Logs"
+    narration: >
+      Plain text logs are readable but hard to query. When you have thousands
+      of log lines, you need to filter by status code, prompt length, or user ID.
+      Structured logs — one JSON object per line — let log aggregation tools
+      index every field and query them like a database.
+    bullets:
+      - "Plain: '2026-01-01 12:00:00 | INFO | POST /ask 200 350ms'"
+      - "Structured: {\"level\":\"INFO\",\"status\":200,\"duration_ms\":350}"
+      - "Datadog/Loki/CloudWatch: query structured fields instantly"
+      - "grep works on plain text; structured logs work in both"
+
+  - type: code
+    heading: "JsonFormatter"
+    narration: >
+      Subclass logging.Formatter and override format. Build a dict with the
+      standard fields, add an exc key only when there is exception info, and
+      return json.dumps of the dict. Every log record becomes one JSON line.
+    code: |
+      import json, logging
+      from datetime import datetime
+
+      class JsonFormatter(logging.Formatter):
+          def format(self, record: logging.LogRecord) -> str:
+              entry = {
+                  "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+                  "level":     record.levelname,
+                  "logger":    record.name,
+                  "message":   record.getMessage(),
+              }
+              if record.exc_info:
+                  entry["exc"] = self.formatException(record.exc_info)
+              return json.dumps(entry)
+
+  - type: concept
+    heading: "Extra Fields for AI Context"
+    narration: >
+      For AI apps, add domain-specific fields to every log line: prompt length,
+      model name, cache hit status. Pass them as the extra dict to logger calls.
+      The LogRecord stores them as attributes, which your formatter can read.
+    bullets:
+      - "logger.info('ask', extra={'prompt_len': 42, 'cache_hit': True})"
+      - "record.__dict__['prompt_len'] is accessible in format()"
+      - "Useful fields: prompt_len, model, cache_hit, user_id, request_id"
+      - "Keep sensitive content out of logs — log metadata, not the prompt text"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Structured logging produces one JSON object per log line. Override
+      format(record) in a Formatter subclass. Use record.getMessage() for the
+      message, record.created for the timestamp, and record.exc_info for
+      exception tracebacks. Exercise 2 has you build JsonFormatter.
+    bullets:
+      - "Subclass logging.Formatter, override format(record) -> str"
+      - "record.getMessage(): message with args applied"
+      - "record.created: Unix timestamp (use datetime.fromtimestamp)"
+      - "record.exc_info: (type, value, tb) or None; formatException for text"

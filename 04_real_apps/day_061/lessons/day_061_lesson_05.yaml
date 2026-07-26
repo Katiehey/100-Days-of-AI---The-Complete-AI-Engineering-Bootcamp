@@ -1,0 +1,74 @@
+day: 61
+lesson: 5
+title: "Health Endpoints & Dependency Checks"
+slides:
+  - type: title
+    heading: "Health Endpoints"
+    subheading: "The first thing load balancers check"
+
+  - type: concept
+    heading: "Shallow vs Deep Health Checks"
+    narration: >
+      A shallow health check just proves HTTP works — it returns 200 with no
+      external dependencies. A deep health check verifies each dependency:
+      database, cache, model server. Shallow checks are for load balancers
+      (fast, always safe). Deep checks are for dashboards and debugging.
+    bullets:
+      - "Shallow: GET /health → 200 {status: ok} (no DB, no Ollama call)"
+      - "Deep: check each dependency, report individual status"
+      - "Load balancers poll every 30s — slow checks cause false removals"
+      - "Keep shallow check under 100ms; deep check can be slower"
+
+  - type: code
+    heading: "make_health_report"
+    narration: >
+      Wrap each dependency check in try/except — a check that raises means the
+      dependency is down, not that the health endpoint itself should 500. Collect
+      all results, then compute the overall status from the individual results.
+    code: |
+      def make_health_report(services: dict) -> dict:
+          results = {}
+          for name, fn in services.items():
+              try:
+                  results[name] = bool(fn())
+              except Exception:
+                  results[name] = False   # exception = down
+
+          if not results:
+              status = "ok"
+          elif all(results.values()):
+              status = "ok"
+          elif not any(results.values()):
+              status = "down"
+          else:
+              status = "degraded"
+
+          return {"status": status, "services": results}
+
+  - type: concept
+    heading: "Degraded State"
+    narration: >
+      The 'degraded' state is critical for high-availability systems. If
+      one of two database replicas is down, the service can still serve reads
+      from the other — it is degraded, not down. The load balancer keeps sending
+      traffic. On-call gets an alert. Users notice nothing. This is the
+      difference between a 30-minute incident and a 3-hour outage.
+    bullets:
+      - "'ok': all checks pass — send traffic normally"
+      - "'degraded': some pass, some fail — send traffic with a warning"
+      - "'down': all fail — remove from load balancer rotation"
+      - "Degrade gracefully: cache down → slower but functional; DB down → 503"
+
+  - type: summary
+    heading: "Day 061 Complete"
+    narration: >
+      Today you built a complete monitoring stack: structured JSON logging,
+      request metrics with error rate and latency, FastAPI middleware that
+      records every request automatically, and a health check that aggregates
+      dependency statuses. These four tools make your AI apps production-ready.
+    bullets:
+      - "setup_logger: named logger, level filter, StreamHandler"
+      - "JsonFormatter: one JSON object per log line"
+      - "MetricsCollector: requests, errors, avg latency, error rate"
+      - "@app.middleware('http'): records every request automatically"
+      - "make_health_report: ok / degraded / down from dependency checks"

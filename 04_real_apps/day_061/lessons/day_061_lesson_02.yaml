@@ -1,0 +1,72 @@
+day: 61
+lesson: 2
+title: "Python Logging Module"
+slides:
+  - type: title
+    heading: "Python logging Module"
+    subheading: "The right way to emit diagnostic output"
+
+  - type: concept
+    heading: "Why Not print()?"
+    narration: >
+      print() always outputs regardless of severity. You cannot filter it by
+      level, redirect it to a file, or format it consistently. The logging module
+      adds levels, handlers, and formatters — giving you control over what
+      appears, where it goes, and how it looks.
+    bullets:
+      - "print(): always on, always stdout, no metadata, no filtering"
+      - "logging: levels (DEBUG < INFO < WARNING < ERROR < CRITICAL)"
+      - "Set level once — messages below it are silently dropped (zero cost)"
+      - "Production: INFO level; debugging: DEBUG level (one env var change)"
+
+  - type: code
+    heading: "Setup pattern"
+    narration: >
+      getLogger returns a singleton per name — calling it twice with the same
+      name gives the same object. The if not handlers guard prevents adding a
+      second handler if the function is called again. Set propagate=False to
+      stop records bubbling to the root logger and appearing twice.
+    code: |
+      import logging, sys
+
+      def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
+          logger = logging.getLogger(name)
+          logger.setLevel(getattr(logging, level.upper()))
+          if not logger.handlers:
+              h = logging.StreamHandler(sys.stdout)
+              h.setFormatter(logging.Formatter(
+                  "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+              ))
+              logger.addHandler(h)
+          logger.propagate = False
+          return logger
+
+      log = setup_logger("myapp", "INFO")
+      log.info("Server started")       # emitted
+      log.debug("Verbose detail")      # filtered (below INFO)
+      log.error("Something broke")     # emitted
+
+  - type: concept
+    heading: "Levels, Handlers, Formatters"
+    narration: >
+      A logger has three connected pieces. The level filter decides which records
+      to process. Handlers decide where records go (stdout, a file, a network
+      sink). Formatters decide what each record looks like as a string.
+    bullets:
+      - "Level: DEBUG=10, INFO=20, WARNING=30, ERROR=40, CRITICAL=50"
+      - "Handler: StreamHandler (stdout/stderr), FileHandler (file), RotatingFileHandler"
+      - "Formatter: controls the output string — plain text or JSON"
+      - "One logger can have multiple handlers (e.g. stdout + file)"
+
+  - type: summary
+    heading: "Key Takeaways"
+    narration: >
+      Replace print() with logging. Use named loggers (one per module), set the
+      level via an environment variable, and add exactly one handler in a setup
+      function protected by the if not handlers guard. Exercise 1 has you
+      implement setup_logger.
+    bullets:
+      - "logging.getLogger(name): singleton per name"
+      - "logger.setLevel(logging.WARNING): filter below WARNING"
+      - "if not logger.handlers: add handler once"
+      - "logger.propagate = False: no double output via root logger"
