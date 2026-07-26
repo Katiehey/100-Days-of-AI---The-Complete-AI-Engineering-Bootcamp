@@ -1,0 +1,117 @@
+day: "071"
+lesson: 4
+title: "Querying the Index"
+slides:
+  - type: title
+    heading: "Querying the Index"
+    subheading: "search_by_text and search_by_image"
+    narration: >
+      With an index built, there are two ways to search it: with text and
+      with an image. This lesson implements both query paths. Both end with
+      the same index.search call — they differ only in how the query vector
+      is produced.
+
+  - type: how_it_works
+    label: "search_by_text"
+    heading: "search_by_text: Text Query Path"
+    body: >
+      One step: embed the query text, then call index.search. The embedding
+      model is the same model used at index time.
+    narration: >
+      search_by_text is intentionally thin. All the retrieval logic is in
+      ImageIndex.search; all the embedding logic is in embed_text. search_by_text
+      just connects them with the query string as input and the ranked result
+      list as output. The n parameter is passed through to index.search so the
+      caller controls how many results to return.
+
+  - type: code
+    label: "search_by_text"
+    heading: "search_by_text Implementation"
+    code: |
+      def search_by_text(query, index, embed_fn=None, n=5):
+          q_emb = embed_text(query, embed_fn=embed_fn)
+          return index.search(q_emb, n=n)
+
+      results = search_by_text('a red object', index, embed_fn=mock_embed, n=3)
+      for r in results:
+          print(r['id'], f"{r['score']:.3f}", r['description'][:40])
+    narration: >
+      search_by_text embeds the query with the same embed_fn used at index
+      time. This is essential — if index time uses nomic-embed-text and query
+      time uses a different model, the vectors would be in incompatible spaces
+      and cosine similarity would be meaningless. The mock embed_fn is the
+      same function passed to index_images, ensuring test results are
+      consistent.
+
+  - type: how_it_works
+    label: "search_by_image"
+    heading: "search_by_image: Image Query Path"
+    body: >
+      Two steps: describe the query image, then embed the description.
+      After that, identical to search_by_text.
+    bullets:
+      - "Describe query image: describe_image_for_search(img, describe_fn)"
+      - "Embed description: embed_text(desc, embed_fn)"
+      - "Search: index.search(q_emb, n)"
+      - "Result: images similar in content to the query image"
+    narration: >
+      search_by_image is the powerful form. A user can drag an image into a
+      search box and get back visually similar images from the index — a
+      reverse image search powered by the same vision LLM and embedding model
+      used at index time. The function describes the query image into the same
+      text space as the indexed descriptions, then the cosine search finds
+      the closest descriptions. Two images of sunsets will get similar
+      embeddings because their LLM descriptions share words like sunset,
+      golden, horizon, orange sky.
+
+  - type: code
+    label: "search_by_image"
+    heading: "search_by_image Implementation"
+    code: |
+      def search_by_image(img, index, describe_fn=None, embed_fn=None, n=5):
+          desc  = describe_image_for_search(img, describe_fn=describe_fn)
+          q_emb = embed_text(desc, embed_fn=embed_fn)
+          return index.search(q_emb, n=n)
+
+      query_img = Image.new('RGB', (64, 64), 'darkred')
+      results = search_by_image(query_img, index,
+                                describe_fn=mock_describe,
+                                embed_fn=mock_embed, n=2)
+      for r in results:
+          print(r['id'], f"{r['score']:.3f}")
+    narration: >
+      The two-line body mirrors the description → embedding pipeline: describe
+      the query image the same way indexed images were described, then embed
+      that description the same way indexed descriptions were embedded. The
+      result is a query vector in the same space as all indexed vectors, so
+      cosine similarity finds genuinely similar images.
+
+  - type: exercise
+    heading: "Exercise 4: search_by_text + search_by_image"
+    prompt: >
+      Implement search_by_text(query, index, embed_fn=None, n=5) -> list[dict]:
+      embed_text(query, embed_fn) then index.search(q_emb, n).
+      Implement search_by_image(img, index, describe_fn=None, embed_fn=None,
+      n=5) -> list[dict]: describe_image_for_search(img, describe_fn), then
+      embed_text(desc, embed_fn), then index.search(q_emb, n).
+      Both return list of dicts with id, description, score, metadata.
+    hint: >
+      search_by_text: q_emb = embed_text(query, embed_fn=embed_fn); return index.search(q_emb, n=n).
+      search_by_image: desc = describe_image_for_search(img, describe_fn=describe_fn); q_emb = embed_text(desc, embed_fn=embed_fn); return index.search(q_emb, n=n).
+    narration: >
+      The two search functions are deliberately thin. They compose the
+      building blocks built across the last three exercises, showing how the
+      whole pipeline assembles from small tested pieces.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "search_by_text: embed query → index.search"
+      - "search_by_image: describe query image → embed → index.search"
+      - "Same embed_fn must be used at index time and query time"
+      - "Result dicts: id, description, score (cosine sim), metadata"
+      - "Reverse image search powered by LLM descriptions in shared embedding space"
+    narration: >
+      Both search paths work. The final lesson wraps everything into
+      ImageSearchEngine — the class that holds state and provides a clean
+      API for any application.

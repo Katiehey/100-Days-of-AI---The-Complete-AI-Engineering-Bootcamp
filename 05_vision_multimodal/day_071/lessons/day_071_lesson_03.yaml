@@ -1,0 +1,110 @@
+day: "071"
+lesson: 3
+title: "Building the Image Index"
+slides:
+  - type: title
+    heading: "Building the Image Index"
+    subheading: "index_images — batch describe, embed, store"
+    narration: >
+      With describe_image_for_search and embed_text in place, indexing a
+      collection is a simple loop. This lesson builds index_images, which
+      takes a list of images and returns a populated ImageIndex ready to
+      query.
+
+  - type: how_it_works
+    label: "index_images"
+    heading: "index_images: Input Format and Logic"
+    body: >
+      Input is a list of tuples: (image_id, img, metadata). Output is a
+      populated ImageIndex. One loop body: describe → embed → add.
+    bullets:
+      - "Each tuple: (str image_id, PIL Image, dict metadata)"
+      - "Describe: call describe_image_for_search(img, describe_fn)"
+      - "Embed: call embed_text(desc, embed_fn)"
+      - "Store: index.add(image_id, desc, emb, metadata)"
+    narration: >
+      The tuple input format keeps the function signature clean: one argument
+      per image item, no parallel lists to keep in sync. Using a list of
+      tuples also means the caller can zip together separate id and image lists
+      if they already have them that way. The metadata dict holds any extra
+      information about the image — filename, date, category, source — that
+      should be returned with search results without being part of the
+      embedding.
+
+  - type: code
+    label: "index_images"
+    heading: "index_images Implementation"
+    code: |
+      def index_images(images_with_ids, describe_fn=None, embed_fn=None):
+          index = ImageIndex()
+          for image_id, img, metadata in images_with_ids:
+              desc = describe_image_for_search(img, describe_fn=describe_fn)
+              emb  = embed_text(desc, embed_fn=embed_fn)
+              index.add(image_id, desc, emb, metadata or {})
+          return index
+
+      # Usage
+      from PIL import Image
+      imgs = [
+          ('img_001', Image.new('RGB', (64,64), 'red'),   {'category': 'red'}),
+          ('img_002', Image.new('RGB', (64,64), 'blue'),  {'category': 'blue'}),
+          ('img_003', Image.new('RGB', (64,64), 'green'), {'category': 'green'}),
+      ]
+      index = index_images(imgs, describe_fn=mock_describe, embed_fn=mock_embed)
+      print(len(index))   # 3
+    narration: >
+      The loop is three lines: describe, embed, add. The simplicity is
+      intentional. There is no batching logic, no progress bar, no retry —
+      those would be appropriate additions for a production indexer over
+      10,000 images but would obscure the core logic here. For a production
+      indexer, you would add concurrent describe calls (using a thread pool
+      since Ollama is I/O-bound) and progress tracking via tqdm. For the
+      course, the sequential version is exactly right.
+
+  - type: concept
+    label: "Metadata"
+    heading: "Why Store Metadata Alongside Embeddings"
+    body: >
+      The vector index only stores floats. The metadata dict stores anything
+      else you need to show in search results.
+    bullets:
+      - "Common metadata: filename, capture date, category, photographer"
+      - "Returned in every search result dict — no second lookup needed"
+      - "Not embedded — metadata is not part of similarity calculation"
+      - "Example: retrieve the S3 URL from metadata to show the image"
+    narration: >
+      Without metadata, a search result would only give you back the image_id
+      and description — not enough to display or link to the actual image.
+      Storing the filename or URL in metadata means search results are
+      immediately actionable: you have everything you need to render the image
+      in a UI without a second database lookup. The metadata is never used in
+      the cosine similarity calculation — it is passenger data that travels
+      with the indexed item.
+
+  - type: exercise
+    heading: "Exercise 3: index_images"
+    prompt: >
+      Implement index_images(images_with_ids, describe_fn=None, embed_fn=None)
+      -> ImageIndex. Create an ImageIndex, then for each (image_id, img,
+      metadata) in images_with_ids: call describe_image_for_search, then
+      embed_text, then index.add. Return the populated index.
+    hint: >
+      index = ImageIndex(); for image_id, img, metadata in images_with_ids:
+      desc = describe_image_for_search(img, describe_fn=describe_fn);
+      emb = embed_text(desc, embed_fn=embed_fn);
+      index.add(image_id, desc, emb, metadata or {}).
+    narration: >
+      index_images is the bridge between a file system full of images and a
+      queryable vector index. Call it once on your collection, persist the
+      index if needed, then serve search queries against it.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "index_images input: list of (image_id, img, metadata) tuples"
+      - "Three-line loop body: describe → embed → add"
+      - "Metadata stored alongside vector but excluded from similarity math"
+      - "Production addition: concurrent describe calls (Ollama is I/O-bound)"
+      - "index_images returns a ready-to-query ImageIndex"
+    narration: >
+      Indexing is complete. Next: querying the index by text and by image.

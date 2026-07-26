@@ -1,0 +1,141 @@
+day: "071"
+lesson: 2
+title: "Describing and Embedding Images"
+slides:
+  - type: title
+    heading: "Describing and Embedding Images"
+    subheading: "describe_image_for_search and embed_text"
+    narration: >
+      The ImageIndex from Lesson 1 needs float vectors to search against.
+      This lesson builds the two functions that produce those vectors:
+      describe_image_for_search converts a PIL Image to a text description,
+      and embed_text converts that text to a float vector. Both accept mock
+      callables so they run in tests without Ollama.
+
+  - type: concept
+    label: "Search prompt"
+    heading: "Writing a Search-Optimised Description Prompt"
+    body: >
+      The search prompt is different from the general describe prompt in
+      Day 67. It asks for indexable, searchable content rather than a
+      narrative sentence.
+    bullets:
+      - "Day 67 prompt: describe what you see in one sentence"
+      - "Search prompt: list subjects, colours, setting, visible text, mood"
+      - "Richer description = more attributes to match queries against"
+      - "Consistent format = more uniform embedding space"
+    narration: >
+      A general-purpose description like "A man sitting in a chair" embeds
+      differently from a search-optimised description like "A middle-aged man
+      in a blue shirt seated at a wooden desk in an office, with bookshelves
+      behind him, warm lighting, casual professional setting." The second
+      version has far more query-matchable attributes. When a user searches
+      for "office" or "bookshelves" or "warm lighting", the richer description
+      produces a higher cosine similarity than the sparse one.
+
+  - type: code
+    label: "describe_image_for_search"
+    heading: "describe_image_for_search"
+    code: |
+      _SEARCH_PROMPT = (
+          'Describe this image in detail for use in a semantic search index. '
+          'Include: main subjects, colors, textures, setting, and visible text. '
+          'Write one concise paragraph of 2-3 sentences.'
+      )
+
+      def describe_image_for_search(img, describe_fn=None):
+          img_b64 = image_to_base64(img)
+          if describe_fn is not None:
+              return describe_fn(img_b64, _SEARCH_PROMPT)
+          import ollama
+          resp = ollama.chat(
+              model='llava',
+              messages=[{'role': 'user', 'content': _SEARCH_PROMPT,
+                         'images': [img_b64]}],
+          )
+          return resp['message']['content'].strip()
+    narration: >
+      The function follows the same describe_fn=None injection pattern
+      established on Day 67. image_to_base64 is called once to get the
+      base64 string, then describe_fn is called with that string and the
+      search-optimised prompt. When describe_fn is None, a real Ollama llava
+      call runs instead. The `.strip()` removes any leading or trailing
+      whitespace from the model's response before storing in the index.
+
+  - type: concept
+    label: "embed_text"
+    heading: "Text Embeddings for Search"
+    body: >
+      The same embedding model must be used for both indexing and querying.
+      Ollama supports nomic-embed-text, a fast 768-dim text embedding model.
+    bullets:
+      - "ollama pull nomic-embed-text (run once before real usage)"
+      - "ollama.embeddings(model='nomic-embed-text', prompt=text) -> {'embedding': [...]}"
+      - "Dimensions: 768 floats per text string"
+      - "embed_fn=None injection: same pattern as describe_fn"
+    narration: >
+      nomic-embed-text is a dedicated embedding model, not a chat model.
+      It converts any text string to a 768-dimensional float vector that
+      captures semantic meaning. The same model must be used for both
+      document embedding (at index time) and query embedding (at search time)
+      so both live in the same vector space and cosine similarity is
+      meaningful. For tests, the mock embed_fn returns a small fixed vector
+      of any dimension — cosine similarity works on any dimension.
+
+  - type: code
+    label: "embed_text"
+    heading: "embed_text Implementation"
+    code: |
+      def embed_text(text, embed_fn=None):
+          if embed_fn is not None:
+              return embed_fn(text)
+          import ollama
+          resp = ollama.embeddings(model='nomic-embed-text', prompt=text)
+          return resp['embedding']
+
+      # Mock for testing — returns a deterministic 4-dim vector
+      import hashlib
+
+      def _mock_embed(text):
+          h = int(hashlib.md5(text.encode()).hexdigest()[:8], 16)
+          return [((h >> (i * 8)) & 0xff) / 128.0 - 1.0 for i in range(4)]
+
+      print(_mock_embed('a red car'))   # e.g. [0.34, -0.12, 0.88, -0.5]
+      print(_mock_embed('a blue sky'))  # different vector
+    narration: >
+      The hashlib-based mock is deterministic — same text always returns the
+      same vector. Different texts return different vectors. This makes tests
+      reliable without needing a running Ollama instance. The vector is 4
+      dimensions (arbitrary), which is fine for cosine similarity — the math
+      works on any dimension. In production, nomic-embed-text returns 768
+      dimensions.
+
+  - type: exercise
+    heading: "Exercise 2: describe_image_for_search + embed_text"
+    prompt: >
+      Implement describe_image_for_search(img, describe_fn=None) -> str:
+      call image_to_base64(img) then describe_fn(img_b64, _SEARCH_PROMPT)
+      if describe_fn is not None, else use ollama.chat with model='llava'.
+      Strip the result.
+      Implement embed_text(text, embed_fn=None) -> list[float]:
+      call embed_fn(text) if not None, else use
+      ollama.embeddings(model='nomic-embed-text', prompt=text).
+    hint: >
+      describe: img_b64 = image_to_base64(img); if describe_fn: return describe_fn(img_b64, _SEARCH_PROMPT).strip().
+      embed: if embed_fn: return embed_fn(text); else import ollama; return ollama.embeddings(...)['embedding'].
+    narration: >
+      These two functions are the data pipeline into the index. Together
+      they take a PIL Image and return a float vector — converting visual
+      content to a point in semantic space.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Search prompt: richer than general describe — lists subjects, colours, setting, text"
+      - "describe_image_for_search: image_to_base64 → describe_fn or ollama.chat llava"
+      - "embed_text: embed_fn or ollama.embeddings nomic-embed-text"
+      - "Both use fn=None injection — same pattern as Day 67"
+      - "Mock embed: hashlib MD5 → deterministic 4-dim vector"
+    narration: >
+      The data pipeline into the index is ready. Next: building the full
+      index from a batch of images with index_images.

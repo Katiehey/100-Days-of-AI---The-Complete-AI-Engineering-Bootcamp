@@ -1,0 +1,136 @@
+day: "071"
+lesson: 1
+title: "Vision RAG — Concept and Architecture"
+slides:
+  - type: title
+    heading: "Vision + RAG"
+    subheading: "Day 71 — Content-based image search with vision LLMs"
+    narration: >
+      Days 67 through 70 built the vision half of this day: describing images,
+      extracting structured data, generating images. Days 11 through 13 built
+      the search half: embeddings, vector databases, and RAG. Today you combine
+      them. Vision RAG is content-based image retrieval — find images by what
+      they contain, not by their filename or tag.
+
+  - type: concept
+    label: "The problem"
+    heading: "Why You Cannot Keyword-Search Images"
+    body: >
+      A JPEG has no built-in text content. Traditional keyword search only
+      finds images whose filenames or tags were manually entered. Vision RAG
+      solves this by generating text automatically.
+    bullets:
+      - "Filename search: only finds cars if someone named the file car.jpg"
+      - "Manual tagging: expensive, inconsistent, incomplete at scale"
+      - "Vision RAG: let the LLM read the image and generate searchable text"
+      - "Result: search 10,000 images by content with no human labelling"
+    narration: >
+      Every image-heavy app eventually hits the same wall: users search for
+      a concept and get back nothing because the relevant image was never
+      manually tagged. Vision RAG bypasses this entirely. The vision LLM acts
+      as an automatic tagger — one that reads colour, subject, setting, mood,
+      and visible text. The text description is then embedded in the same
+      vector space as text queries, so searching by text and searching by
+      content become the same operation.
+
+  - type: how_it_works
+    label: "Pipeline"
+    heading: "The Vision RAG Pipeline"
+    body: >
+      Four stages: describe, embed, store, retrieve. Two of these stages
+      run at index time, two at query time.
+    bullets:
+      - "Index: image → vision LLM → description string"
+      - "Index: description → text embedding model → float vector → store"
+      - "Query: user query text → same embedding model → float vector"
+      - "Retrieve: cosine similarity between query vector and all stored vectors"
+    narration: >
+      Indexing is the offline phase: run it once per image. For each image,
+      call the vision LLM to get a text description, then call the embedding
+      model to convert that description to a float vector. Store both the
+      vector and the original description in the index. At query time, embed
+      the query text (or describe a query image first), then compute cosine
+      similarity against every stored vector and return the top N. The two
+      embedding calls use the same model, so the query and document vectors
+      are in the same space.
+
+  - type: code
+    label: "Mocking"
+    heading: "The Two Injection Points"
+    code: |
+      from PIL import Image
+
+      # Injection point 1: vision LLM
+      # describe_fn(img_b64: str, prompt: str) -> str
+      mock_describe = lambda b64, p: 'a red car on a sunny road'
+
+      # Injection point 2: text embedding model
+      # embed_fn(text: str) -> list[float]
+      mock_embed = lambda text: [0.1, 0.9, 0.3, 0.5]
+
+      # Both injected at engine construction time
+      from visual_search import ImageSearchEngine
+      engine = ImageSearchEngine(
+          describe_fn=mock_describe,
+          embed_fn=mock_embed,
+      )
+      img = Image.new('RGB', (64, 64), 'red')
+      desc = engine.add_image('car_001', img, {'label': 'car'})
+      print(desc)   # a red car on a sunny road
+    narration: >
+      Two injection points means two independently mockable components.
+      In tests you can inject a describe_fn that returns a fixed string and
+      an embed_fn that returns a fixed vector — no Ollama required, no GPU
+      required, gate runs in under a second. In production you swap both
+      None values back in and the real Ollama calls run. None of the routing
+      or search logic changes.
+
+  - type: concept
+    label: "vs Day 13"
+    heading: "Vision RAG vs Text RAG (Day 13)"
+    body: >
+      Text RAG stores chunks of text documents. Vision RAG stores
+      LLM-generated image descriptions. The retrieval mechanism is identical.
+    bullets:
+      - "Text RAG: split document → embed chunk → store → embed query → retrieve"
+      - "Vision RAG: describe image → embed description → store → embed query → retrieve"
+      - "Same cosine similarity search either way"
+      - "Difference: the source of the indexed text (chunks vs LLM descriptions)"
+    narration: >
+      The retrieval half of Vision RAG is exactly the same as Day 13. The
+      difference is in what gets indexed. Instead of splitting a PDF into
+      chunks, you run each image through a vision LLM to produce a text
+      chunk. From the vector store's perspective, both look identical: a
+      text string and a float vector. This means any vector database from
+      Day 12 — ChromaDB, FAISS, or a pure-numpy in-memory index — works
+      unchanged for Vision RAG.
+
+  - type: exercise
+    heading: "Exercise 1: cosine_similarity + ImageIndex"
+    prompt: >
+      Implement cosine_similarity(a, b) -> float: compute dot(a, b) /
+      (norm(a) * norm(b)). Return 0.0 if either norm is zero.
+      Then implement ImageIndex with add(image_id, description, embedding,
+      metadata=None), search(query_embedding, n=5) -> list[dict], and __len__().
+      search returns dicts with keys id, description, score, metadata,
+      sorted by score descending.
+    hint: >
+      cosine_similarity: np.dot(va, vb) / (np.linalg.norm(va) * np.linalg.norm(vb)).
+      search: score each item, sort by -score, slice [:n], return without embedding key.
+    narration: >
+      cosine_similarity and ImageIndex are the retrieval core of Vision RAG.
+      Everything else — description, embedding, indexing — just feeds data into
+      these two pieces.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Vision RAG = image → LLM description → embedding → vector search"
+      - "Two injection points: describe_fn (vision LLM) and embed_fn (text embedder)"
+      - "Index time: describe + embed + store. Query time: embed + cosine search"
+      - "Same retrieval mechanism as Text RAG (Day 13)"
+      - "cosine_similarity: dot(a,b)/(norm_a * norm_b), 0.0 on zero vector"
+    narration: >
+      The concept and the retrieval core are settled. Next: the two
+      transformation functions that feed the index — describing images and
+      embedding text.

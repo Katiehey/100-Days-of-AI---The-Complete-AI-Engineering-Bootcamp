@@ -1,0 +1,137 @@
+day: "071"
+lesson: 5
+title: "ImageSearchEngine — Full Pipeline"
+slides:
+  - type: title
+    heading: "ImageSearchEngine"
+    subheading: "Full pipeline class — image to pixel to answer"
+    narration: >
+      Lessons 1-4 built and tested every component of Vision RAG. This lesson
+      assembles them into ImageSearchEngine — a class that binds describe_fn
+      and embed_fn at construction time and exposes add_image, add_batch,
+      search, and search_by_image.
+
+  - type: how_it_works
+    label: "ImageSearchEngine"
+    heading: "ImageSearchEngine Design"
+    body: >
+      Four public methods. The class holds its own ImageIndex. Both mock
+      functions are bound at construction time.
+    bullets:
+      - "ImageSearchEngine(describe_fn=None, embed_fn=None)"
+      - "add_image(image_id, img, metadata=None) -> str (returns description)"
+      - "add_batch(images_with_ids) -> list[str] (returns descriptions)"
+      - "search(query, n=5) -> list[dict]"
+      - "search_by_image(img, n=5) -> list[dict]"
+    narration: >
+      The class pattern is the same as VisionAnalyzer on Day 67 and
+      ImageExtractor on Day 69 and ImageGenerator on Day 70. The
+      describe_fn and embed_fn are bound at construction time so the
+      caller does not pass them on every method call. The internal ImageIndex
+      is private — callers interact with the engine, not the index.
+
+  - type: code
+    label: "Implementation"
+    heading: "ImageSearchEngine Implementation"
+    code: |
+      class ImageSearchEngine:
+          def __init__(self, describe_fn=None, embed_fn=None):
+              self._describe_fn = describe_fn
+              self._embed_fn    = embed_fn
+              self._index       = ImageIndex()
+
+          def add_image(self, image_id, img, metadata=None):
+              desc = describe_image_for_search(img,
+                         describe_fn=self._describe_fn)
+              emb  = embed_text(desc, embed_fn=self._embed_fn)
+              self._index.add(image_id, desc, emb, metadata or {})
+              return desc
+
+          def add_batch(self, images_with_ids):
+              return [self.add_image(iid, img, meta)
+                      for iid, img, meta in images_with_ids]
+
+          def search(self, query, n=5):
+              return search_by_text(query, self._index,
+                                    embed_fn=self._embed_fn, n=n)
+
+          def search_by_image(self, img, n=5):
+              return search_by_image(img, self._index,
+                                     describe_fn=self._describe_fn,
+                                     embed_fn=self._embed_fn, n=n)
+
+          def __len__(self):
+              return len(self._index)
+    narration: >
+      Each method delegates to the module-level function. add_image
+      delegates to describe_image_for_search and embed_text. search
+      delegates to search_by_text. search_by_image delegates to the
+      module-level search_by_image. This avoids duplicating logic in the
+      class: the class is a thin stateful wrapper over the tested functions.
+      add_image returns the description so callers can verify or log what
+      the vision LLM generated for each image.
+
+  - type: code
+    label: "Usage"
+    heading: "Full Pipeline Usage"
+    code: |
+      import hashlib
+      from PIL import Image
+      from visual_search import ImageSearchEngine
+
+      # Mocks
+      def _desc(b64, p):
+          h = int(hashlib.md5(b64.encode()).hexdigest()[:4], 16)
+          return ['a red car', 'a blue sky', 'a green forest'][h % 3]
+      def _emb(t):
+          h = int(hashlib.md5(t.encode()).hexdigest()[:8], 16)
+          return [((h >> (i*8)) & 0xff) / 128.0 - 1.0 for i in range(4)]
+
+      engine = ImageSearchEngine(describe_fn=_desc, embed_fn=_emb)
+      items = [
+          ('img1', Image.new('RGB',(64,64),'red'),   {'cat':'transport'}),
+          ('img2', Image.new('RGB',(64,64),'blue'),  {'cat':'nature'}),
+          ('img3', Image.new('RGB',(64,64),'green'), {'cat':'nature'}),
+      ]
+      descs = engine.add_batch(items)
+      print(len(engine))   # 3
+
+      results = engine.search('car', n=2)
+      print(results[0]['id'], results[0]['metadata']['cat'])
+    narration: >
+      The engine is now a single object that encapsulates the full Vision RAG
+      pipeline. To swap from mocked testing to real production, change two
+      lines: the constructor arguments. All routes, all business logic, all
+      search result handling stays the same.
+
+  - type: exercise
+    heading: "Exercise 5: ImageSearchEngine Class"
+    prompt: >
+      Implement ImageSearchEngine:
+      __init__(describe_fn=None, embed_fn=None): store both, create an ImageIndex.
+      add_image(image_id, img, metadata=None) -> str: describe, embed, add to index, return description.
+      add_batch(images_with_ids) -> list[str]: list comprehension over add_image.
+      search(query, n=5) -> list[dict]: delegates to search_by_text with self._embed_fn.
+      search_by_image(img, n=5) -> list[dict]: delegates to module search_by_image with both fns.
+      __len__() -> int: return len(self._index).
+    hint: >
+      add_image: desc = describe_image_for_search(img, describe_fn=self._describe_fn);
+      emb = embed_text(desc, embed_fn=self._embed_fn); self._index.add(...); return desc.
+      search: return search_by_text(query, self._index, embed_fn=self._embed_fn, n=n).
+    narration: >
+      ImageSearchEngine is the Day 71 deliverable. It completes the Vision
+      RAG arc that started with embedding theory on Day 11.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 71 Complete"
+    bullets:
+      - "ImageSearchEngine: describe_fn + embed_fn bound at construction"
+      - "add_image returns description — useful for logging and verification"
+      - "add_batch = list comprehension over add_image"
+      - "search delegates to search_by_text; search_by_image delegates to module fn"
+      - "Tomorrow (Day 72): Speech-to-Text with openai-whisper (local package, free)"
+    narration: >
+      Day 71 is complete. You can now build a searchable image library with
+      no manual tagging, powered by a local vision LLM and a local embedding
+      model. Tomorrow is the audio half of multimodal: transcribing speech
+      to text with the Whisper model running entirely on your local machine.
