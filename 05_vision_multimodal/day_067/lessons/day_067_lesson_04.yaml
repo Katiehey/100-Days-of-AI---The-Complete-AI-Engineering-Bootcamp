@@ -1,0 +1,139 @@
+day: "067"
+lesson: 4
+title: "Vision Analysis Patterns"
+slides:
+  - type: title
+    heading: "Vision Analysis Patterns"
+    subheading: "Describe, OCR, classify, extract — four prompt templates"
+    narration: >
+      Vision LLMs are general purpose, but your prompts determine the output.
+      Four patterns cover most real-world use cases: description, OCR,
+      classification, and structured extraction. Each has its own prompt
+      strategy.
+
+  - type: concept
+    label: "Four patterns"
+    heading: "The Four Core Vision Analysis Patterns"
+    body: >
+      Each pattern maps to a prompt strategy that reliably elicits the
+      expected output shape from a vision LLM.
+    bullets:
+      - "Describe: open-ended caption — 'Describe this image in 2-3 sentences.'"
+      - "OCR: text extraction — 'Extract all visible text exactly as it appears.'"
+      - "Classify: constrained choice — 'Reply with only one of: cat, dog, other.'"
+      - "Extract (Day 69): schema-guided — 'Output JSON with keys: name, price, ...'"
+    narration: >
+      Description uses an open-ended prompt with a length constraint — two to
+      three sentences keeps it focused without being too terse. OCR needs the
+      word "exactly" and "as it appears" to stop the model from paraphrasing
+      or correcting spelling. Classification uses a hard constraint — reply
+      with only the category name — to prevent verbose responses that are hard
+      to parse. Structured extraction combines a schema with explicit JSON
+      instruction; that is Day 69.
+
+  - type: how_it_works
+    label: "OCR prompting"
+    heading: "OCR via Vision LLM"
+    body: >
+      Vision LLMs can read text in images when prompted correctly. They work
+      best on clean, high-contrast text but can handle varied fonts and angles.
+    narration: >
+      OCR via vision LLM is not as precise as dedicated OCR tools like
+      Tesseract for highly stylised or dense document text, but it handles
+      context better — it understands that "Qty 2" on a receipt means
+      quantity, not a word starting with Q. The key prompt instruction is to
+      extract text "exactly as it appears" — without that constraint, the
+      model might correct typos, expand abbreviations, or reformat numbers.
+      In Day 68 you will use pytesseract for traditional OCR and compare the
+      two approaches.
+
+  - type: code
+    label: "Analysis patterns"
+    heading: "Four Prompt Templates"
+    code: |
+      _PROMPTS = {
+          'describe': 'Describe this image in 2-3 sentences.',
+          'text':     ('Extract all visible text from this image exactly '
+                       'as it appears. If there is no text, reply with '
+                       'an empty string.'),
+          'colors':   'List the 3 dominant colors in this image.',
+          'objects':  'List the main objects visible in this image.',
+      }
+
+      def analyze(img_b64: str, task: str,
+                  describe_fn=None) -> str:
+          prompt = _PROMPTS.get(task)
+          if prompt is None:
+              raise ValueError(f"Unknown task: {task!r}")
+          return describe_image(img_b64, prompt, describe_fn=describe_fn)
+    narration: >
+      A _PROMPTS dict keyed by task name is the cleanest pattern. New tasks
+      are added by inserting one entry — the dispatch logic never changes.
+      Each prompt is engineered for its specific output: the describe prompt
+      has a length limit, the text prompt has the "exactly as it appears"
+      constraint, and the classification prompt in the previous lesson has
+      "reply with only the category name." These constraints are the
+      difference between a prompt that works reliably and one that produces
+      varied, hard-to-parse output.
+
+  - type: code
+    label: "Prompt engineering"
+    heading: "Prompts that Produce Parseable Output"
+    code: |
+      # BAD: vague, produces verbose response
+      bad_classify = "What is in this image?"
+
+      # GOOD: constrained, produces one of the known labels
+      def classify_prompt(labels: list[str]) -> str:
+          label_list = ', '.join(f'"{l}"' for l in labels)
+          return (
+              f"Classify this image into exactly one of: {label_list}. "
+              f"Reply with only the category name, nothing else."
+          )
+
+      # BAD: may paraphrase text
+      bad_ocr = "What text is in this image?"
+
+      # GOOD: exact extraction
+      good_ocr = ("Extract all visible text exactly as it appears. "
+                  "If there is no text, reply with an empty string.")
+    narration: >
+      The difference between a good and bad vision prompt is usually
+      constraint. "What is in this image" could return a paragraph; "reply
+      with only the category name" forces a single word you can compare to
+      your labels list. "What text is in this image" allows paraphrasing;
+      "exactly as it appears" forces literal transcription. Every prompt
+      template you write should ask: what exact output shape do I need, and
+      what constraints enforce it?
+
+  - type: exercise
+    heading: "Exercise 4: Extract Text from Image"
+    prompt: >
+      Implement extract_text_from_image(img_b64, describe_fn=None) -> str.
+      Build an OCR prompt and call describe_image. The prompt should instruct
+      the model to extract text "exactly as it appears" and to return an
+      empty string if there is no text. The check captures the prompt
+      to verify the OCR intent is present.
+    hint: >
+      Use a prompt containing both "text" (or "extract") and "exactly" to
+      pass the prompt inspection check. Call describe_image with describe_fn.
+    narration: >
+      Extract text from an image is the simplest vision analysis wrapper —
+      it calls describe_image with one specific OCR prompt. In Day 68 you
+      will compare this approach with pytesseract for structured documents.
+      Vision LLMs often perform better on noisy or context-rich images;
+      Tesseract is more reliable for dense, well-structured documents.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "Describe: open prompt with length limit — '2-3 sentences'"
+      - "OCR: 'exactly as it appears' + 'empty string if no text'"
+      - "Classify: 'reply with only the category name' — parseable output"
+      - "Structured extraction (Day 69): combine with Pydantic schema"
+      - "_PROMPTS dict + task key = clean, extensible dispatch"
+    narration: >
+      Prompt engineering for vision follows the same rules as text: constrain
+      the output shape, be explicit about edge cases, and test with a mock
+      before running the real model. Next lesson: wiring all four patterns into
+      a composable VisionAnalyzer.

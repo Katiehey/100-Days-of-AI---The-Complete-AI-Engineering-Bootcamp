@@ -1,0 +1,119 @@
+day: "067"
+lesson: 1
+title: "Multimodal LLMs"
+slides:
+  - type: title
+    heading: "Vision LLMs"
+    subheading: "Day 67 — Giving language models eyes"
+    narration: >
+      Yesterday you learned to manipulate images with Pillow. Today you give
+      those images to a language model and get text back. A vision LLM accepts
+      both text and images as input, opening up a huge new class of tasks:
+      describe a photo, read a receipt, classify a product image, or extract
+      structured data from a screenshot.
+
+  - type: concept
+    label: "Multimodal models"
+    heading: "What Makes a Model Vision-Capable?"
+    body: >
+      A multimodal LLM processes multiple modalities — text and images — in
+      a single forward pass. The image is encoded by a vision encoder, then
+      its features are projected into the same embedding space as tokens.
+    bullets:
+      - "Vision encoder (e.g. CLIP) converts image to a feature vector"
+      - "Projector maps image features into the LLM token space"
+      - "LLM processes combined image tokens + text tokens together"
+      - "Output: text that is grounded in the visual content"
+    narration: >
+      Traditional LLMs only process tokens — pieces of text. A multimodal
+      model adds a vision encoder that converts an image into a sequence of
+      feature vectors. A learned projection layer maps those features into
+      the same embedding space as text tokens. The language model then
+      attends over both image features and text tokens simultaneously,
+      producing output that is grounded in the visual content. Models like
+      llava use CLIP as their vision encoder and LLaMA as the text backbone.
+
+  - type: concept
+    label: "What vision LLMs can do"
+    heading: "Vision LLM Capabilities"
+    body: >
+      Vision LLMs can answer natural language questions about images with no
+      task-specific fine-tuning — zero-shot.
+    bullets:
+      - "Caption: describe what is in the image"
+      - "Classification: which category does this image belong to?"
+      - "OCR: what text is visible in this image?"
+      - "VQA: answer any question about the image content"
+      - "Structured extraction: describe then parse into schema (Day 69)"
+    narration: >
+      Zero-shot means you do not need labelled training data for your specific
+      task. You describe the task in the prompt, show the model an image, and
+      it applies its broad visual understanding. Captioning, classification,
+      OCR, and visual question answering all work this way. In Day 69 you will
+      take this further and combine a vision LLM with a Pydantic schema to
+      extract structured JSON from images — product photos, receipts, invoices.
+
+  - type: how_it_works
+    label: "Ollama vision"
+    heading: "Running Vision Models with Ollama"
+    body: >
+      Ollama supports vision models the same way it supports text models.
+      Pull the model once, then pass images in the messages list.
+    narration: >
+      Ollama added vision model support by extending the chat message format.
+      The existing messages list already supports role and content. For vision,
+      you add an images key containing a list of base64-encoded image strings.
+      The model key is just the name of the vision model you pulled — llava,
+      llava-phi3, llama3.2-vision, or others. No extra packages needed beyond
+      the ollama Python library you already have.
+
+  - type: code
+    label: "Ollama vision API"
+    heading: "ollama.chat with images"
+    code: |
+      import ollama
+
+      # Pass images as base64 strings in the message
+      resp = ollama.chat(
+          model='llava',
+          messages=[{
+              'role':    'user',
+              'content': 'What do you see in this image?',
+              'images':  ['<base64_string_here>'],   # list of base64 strings
+          }]
+      )
+      print(resp['message']['content'])
+    narration: >
+      The Ollama vision API is an extension of the standard chat API you
+      learned in Day 3. The only difference is the images key in the message
+      dict. It takes a list of base64-encoded image strings — not file paths,
+      not URLs, just raw base64 data. The response format is identical to a
+      text-only chat call: the answer is at resp['message']['content']. You
+      can combine text and images in any message, and add multi-turn history
+      exactly as you would for a text-only conversation.
+
+  - type: exercise
+    heading: "Exercise 1: Image to Base64"
+    prompt: >
+      Implement image_to_base64(img, format='PNG') -> str. Encode a PIL Image
+      as a base64 string using BytesIO. For JPEG format, convert RGBA and P
+      mode images to RGB first. Return the base64 string without a data URI prefix.
+    hint: >
+      io.BytesIO() → img.save(buf, format=format) → base64.b64encode(buf.getvalue()).decode()
+    narration: >
+      The first exercise converts a PIL Image into the format that Ollama
+      expects — a base64 string. This is the encoding bridge between Pillow
+      and any vision API. Once you implement this, you will reuse it in every
+      subsequent exercise today and in Days 69 and 76.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Vision LLMs = text LLM + vision encoder + projector"
+      - "Zero-shot: describe the task in a prompt, no labelled data needed"
+      - "Ollama vision: same chat API, add images key with base64 list"
+      - "Response format unchanged: resp['message']['content']"
+    narration: >
+      You understand how vision LLMs work and how Ollama exposes them. Next
+      lesson: why images are encoded as base64 and how the encoding pipeline
+      works end to end.

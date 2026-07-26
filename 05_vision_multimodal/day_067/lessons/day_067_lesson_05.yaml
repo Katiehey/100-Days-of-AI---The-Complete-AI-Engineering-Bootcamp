@@ -1,0 +1,136 @@
+day: "067"
+lesson: 5
+title: "Building a Vision Pipeline"
+slides:
+  - type: title
+    heading: "Building a Vision Pipeline"
+    subheading: "VisionAnalyzer — encode once, query many"
+    narration: >
+      The final lesson puts everything together. You will build a
+      VisionAnalyzer class that encodes an image once and runs multiple
+      analyses on it efficiently — the same pattern used in production image
+      pipelines.
+
+  - type: concept
+    label: "Encode once"
+    heading: "Encode Once, Query Many Times"
+    body: >
+      Base64 encoding is a CPU-bound operation. For multiple analyses of the
+      same image, encode once and reuse the base64 string for every query.
+    narration: >
+      In the analysis pipeline exercise, you encode the image once at the
+      start and reuse the base64 string for every task. This avoids
+      redundant encoding — if you run three analyses on a 1 megapixel image,
+      you only call BytesIO and b64encode once. In production with large
+      images or batch processing, this matters. It is also cleaner code:
+      the encoding happens at the pipeline boundary, and the inner functions
+      work with already-encoded strings.
+
+  - type: how_it_works
+    label: "VisionAnalyzer"
+    heading: "The VisionAnalyzer Class"
+    body: >
+      A class that wraps the Ollama vision model, accepts a mock describe_fn
+      for testing, and exposes describe, extract_text, classify, and analyze.
+    narration: >
+      The VisionAnalyzer class follows the same mock-injection pattern as
+      the process_fn in Days 52 through 65. A single describe_fn parameter
+      controls whether the class calls Ollama or uses a mock. The class's
+      public methods — describe, extract_text, classify, analyze — all
+      delegate to a private _call method that handles the mock-vs-real
+      branching in one place. No duplicated if-else logic.
+
+  - type: code
+    label: "VisionAnalyzer"
+    heading: "VisionAnalyzer Class Structure"
+    code: |
+      from vision_analyzer import VisionAnalyzer
+      from PIL import Image
+
+      # Production: calls Ollama llava
+      va = VisionAnalyzer(model='llava')
+
+      # Testing: no Ollama needed
+      mock_fn = lambda b64, prompt: "A bright orange circle."
+      va_test = VisionAnalyzer(describe_fn=mock_fn)
+
+      img = Image.new('RGB', (200, 200), color=(255, 128, 0))
+
+      # Single analysis
+      desc = va_test.describe(img)
+      text = va_test.extract_text(img)
+      cat  = va_test.classify(img, ['circle', 'square', 'triangle'])
+
+      # Multi-task: encode once, run multiple analyses
+      results = va_test.analyze(img, tasks=['describe', 'objects'])
+      print(results.keys())  # dict_keys(['describe', 'objects'])
+    narration: >
+      The mock function takes img_b64 and prompt and returns a string. That
+      is the entire interface. In tests you pass a lambda; in production you
+      let the default None trigger the Ollama path. The analyze method encodes
+      the image once, then iterates the tasks list — no repeated encoding.
+      This is a clean separation: encoding at the boundary, querying inside.
+
+  - type: code
+    label: "Error handling"
+    heading: "Defensive VisionAnalyzer"
+    code: |
+      class VisionAnalyzer:
+          def analyze(self, img, tasks=None):
+              if tasks is None:
+                  tasks = ['describe']
+              img_b64 = image_to_base64(img)
+              results = {}
+              for task in tasks:
+                  if task not in _PROMPTS:
+                      raise ValueError(
+                          f"Unknown task: {task!r}. "
+                          f"Available: {list(_PROMPTS)}"
+                      )
+                  results[task] = self._call(img_b64, _PROMPTS[task])
+              return results
+
+      # Unknown task → clear ValueError with available options
+      try:
+          va_test.analyze(img, tasks=['describe', 'mood'])
+      except ValueError as e:
+          print(e)  # Unknown task: 'mood'. Available: ['describe', ...]
+    narration: >
+      Always validate task names before making the network call — fail fast
+      with a clear error rather than sending a malformed request and getting
+      an opaque HTTP 400 back. The ValueError message includes the available
+      options, so the caller immediately knows what to change. This defensive
+      pattern applies to any dict-dispatch system.
+
+  - type: exercise
+    heading: "Exercise 5: Analyze Image Pipeline"
+    prompt: >
+      Implement analyze_image_pipeline(img, tasks, describe_fn=None) -> dict.
+      Encode the image to base64 once at the start. For each task in tasks,
+      look up the prompt in a _TASKS_PROMPTS dict, call describe_image, and
+      collect results. Raise ValueError for unknown tasks. Return a dict
+      mapping task name to result string.
+    hint: >
+      _TASKS_PROMPTS is provided in the given cell. img_b64 = image_to_base64(img).
+      For each task: if task not in _TASKS_PROMPTS, raise ValueError.
+      Otherwise call describe_image(img_b64, prompt, describe_fn).
+    narration: >
+      The pipeline exercise ties Day 67 together: encode once, dispatch on
+      task name, query the model, collect results. The dict output is easy
+      to serialize to JSON, log, or pass to a downstream function that
+      combines the analyses into a structured summary.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 67 Complete"
+    bullets:
+      - "Encode once per image, reuse base64 string across multiple calls"
+      - "VisionAnalyzer: mock-injection pattern; describe_fn=None → Ollama"
+      - "Four patterns: describe, OCR, classify, extract (Day 69)"
+      - "Validate task names before calling the model — fail fast"
+      - "Tomorrow (Day 68): pytesseract OCR + document AI"
+    narration: >
+      Day 67 is complete. You can encode PIL Images for a vision LLM, call
+      Ollama llava, and apply four analysis patterns. The encode-once pattern
+      and mock-injection architecture will appear in Days 69, 71, and 76.
+      Tomorrow: traditional OCR with pytesseract — a complement to vision
+      LLMs for structured text extraction from documents.
