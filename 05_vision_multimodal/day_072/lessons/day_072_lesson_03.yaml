@@ -1,0 +1,114 @@
+day: "072"
+lesson: 3
+title: "The transcribe_audio Function"
+slides:
+  - type: title
+    heading: "transcribe_audio"
+    subheading: "Core transcription with transcribe_fn=None injection"
+    narration: >
+      Lessons 1 and 2 covered the output of Whisper — how to format text
+      and extract segments. This lesson builds the function that produces
+      that output: transcribe_audio, with the same fn=None injection pattern
+      used throughout Section 5.
+
+  - type: concept
+    label: "Input types"
+    heading: "Audio Input Types"
+    body: >
+      transcribe_audio accepts three types of audio input, each handled
+      differently when calling the real whisper model.
+    bullets:
+      - "str or Path: file path — pass directly to model.transcribe"
+      - "bytes: audio bytes — write to temp file, transcribe, delete"
+      - "numpy float32 array: pre-loaded audio — pass directly"
+    narration: >
+      File paths are the most common case — point at an MP3, WAV, or M4A.
+      Bytes input is useful when audio arrives over an HTTP upload (Day 56
+      pattern: UploadFile → bytes). Numpy arrays are useful when audio has
+      already been loaded and processed — for example after sample rate
+      conversion. The bytes case requires a temp file because whisper calls
+      ffmpeg on the file path internally. The temp file is always deleted
+      after transcription to avoid disk accumulation.
+
+  - type: code
+    label: "transcribe_audio"
+    heading: "transcribe_audio Implementation"
+    code: |
+      import os, tempfile
+
+      def transcribe_audio(source, transcribe_fn=None, model='base'):
+          if transcribe_fn is not None:
+              return transcribe_fn(source)
+          import whisper as _whisper
+          mdl = _whisper.load_model(model)
+          if isinstance(source, (bytes, bytearray)):
+              with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                  f.write(source)
+                  tmp = f.name
+              try:
+                  return mdl.transcribe(tmp)
+              finally:
+                  os.unlink(tmp)
+          return mdl.transcribe(str(source))
+
+      # Testing — mock ignores source, returns fixed dict
+      result = transcribe_audio(b'fake audio', transcribe_fn=mock_transcribe)
+      print(result['text'])       # Hello world. Testing one two three.
+      print(result['language'])   # en
+    narration: >
+      The lazy import of whisper inside the else branch means the module
+      can be imported without whisper installed — exercises use the mock
+      path exclusively. The try/finally around the temp file ensures cleanup
+      even if transcription raises an exception. The model is loaded fresh
+      every call in this implementation — a production version would cache
+      the loaded model as a class attribute to avoid the model-loading
+      overhead on every call.
+
+  - type: concept
+    label: "Model caching"
+    heading: "Caching the Loaded Model"
+    body: >
+      whisper.load_model loads model weights from disk on every call —
+      several seconds of overhead. In the AudioTranscriber class, cache
+      the model after the first load.
+    narration: >
+      This is the same lazy-initialisation pattern used for ChromaDB
+      clients on Day 12 and for Stable Diffusion pipelines on Day 70.
+      At construction time, set self._model_obj = None. In the generate
+      or transcribe method, check if None and load if so. This means the
+      first call pays the load cost and all subsequent calls are fast.
+      For the AudioTranscriber class in Exercise 5, the transcribe_fn
+      injection bypasses this entirely — the model is never loaded
+      when testing.
+
+  - type: exercise
+    heading: "Exercise 3: transcribe_audio"
+    prompt: >
+      Implement transcribe_audio(source, transcribe_fn=None, model='base') -> dict.
+      If transcribe_fn is not None: return transcribe_fn(source).
+      Otherwise: lazy import whisper, load_model(model), then:
+      - if source is bytes/bytearray: write to NamedTemporaryFile(suffix='.wav', delete=False),
+        transcribe, unlink in finally.
+      - else: return mdl.transcribe(str(source)).
+      The checks all use transcribe_fn, so the whisper path is not tested.
+    hint: >
+      if transcribe_fn is not None: return transcribe_fn(source).
+      import whisper as _whisper; mdl = _whisper.load_model(model).
+      if isinstance(source, (bytes, bytearray)): tempfile + try/finally.
+    narration: >
+      transcribe_audio is the hub of the AudioTranscriber pipeline.
+      All class methods ultimately call this function. Getting the
+      injection pattern right means every downstream method is
+      automatically testable.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "transcribe_audio: file path / bytes / ndarray → whisper result dict"
+      - "bytes: write to NamedTemporaryFile, transcribe, unlink in finally"
+      - "str source: mdl.transcribe(str(source))"
+      - "lazy import: module loads cleanly without whisper installed"
+      - "Production: cache the loaded model object to avoid reload overhead"
+    narration: >
+      The core transcription function is done. Next: search within a
+      transcript to find relevant segments.

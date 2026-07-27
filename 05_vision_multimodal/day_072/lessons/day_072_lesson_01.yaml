@@ -1,0 +1,140 @@
+day: "072"
+lesson: 1
+title: "openai-whisper — Local Speech-to-Text"
+slides:
+  - type: title
+    heading: "Speech-to-Text"
+    subheading: "Day 72 — openai-whisper, the local package"
+    narration: >
+      Section 5 has covered vision, extraction, generation, and visual
+      search. Today adds the audio dimension: converting spoken words to
+      text. You will use openai-whisper — not the OpenAI API, but the
+      open-source local package that runs entirely on your machine.
+      No API key, no cost, no internet after the model is downloaded.
+
+  - type: concept
+    label: "What is Whisper"
+    heading: "openai-whisper: The Local Package"
+    body: >
+      OpenAI released the Whisper model weights as open-source in 2022.
+      The openai-whisper pip package loads those weights locally.
+      This is completely different from the OpenAI Whisper API.
+    bullets:
+      - "pip install openai-whisper — installs the local package"
+      - "brew install ffmpeg — required for audio file loading (macOS)"
+      - "import whisper — the module name after pip install"
+      - "No API key. Model files download once (~74MB for base)"
+    narration: >
+      The distinction between the local package and the API matters:
+      the API sends your audio to OpenAI's servers and charges per minute.
+      The local package downloads the model weights once and runs them
+      on your CPU or GPU. For a course with a zero-cost constraint, the
+      local package is the only option. The quality is identical — it's
+      the same model. The local package also guarantees privacy since audio
+      never leaves your machine.
+
+  - type: concept
+    label: "Model sizes"
+    heading: "Whisper Model Sizes"
+    body: >
+      Whisper comes in five sizes. Each is a trade-off between speed,
+      accuracy, and memory.
+    bullets:
+      - "tiny: 39M params, fastest, lowest accuracy (good for testing)"
+      - "base: 74M params, fast, good accuracy (recommended for development)"
+      - "small: 244M params, slower, better accuracy"
+      - "medium: 769M params, slow, high accuracy"
+      - "large: 1.5B params, slowest, best accuracy (needs 10GB+ GPU)"
+    narration: >
+      For exercises and development, base is the right choice: small enough
+      to download quickly, fast enough to iterate, accurate enough for
+      clear speech. For production, small or medium often hits the sweet
+      spot of speed and accuracy. Large is for professional transcription
+      services where accuracy is paramount and latency is not a concern.
+      All sizes are multilingual — Whisper was trained on 680,000 hours of
+      audio in 99 languages.
+
+  - type: how_it_works
+    label: "Whisper output"
+    heading: "What Whisper Returns"
+    body: >
+      model.transcribe(audio) returns a dict with three key fields.
+    bullets:
+      - "text: the full transcript as one string (may have leading space)"
+      - "language: detected language code like en, fr, de, zh"
+      - "segments: list of dicts with start, end, text, avg_logprob"
+      - "avg_logprob: average log probability — negative value, closer to 0 = more confident"
+    narration: >
+      The segments list is Whisper's most powerful output. Each segment
+      is a time-stamped chunk of speech with start and end in seconds.
+      avg_logprob is the average log probability of the tokens in the
+      segment — a confidence proxy. Values close to 0 mean high confidence,
+      values below -1 suggest noise, music, or unclear speech.
+      no_speech_prob is the probability that the segment contains no
+      speech at all — useful for filtering silence or music.
+
+  - type: code
+    label: "Quick start"
+    heading: "Using Whisper Locally"
+    code: |
+      # Real usage (requires pip install openai-whisper + ffmpeg)
+      import whisper
+      model = whisper.load_model('base')
+      result = model.transcribe('recording.mp3')
+      print(result['text'])        # full transcript
+      print(result['language'])    # 'en'
+      for seg in result['segments']:
+          print(seg['start'], seg['end'], seg['text'])
+
+      # Testing — inject a mock so no whisper or audio needed
+      _MOCK = {
+          'text': ' Hello world. Testing one two three.',
+          'language': 'en',
+          'segments': [
+              {'id': 0, 'start': 0.0, 'end': 2.5, 'text': ' Hello world.',
+               'avg_logprob': -0.25, 'no_speech_prob': 0.01},
+              {'id': 1, 'start': 2.5, 'end': 6.0, 'text': ' Testing one two three.',
+               'avg_logprob': -0.20, 'no_speech_prob': 0.01},
+          ],
+      }
+      mock_transcribe = lambda src: _MOCK
+    narration: >
+      The mock pattern for transcription is simpler than for vision because
+      the transcription function only has one injection point (transcribe_fn)
+      rather than two (describe_fn + embed_fn). The mock takes the audio
+      source and returns a dict that looks exactly like whisper output.
+      All downstream functions work on the dict, so the mock exercises the
+      entire formatting and segment extraction pipeline without loading any
+      model or audio file.
+
+  - type: exercise
+    heading: "Exercise 1: format_transcript"
+    prompt: >
+      Implement _format_time(seconds) -> str: convert float seconds to HH:MM:SS string.
+      Use divmod(int(seconds), 60) twice (seconds→m+s, then m→h+m).
+      Format as f'{h:02d}:{m:02d}:{s:02d}'.
+      Then implement format_transcript(result, include_timestamps=False) -> str:
+      if include_timestamps is False, return result.get('text', '').strip().
+      If include_timestamps is True, iterate result.get('segments', []),
+      format each as '[HH:MM:SS] {text}', join with newline.
+    hint: >
+      _format_time: m, s = divmod(int(seconds), 60); h, m = divmod(m, 60); return f'{h:02d}:{m:02d}:{s:02d}'.
+      format_transcript: if not include_timestamps: return result.get('text','').strip().
+      else: lines = [f'[{_format_time(seg[start])}] {seg[text].strip()}' for seg in ...].
+    narration: >
+      format_transcript with timestamps is the foundation of subtitle
+      generation — the same output format used by tools that add captions
+      to videos. Without timestamps it is the plain-text transcript used
+      for search indexing and summarization.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "openai-whisper: pip install + ffmpeg, local model, no API key"
+      - "Five sizes: tiny/base/small/medium/large (base for development)"
+      - "Output: text (str), language (str), segments (list with timestamps)"
+      - "avg_logprob: confidence proxy — closer to 0 = more confident"
+      - "transcribe_fn=None injection: mock returns the same dict structure"
+    narration: >
+      The foundation is set. Next: working with the segments list to
+      extract time-stamped content and compute confidence scores.

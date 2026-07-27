@@ -1,0 +1,103 @@
+day: "072"
+lesson: 4
+title: "Searching Transcripts"
+slides:
+  - type: title
+    heading: "Searching Transcripts"
+    subheading: "search_transcript — find moments in audio"
+    narration: >
+      A full transcript string is useful for reading, but finding a specific
+      moment requires segment-level search. This lesson builds search_transcript,
+      which returns segments whose text contains a query string. The result
+      enables jump-to-moment navigation: tell the user exactly when a topic
+      was mentioned in a recording.
+
+  - type: how_it_works
+    label: "search_transcript"
+    heading: "search_transcript Design"
+    body: >
+      Two steps: extract segments, then filter by query string.
+      Returns the matching segments in extract_segments format.
+    bullets:
+      - "extract_segments(result) → list of {start, end, text, confidence}"
+      - "for case_insensitive: q = query.lower(); filter text.lower()"
+      - "for case_sensitive: filter text directly"
+      - "Returns: list of matching segment dicts (empty if no match)"
+    narration: >
+      search_transcript builds on extract_segments rather than the raw
+      result dict, so the output is always in the clean format with
+      start/end floats and stripped text. Case-insensitive is the
+      default because users rarely know the exact capitalisation of a
+      spoken word. The function returns a list of matching segments
+      with their timestamps — the caller can format them as jump links,
+      render them highlighted, or count occurrences.
+
+  - type: code
+    label: "search_transcript"
+    heading: "search_transcript Implementation"
+    code: |
+      def search_transcript(result, query, case_sensitive=False):
+          segments = extract_segments(result)
+          if not case_sensitive:
+              q = query.lower()
+              return [s for s in segments if q in s['text'].lower()]
+          return [s for s in segments if query in s['text']]
+
+      # Example: find 'test' in the transcript
+      hits = search_transcript(_MOCK_RESULT, 'test')
+      for h in hits:
+          print(f"Found at {h['start']:.1f}s: {h['text']!r}")
+      # Found at 2.5s: 'Testing one two three.'
+    narration: >
+      The list comprehension is idiomatic Python for a filter operation.
+      Using case-insensitive comparison by default means searching for
+      'testing' finds 'Testing' and 'TESTING'. The query string is
+      lowercased once outside the comprehension rather than inside — a
+      small efficiency improvement for large transcripts with many segments.
+
+  - type: concept
+    label: "Applications"
+    heading: "Practical Applications of Transcript Search"
+    body: >
+      Search-in-transcript is the core of several real-world AI features.
+    bullets:
+      - "Meeting notes: find all segments where a topic was discussed"
+      - "Podcast indexing: jump to the exact moment a keyword appears"
+      - "Call analytics: count how many calls mention a specific product"
+      - "Lecture navigation: click a topic to jump to when it was explained"
+    narration: >
+      Combined with a video player, segment timestamps become chapter markers.
+      Combined with a vector index (Day 71), segment text becomes a RAG
+      knowledge base over audio content. Combined with an LLM summarizer
+      (Day 7), the extracted segments can be summarized into bullet points.
+      These combinations are not hypothetical — they are the basis of tools
+      like Otter.ai, Descript, and YouTube's chapter feature.
+
+  - type: exercise
+    heading: "Exercise 4: search_transcript"
+    prompt: >
+      Implement search_transcript(result, query, case_sensitive=False) -> list[dict].
+      Call extract_segments(result) to get all segments.
+      If not case_sensitive: q = query.lower(), filter segments where q in s['text'].lower().
+      If case_sensitive: filter segments where query in s['text'].
+      Return the filtered list.
+    hint: >
+      segments = extract_segments(result).
+      if not case_sensitive: q = query.lower(); return [s for s in segments if q in s['text'].lower()].
+      else: return [s for s in segments if query in s['text']].
+    narration: >
+      search_transcript is two list comprehensions behind a flag. Its
+      value is that it composes extract_segments (already tested) with
+      a filter, producing a new clean abstraction: find moments in audio.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "search_transcript: extract_segments → filter by query"
+      - "case_insensitive default: query.lower() in s['text'].lower()"
+      - "Returns list of matching segment dicts in extract_segments format"
+      - "Applications: meeting notes, podcast indexing, call analytics"
+      - "Combines with RAG (Day 71) and summarization (Day 7)"
+    narration: >
+      All individual functions are complete. The final lesson assembles
+      them into the AudioTranscriber class.

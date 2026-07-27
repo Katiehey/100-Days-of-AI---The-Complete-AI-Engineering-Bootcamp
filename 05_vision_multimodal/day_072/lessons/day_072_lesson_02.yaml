@@ -1,0 +1,115 @@
+day: "072"
+lesson: 2
+title: "Segments and Confidence"
+slides:
+  - type: title
+    heading: "Segments and Confidence"
+    subheading: "extract_segments — timestamps and quality scores"
+    narration: >
+      The full transcript text is useful for reading, but the segments
+      list is where the real power of Whisper lives. Each segment has
+      a start and end time, text content, and a log-probability score
+      that measures transcription confidence. This lesson builds
+      extract_segments to convert Whisper's raw segment dicts into a
+      clean, consistent format.
+
+  - type: concept
+    label: "avg_logprob"
+    heading: "Understanding avg_logprob (Confidence)"
+    body: >
+      avg_logprob is the average log probability of the tokens in the
+      segment. It is always zero or negative.
+    bullets:
+      - "avg_logprob = 0.0: every token perfectly predicted (rare)"
+      - "avg_logprob = -0.2 to -0.5: typical clear speech"
+      - "avg_logprob = -0.8 to -1.0: noisy audio or strong accent"
+      - "avg_logprob < -1.0: likely silence, music, or background noise"
+    narration: >
+      Log probabilities come from the softmax output of the language model
+      decoder. A token with probability 0.8 has log probability -0.22.
+      The average across all tokens in a segment gives a quality signal.
+      To convert to a 0-1 confidence score, use min(1.0, max(0.0, 1.0 + logprob)).
+      At logprob = 0 this gives 1.0, at logprob = -1 this gives 0.0, and
+      at logprob = -2 this clamps to 0.0. The formula maps the practical
+      range of -1 to 0 linearly onto 0 to 1.
+
+  - type: code
+    label: "extract_segments"
+    heading: "extract_segments Implementation"
+    code: |
+      def extract_segments(result):
+          out = []
+          for seg in result.get('segments', []):
+              logprob = seg.get('avg_logprob', -1.0)
+              confidence = min(1.0, max(0.0, 1.0 + logprob))
+              out.append({
+                  'start':      float(seg.get('start', 0.0)),
+                  'end':        float(seg.get('end', 0.0)),
+                  'text':       seg.get('text', '').strip(),
+                  'confidence': round(confidence, 4),
+              })
+          return out
+
+      # Example
+      segs = extract_segments(_MOCK_RESULT)
+      for s in segs:
+          print(f"{s['start']:.1f}s-{s['end']:.1f}s  {s['confidence']:.2f}  {s['text']}")
+      # 0.0s-2.5s  0.75  Hello world.
+      # 2.5s-6.0s  0.80  Testing one two three.
+    narration: >
+      The output format is explicit and consistent. start and end are
+      always float (not int), text is stripped of leading and trailing
+      whitespace, and confidence is rounded to 4 decimal places. The
+      .get() calls with defaults ensure the function handles incomplete
+      segment dicts without raising KeyError — important when mocking.
+
+  - type: concept
+    label: "Use cases"
+    heading: "What to Do with Segments"
+    body: >
+      Timestamped segments unlock several applications that plain text
+      transcription cannot support.
+    bullets:
+      - "Subtitle generation: segments map directly to SRT/VTT format"
+      - "Jump-to-moment: click a word to jump to that point in audio/video"
+      - "Quality filtering: discard segments with confidence below threshold"
+      - "Speaker diarization: combine with speaker model for who-said-what"
+    narration: >
+      SRT subtitle format is: segment index, time range (HH:MM:SS,ms), text.
+      Whisper's segments are the most direct input to subtitle generators.
+      Quality filtering is valuable for podcast transcripts where music
+      intros produce spurious low-confidence segments. The no_speech_prob
+      field (0-1) is Whisper's own estimate of whether the segment contains
+      any speech — filter out segments where no_speech_prob > 0.6.
+
+  - type: exercise
+    heading: "Exercise 2: extract_segments"
+    prompt: >
+      Implement extract_segments(result) -> list[dict].
+      For each segment in result.get('segments', []):
+      - logprob = seg.get('avg_logprob', -1.0)
+      - confidence = min(1.0, max(0.0, 1.0 + logprob))
+      - append {start: float(...), end: float(...),
+                text: seg.get('text','').strip(),
+                confidence: round(confidence, 4)}
+      Return the list.
+    hint: >
+      for seg in result.get('segments', []):
+      logprob = seg.get('avg_logprob', -1.0); confidence = min(1.0, max(0.0, 1.0 + logprob));
+      out.append({'start': float(seg.get('start',0.0)), ...}).
+    narration: >
+      extract_segments is the key processing step between raw Whisper
+      output and every downstream application: subtitles, segment
+      search, confidence filtering, and the AudioTranscriber class.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "avg_logprob in (-inf, 0]: 0 = perfect, -1 = poor, below -1 = likely noise"
+      - "confidence = min(1.0, max(0.0, 1.0 + logprob)) maps (-1,0) onto (0,1)"
+      - "extract_segments output: {start, end, text, confidence} per segment"
+      - "no_speech_prob > 0.6 = likely silence or music (filter out)"
+      - "Segments enable subtitles, jump-to-moment, quality filtering"
+    narration: >
+      Segments are extracted and confidence scores are computed. Next:
+      the core transcription function with mock injection.

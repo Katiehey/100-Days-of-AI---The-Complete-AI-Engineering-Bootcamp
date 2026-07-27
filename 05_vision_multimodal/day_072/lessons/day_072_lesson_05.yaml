@@ -1,0 +1,135 @@
+day: "072"
+lesson: 5
+title: "AudioTranscriber — Full Pipeline"
+slides:
+  - type: title
+    heading: "AudioTranscriber"
+    subheading: "Full pipeline class — audio to insight"
+    narration: >
+      Lessons 1-4 built and tested every building block. This lesson
+      assembles them into AudioTranscriber — a class that binds the
+      model name and transcribe_fn at construction time and exposes
+      transcribe, get_text, get_segments, and search.
+
+  - type: how_it_works
+    label: "AudioTranscriber"
+    heading: "AudioTranscriber Design"
+    body: >
+      Four public methods, each calling transcribe once and then
+      processing the result.
+    bullets:
+      - "AudioTranscriber(model='base', transcribe_fn=None)"
+      - ".transcribe(source) -> dict — full whisper result"
+      - ".get_text(source) -> str — plain transcript"
+      - ".get_segments(source) -> list[dict] — timestamped segments"
+      - ".search(source, query, case_sensitive=False) -> list[dict]"
+    narration: >
+      The pattern is exactly the same as VisionAnalyzer (Day 67),
+      ImageExtractor (Day 69), ImageGenerator (Day 70), and
+      ImageSearchEngine (Day 71): store the mock function at construction
+      time, delegate each method to the corresponding module-level function.
+      get_text calls format_transcript, get_segments calls extract_segments,
+      search calls search_transcript. transcribe calls transcribe_audio.
+      No logic is duplicated in the class.
+
+  - type: code
+    label: "Implementation"
+    heading: "AudioTranscriber Implementation"
+    code: |
+      class AudioTranscriber:
+          def __init__(self, model='base', transcribe_fn=None):
+              self._model         = model
+              self._transcribe_fn = transcribe_fn
+
+          def transcribe(self, source):
+              return transcribe_audio(source,
+                                      transcribe_fn=self._transcribe_fn,
+                                      model=self._model)
+
+          def get_text(self, source):
+              return format_transcript(self.transcribe(source))
+
+          def get_segments(self, source):
+              return extract_segments(self.transcribe(source))
+
+          def search(self, source, query, case_sensitive=False):
+              return search_transcript(self.transcribe(source), query,
+                                       case_sensitive=case_sensitive)
+    narration: >
+      Every method calls self.transcribe first, then processes the result.
+      This means for get_text, get_segments, and search, the audio is
+      transcribed fresh each call. A production AudioTranscriber would
+      cache results keyed by file hash to avoid re-transcribing the same
+      file. For the course, the sequential version is correct and clear.
+      Caching would be appropriate in a web app where many users might
+      query the same podcast episode.
+
+  - type: code
+    label: "Usage"
+    heading: "Full Pipeline Usage"
+    code: |
+      from audio_transcriber import AudioTranscriber
+
+      # Testing mode — no whisper, no audio file
+      mock = lambda src: {
+          'text': ' The meeting started at nine AM. Budget was discussed.',
+          'language': 'en',
+          'segments': [
+              {'id': 0, 'start': 0.0, 'end': 4.0,
+               'text': ' The meeting started at nine AM.',
+               'avg_logprob': -0.25, 'no_speech_prob': 0.01},
+              {'id': 1, 'start': 4.0, 'end': 8.5,
+               'text': ' Budget was discussed.',
+               'avg_logprob': -0.30, 'no_speech_prob': 0.01},
+          ],
+      }
+      tr = AudioTranscriber(transcribe_fn=mock)
+      print(tr.get_text(b'audio'))   # The meeting started at nine AM. Budget was discussed.
+      segs = tr.get_segments(b'audio')
+      for s in segs:
+          print(f"{s['start']:.0f}s  {s['confidence']:.2f}  {s['text']}")
+      hits = tr.search(b'audio', 'budget')
+      print(hits[0]['start'], hits[0]['text'])   # 4.0  Budget was discussed.
+    narration: >
+      The mock lambda returns a fixed dict regardless of source. Every
+      method works: get_text strips the text, get_segments extracts with
+      confidence scores, search finds the budget segment at 4.0 seconds.
+      Swapping to real transcription means changing one line — the
+      constructor argument.
+
+  - type: exercise
+    heading: "Exercise 5: AudioTranscriber Class"
+    prompt: >
+      Implement AudioTranscriber:
+      __init__(model='base', transcribe_fn=None): store model and transcribe_fn.
+      transcribe(source) -> dict: calls transcribe_audio(source, transcribe_fn=self._transcribe_fn, model=self._model).
+      get_text(source) -> str: format_transcript(self.transcribe(source)).
+      get_segments(source) -> list[dict]: extract_segments(self.transcribe(source)).
+      search(source, query, case_sensitive=False) -> list[dict]:
+        search_transcript(self.transcribe(source), query, case_sensitive).
+    hint: >
+      Every method calls self.transcribe(source) first, then the corresponding
+      module function on the result.
+    narration: >
+      AudioTranscriber is the Day 72 deliverable. It packages a local
+      Whisper pipeline into a single object that can transcribe any audio
+      source, return plain text, extract timestamped segments, or search
+      for specific spoken words — all switchable to mock mode with one
+      constructor argument.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 72 Complete"
+    bullets:
+      - "AudioTranscriber: model + transcribe_fn at construction"
+      - ".transcribe delegates to transcribe_audio"
+      - ".get_text = format_transcript(transcribe)"
+      - ".get_segments = extract_segments(transcribe)"
+      - ".search = search_transcript(transcribe, query)"
+      - "Tomorrow (Day 73): Text-to-Speech Deep Dive (voices, SSML, podcast generator)"
+    narration: >
+      Day 72 is complete. You can transcribe audio files locally with
+      Whisper, extract timestamped segments, score confidence, and search
+      for spoken words — all with a single AudioTranscriber object that
+      works in tests without any audio files or installed models.
+      Tomorrow is the reverse direction: text to speech, building a
+      podcast generator from written content.
