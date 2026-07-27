@@ -1,0 +1,125 @@
+day: "075"
+lesson: 2
+title: "generate_speech — TTS Audio Synthesis"
+slides:
+  - type: title
+    heading: "generate_speech"
+    subheading: "edge-tts Communicate — async wrapper — bytes output"
+    narration: >
+      The first pipeline stage wraps edge-tts to produce MP3 audio bytes.
+      Day 73 built PodcastGenerator with multi-voice synthesis. Day 75 uses
+      a simpler single-call wrapper: one text, one voice, one call, one bytes
+      result. The tts_fn injection lets every exercise run without edge-tts
+      installed.
+
+  - type: code
+    label: "generate_speech"
+    heading: "generate_speech Implementation"
+    code: |
+      import asyncio
+      import edge_tts
+
+      def generate_speech(text, voice='en-US-AriaNeural',
+                          rate='+0%', pitch='+0Hz', tts_fn=None):
+          if tts_fn is not None:
+              return tts_fn(text, voice, rate, pitch)
+
+          async def _run():
+              comm = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+              chunks = []
+              async for chunk in comm.stream():
+                  if chunk['type'] == 'audio':
+                      chunks.append(chunk['data'])
+              return b''.join(chunks)
+
+          return asyncio.run(_run())
+
+      # Mock for testing (no edge-tts needed)
+      _mock_tts = lambda text, voice, rate, pitch: b'MP3:' + text[:8].encode()
+      audio = generate_speech('Hello!', tts_fn=_mock_tts)
+      print(len(audio), audio[:10])   # 10  b'MP3:Hello!'
+    narration: >
+      The tts_fn signature is (text, voice, rate, pitch) -> bytes. All four
+      positional arguments are included even though many mocks only use text,
+      because the real function always receives all four. This makes it easy
+      to write a mock that checks which voice was used or what rate was
+      requested. The asyncio.run(_run()) pattern is the same as Day 73 — a
+      sync wrapper around an async function. In a Jupyter cell, wrap with
+      nest_asyncio.apply() first if the event loop is already running.
+
+  - type: concept
+    label: "rate and pitch"
+    heading: "Rate and Pitch Parameters"
+    body: >
+      edge-tts supports relative rate and pitch adjustments using a sign-
+      percentage or sign-Hz notation.
+    bullets:
+      - "rate='+0%': no change (default)"
+      - "rate='+20%': 20% faster speaking"
+      - "rate='-10%': 10% slower speaking"
+      - "pitch='+0Hz': no change (default)"
+      - "pitch='+5Hz': slightly higher pitch"
+    narration: >
+      Rate adjustment is particularly useful for lesson videos: a rate of
+      +5% to +10% keeps pacing brisk without sounding rushed. Very fast rates
+      (+50% and above) become difficult to understand. Pitch is more subtle
+      — large pitch shifts can make the voice sound artificial. The notation
+      is the same SSML prosody notation from Day 73: edge-tts sends it as
+      SSML to the Microsoft neural TTS service. Both parameters are forwarded
+      directly to Communicate() without modification.
+
+  - type: concept
+    label: "asyncio in Jupyter"
+    heading: "asyncio.run() in Jupyter"
+    body: >
+      Jupyter runs its own event loop. asyncio.run() fails if an event loop
+      is already running. Two solutions for generate_speech in notebooks.
+    bullets:
+      - "Solution 1: tts_fn injection — never call asyncio.run() in exercises"
+      - "Solution 2 (real use): import nest_asyncio; nest_asyncio.apply()"
+      - "nest_asyncio patches asyncio to allow nested loops in Jupyter"
+      - "After apply(): asyncio.run() works normally inside notebook cells"
+      - "Or: use top-level await in a cell (avoids asyncio.run() entirely)"
+    narration: >
+      In the exercises, the tts_fn injection means asyncio.run() is never
+      called — the mock returns bytes directly. For real use in a Jupyter
+      notebook, import nest_asyncio and call apply() once at the top of the
+      notebook. This is the same pattern used in Day 73's PodcastGenerator
+      exercise. Alternatively, restructure the calling cell to use top-level
+      await: await generate_speech_async(text) where the async version skips
+      the asyncio.run() wrapper. Day 75 keeps the sync interface for
+      consistency with the rest of the pipeline.
+
+  - type: exercise
+    heading: "Exercise 1: generate_speech"
+    prompt: >
+      Implement generate_speech(text, voice='en-US-AriaNeural',
+      rate='+0%', pitch='+0Hz', tts_fn=None) -> bytes.
+      If tts_fn is not None: return tts_fn(text, voice, rate, pitch).
+      Otherwise: import asyncio, edge_tts; define async _run() that creates
+      edge_tts.Communicate(text, voice, rate=rate, pitch=pitch), streams
+      chunks, collects chunk['data'] for chunks where chunk['type']=='audio',
+      returns b''.join(chunks). Then return asyncio.run(_run()).
+    hint: >
+      if tts_fn is not None: return tts_fn(text, voice, rate, pitch).
+      import asyncio, edge_tts. async def _run(): comm = edge_tts.Communicate(
+      text, voice, rate=rate, pitch=pitch); chunks=[]; async for chunk in comm.stream():
+      if chunk['type']=='audio': chunks.append(chunk['data']); return b''.join(chunks).
+      return asyncio.run(_run()).
+    narration: >
+      generate_speech is the Day 75 TTS entry point — simpler than
+      PodcastGenerator (single segment, no voice map), but the core
+      asyncio + edge-tts pattern is identical.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "generate_speech(text, voice, rate, pitch, tts_fn=None) -> bytes"
+      - "tts_fn injection: lambda text, voice, rate, pitch: mock_bytes"
+      - "Real path: asyncio.run(_run()) where _run uses edge_tts.Communicate"
+      - "Stream chunks: only collect chunk['data'] when chunk['type']=='audio'"
+      - "Join chunks: b''.join(chunks) → valid MP3 byte string"
+      - "Jupyter: nest_asyncio.apply() or top-level await for real use"
+    narration: >
+      Speech generation is complete. Next: turning a face image into repeated
+      video frames.

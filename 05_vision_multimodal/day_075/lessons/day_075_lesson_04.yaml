@@ -1,0 +1,136 @@
+day: "075"
+lesson: 4
+title: "mux_audio_video and add_captions — FFmpeg Operations"
+slides:
+  - type: title
+    heading: "mux + captions"
+    subheading: "FFmpeg: two-input mux, drawtext filter"
+    narration: >
+      Stages 3 and 4 of the pipeline both use FFmpeg: mux combines a silent
+      video file with audio bytes, and add_captions burns text onto the video
+      using the drawtext filter. Both functions use the higher-level injection
+      pattern where the entire function is replaced by the mock — not just the
+      FFmpeg call.
+
+  - type: code
+    label: "mux_audio_video"
+    heading: "mux_audio_video Implementation"
+    code: |
+      import subprocess, tempfile
+      from pathlib import Path
+
+      def mux_audio_video(video_path, audio_bytes, output_path, ffmpeg_fn=None):
+          if ffmpeg_fn is not None:
+              return ffmpeg_fn(video_path, audio_bytes, output_path)
+          with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
+              f.write(audio_bytes)
+              audio_path = f.name
+          try:
+              out_path = Path(output_path)
+              result = subprocess.run(
+                  ['ffmpeg', '-y', '-i', str(video_path), '-i', audio_path,
+                   '-c:v', 'copy', '-c:a', 'aac', '-shortest', str(out_path)],
+                  capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  raise RuntimeError(f'FFmpeg mux error: {result.stderr[-500:]}')
+              return out_path
+          finally:
+              Path(audio_path).unlink(missing_ok=True)
+    narration: >
+      The audio bytes cannot be passed directly to FFmpeg — FFmpeg needs a
+      file path. The solution is to write the bytes to a named temp file,
+      pass the temp path to FFmpeg, then delete it in a finally block so it
+      is cleaned up even if FFmpeg raises an error. The -c:v copy flag tells
+      FFmpeg not to re-encode the video frames (fast), while -c:a aac encodes
+      the audio to AAC (required for MP4 containers). -shortest ensures the
+      output stops at the end of the shorter stream. The two -i flags provide
+      two input streams: the video file and the audio file.
+
+  - type: code
+    label: "add_captions"
+    heading: "add_captions and drawtext Filter"
+    code: |
+      def add_captions(video_path, text, output_path,
+                       fontsize=24, color='white', ffmpeg_fn=None):
+          if ffmpeg_fn is not None:
+              return ffmpeg_fn(video_path, text, output_path)
+          safe_text = text.replace("'", r"\'").replace(':', r'\:')
+          result = subprocess.run(
+              ['ffmpeg', '-y', '-i', str(video_path),
+               '-vf', (f"drawtext=text='{safe_text}':fontsize={fontsize}:"
+                       f"fontcolor={color}:x=(w-text_w)/2:y=h-text_h-20"),
+               str(Path(output_path))],
+              capture_output=True, text=True,
+          )
+          if result.returncode != 0:
+              raise RuntimeError(f'FFmpeg caption error: {result.stderr[-500:]}')
+          return Path(output_path)
+
+      # Key FFmpeg drawtext options:
+      # x=(w-text_w)/2  — horizontally centred
+      # y=h-text_h-20   — 20px above bottom edge
+    narration: >
+      The drawtext filter is one of FFmpeg's video filter graph options. The
+      filter string uses a colon-separated key=value format. Special characters
+      in the text must be escaped: a single quote ends the shell string, so
+      it is escaped as backslash-quote. A colon is the filter option separator,
+      so it is escaped as backslash-colon. The x and y expressions are
+      evaluated at runtime against the frame dimensions w and h, and the
+      rendered text dimensions text_w and text_h. Centering is the most common
+      layout for lesson captions.
+
+  - type: concept
+    label: "Higher-level injection"
+    heading: "Higher-Level vs Lower-Level Injection"
+    body: >
+      Day 74's run_ffmpeg injects at the raw-args level. Day 75's mux_fn and
+      caption_fn inject at the whole-operation level.
+    bullets:
+      - "Day 74 low-level: ffmpeg_fn(args) -> dict — replaces subprocess.run"
+      - "Day 75 high-level: mux_fn(video_path, audio_bytes, output_path) -> Path"
+      - "High-level mock knows the operation's purpose, not just raw args"
+      - "Trade-off: high-level is easier to mock, low-level is more general"
+      - "Choose based on what the test needs to verify"
+    narration: >
+      Both injection patterns are valid. Low-level injection (Day 74 run_ffmpeg)
+      lets you inspect exactly what command FFmpeg received. High-level
+      injection (Day 75 mux_fn) lets you mock the whole mux operation without
+      knowing the FFmpeg command details. For pipeline testing where you only
+      care that the output file exists, high-level is simpler. For unit testing
+      the FFmpeg argument construction, low-level is better. Day 75 uses
+      high-level because the tests verify output files, not FFmpeg command
+      structure.
+
+  - type: exercise
+    heading: "Exercise 3: mux_audio_video"
+    prompt: >
+      Implement mux_audio_video(video_path, audio_bytes, output_path, ffmpeg_fn=None) -> Path.
+      If ffmpeg_fn is not None: return ffmpeg_fn(video_path, audio_bytes, output_path).
+      Otherwise: write audio_bytes to a NamedTemporaryFile(.mp3); in a try/finally
+      run subprocess.run(['ffmpeg','-y','-i',str(video_path),'-i',audio_path,
+      '-c:v','copy','-c:a','aac','-shortest',str(out_path)],
+      capture_output=True, text=True); raise RuntimeError if returncode != 0;
+      return Path(output_path); finally: unlink(audio temp file).
+    hint: >
+      if ffmpeg_fn is not None: return ffmpeg_fn(video_path, audio_bytes, output_path).
+      with NamedTemporaryFile(suffix='.mp3', delete=False) as f: f.write(audio_bytes); audio_path=f.name.
+      try: out_path=Path(output_path); result=subprocess.run([...], capture_output=True, text=True);
+      if result.returncode!=0: raise RuntimeError; return out_path.
+      finally: Path(audio_path).unlink(missing_ok=True).
+    narration: >
+      mux_audio_video is the stage that gives the video its voice — combining
+      the silent frame sequence with the generated speech track.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "mux: write audio_bytes to temp .mp3 → ffmpeg -i video -i audio -shortest"
+      - "finally: unlink temp audio file (cleanup even on exception)"
+      - "-c:v copy: no video re-encode (fast); -c:a aac: encode audio for MP4"
+      - "add_captions: drawtext filter with x=(w-text_w)/2 y=h-text_h-20"
+      - "Escape text for drawtext: leading backslash before single-quote and colon"
+      - "High-level injection: mux_fn(video_path, audio_bytes, output_path) -> Path"
+    narration: >
+      Both FFmpeg stages are done. The final lesson assembles them into
+      TalkingHeadPipeline.

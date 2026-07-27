@@ -1,0 +1,91 @@
+day: "075"
+lesson: 1
+title: "Talking-Head Pipeline Overview"
+slides:
+  - type: title
+    heading: "Talking-Head Pipeline"
+    subheading: "Day 75 — TTS + frames + mux + captions"
+    narration: >
+      Day 75 assembles everything built in Section 5 into a single production
+      pipeline: take a text script and a face image, synthesise speech, create
+      video frames, combine audio and video with FFmpeg, then burn captions.
+      This is the lesson-video pipeline that underpins the whole course — you
+      are rebuilding it from scratch today.
+
+  - type: concept
+    label: "Pipeline stages"
+    heading: "Four Stages of a Talking-Head Video"
+    body: >
+      A talking-head video is a face that appears to speak text. Building one
+      requires four independent operations that compose into a pipeline.
+    bullets:
+      - "1. generate_speech: text → MP3 audio bytes (edge-tts)"
+      - "2. image_to_frames: face image → list of BGR numpy frame arrays"
+      - "3. mux_audio_video: silent video + audio bytes → MP4 with soundtrack"
+      - "4. add_captions: video + caption text → video with burned-in text"
+    narration: >
+      Each stage is a pure function with an injection parameter for testing.
+      You never need a real video file, FFmpeg binary, or edge-tts API key to
+      run the exercises — every stage is mockable. The four functions are
+      independent: you can replace any stage (e.g. swap edge-tts for a
+      different TTS engine) without touching the others. The TalkingHeadPipeline
+      class binds all four injection functions at construction, giving the same
+      ergonomic interface as VideoProcessor (Day 74), AudioTranscriber (Day 72),
+      and PodcastGenerator (Day 73).
+
+  - type: how_it_works
+    label: "Pipeline composition"
+    heading: "Composing the Pipeline"
+    body: >
+      The four stages connect output-to-input: audio bytes flow into mux,
+      video path flows into both mux and captions.
+    bullets:
+      - "audio = generate_speech(text, voice, rate, pitch)"
+      - "frames = image_to_frames(face_img, n_frames)"
+      - "silent  = VideoProcessor.to_video(frames, 'silent.mp4', fps=30)"
+      - "muxed   = mux_audio_video(silent, audio, 'with_audio.mp4')"
+      - "final   = add_captions(muxed, caption_text, 'final.mp4')"
+    narration: >
+      The frames-to-video step uses VideoProcessor from Day 74. This is
+      deliberate: each day's deliverable is a reusable module, and Day 75
+      builds on Day 74 rather than duplicating it. The pipeline is explicitly
+      sequential — each function's output becomes the next function's input.
+      In a real production pipeline you would parallelise the TTS and
+      frame-generation steps (they are independent) and pipeline the video
+      write and mux steps. For learning purposes, the sequential form is
+      clearer.
+
+  - type: concept
+    label: "n_frames from audio"
+    heading: "Estimating Frame Count from Audio Duration"
+    body: >
+      The video and audio must have compatible durations for mux to work.
+      Frame count controls video duration: duration_sec = n_frames / fps.
+    bullets:
+      - "MP3 at 128 kbps: bytes = duration_sec * 128_000 / 8"
+      - "Rearranged: duration_sec = len(audio_bytes) * 8 / 128_000"
+      - "n_frames = int(duration_sec * fps) — at least 1"
+      - "For 30 fps: 1 second of 128kbps MP3 ≈ 16 KB"
+      - "FFmpeg -shortest flag: video ends with the shorter stream"
+    narration: >
+      The -shortest flag in FFmpeg mux means the output duration equals
+      whichever stream ends first — audio or video. If you generate more
+      frames than the audio covers, the silent tail is trimmed. If you generate
+      fewer frames than the audio duration, the audio tail is trimmed. For
+      exact sync, compute n_frames from the audio byte count: at 128kbps,
+      one second of MP3 is 128_000 / 8 = 16_000 bytes. So n_frames = int(
+      len(audio_bytes) / 16_000 * fps). In tests, the mock TTS returns small
+      byte strings, so use max(int(...), 1) to guarantee at least one frame.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Pipeline: generate_speech → image_to_frames → to_video → mux → caption"
+      - "Each stage is independent and fully mockable"
+      - "n_frames controls video duration: duration = n_frames / fps"
+      - "Estimate from 128kbps MP3: n = int(len(audio)*8/128_000 * fps)"
+      - "FFmpeg -shortest trims to the shorter stream"
+      - "TalkingHeadPipeline binds all 4 injection fns at construction"
+    narration: >
+      The pipeline architecture is clear. Next: the first stage — generating
+      speech audio with edge-tts.

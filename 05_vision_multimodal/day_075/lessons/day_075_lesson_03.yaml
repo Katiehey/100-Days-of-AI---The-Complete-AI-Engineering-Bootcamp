@@ -1,0 +1,122 @@
+day: "075"
+lesson: 3
+title: "image_to_frames — Face Image to BGR Frame List"
+slides:
+  - type: title
+    heading: "image_to_frames"
+    subheading: "PIL → BGR numpy → repeated frames"
+    narration: >
+      The second pipeline stage converts a single face image into the frame
+      list that VideoProcessor needs to write a video file. The talking head
+      does not move in the simplest version — the same frame is repeated for
+      the full duration. Real lip-sync systems (Wav2Lip, SadTalker) modify
+      each frame individually; today's pipeline makes the face static but the
+      audio plays correctly.
+
+  - type: code
+    label: "image_to_frames"
+    heading: "image_to_frames Implementation"
+    code: |
+      import numpy as np
+      from PIL import Image as PILImage
+
+      def image_to_frames(image, n_frames, capture_fn=None):
+          if capture_fn is not None:
+              return capture_fn(image, n_frames)
+          if not isinstance(image, PILImage.Image):
+              image = PILImage.open(str(image)).convert('RGB')
+          arr = np.array(image)[:, :, ::-1].astype(np.uint8)  # RGB -> BGR
+          return [arr.copy() for _ in range(n_frames)]
+
+      # Mock for testing (no PIL or numpy at top level)
+      def _make_mock_frames(n=5, height=32, width=32):
+          import numpy as np
+          return [np.zeros((height, width, 3), dtype=np.uint8) for _ in range(n)]
+
+      _mock_capture = lambda img, n: _make_mock_frames(n)
+      frames = image_to_frames('face.png', 10, capture_fn=_mock_capture)
+      print(len(frames), frames[0].shape)   # 10  (32, 32, 3)
+    narration: >
+      The conversion path: PIL opens the image and converts it to RGB
+      (normalising formats like RGBA or palette images). np.array(image)
+      produces an (H, W, 3) uint8 array in RGB order. The [:, :, ::-1] slice
+      reverses the channel axis to BGR, which OpenCV's VideoWriter expects.
+      arr.copy() is essential: without it, every frame in the list would point
+      to the same underlying numpy array, so modifying one frame would modify
+      all. The copy() makes each frame independent.
+
+  - type: concept
+    label: "capture_fn signature"
+    heading: "capture_fn vs capture_fn in Day 74"
+    body: >
+      image_to_frames uses a different capture_fn signature than Day 74's
+      extract_frames. The signature matches the operation's inputs.
+    bullets:
+      - "Day 74 extract_frames: capture_fn(source) -> list[ndarray]"
+      - "Day 75 image_to_frames: capture_fn(image, n_frames) -> list[ndarray]"
+      - "n_frames is needed because the mock must create the right count"
+      - "Rule: injection fn mirrors the real function's input (minus the fn itself)"
+      - "Never pass inject_fn as first arg — it replaces the whole function body"
+    narration: >
+      The capture_fn for image_to_frames must accept both the image reference
+      and n_frames because the real function uses both to produce the output.
+      A mock that ignores n_frames would return a fixed-size list, which would
+      fail checks that verify the frame count matches the request. The general
+      rule is: the injection function's signature equals the real function's
+      signature minus the injection parameter itself. This makes the mock easy
+      to write and the intent clear.
+
+  - type: concept
+    label: "Static vs animated"
+    heading: "Static vs Lip-Sync Talking Head"
+    body: >
+      Repeating one frame produces a static talking head. Real lip-sync
+      requires per-frame mouth region generation.
+    bullets:
+      - "Static: [arr.copy() for _ in range(n)] — same frame repeated"
+      - "Wav2Lip: generate mouth region per frame from audio mel spectrogram"
+      - "SadTalker: 3D head pose + expression coefficients driven by audio"
+      - "Both require pretrained model weights and GPU for real-time generation"
+      - "Day 75 builds the surrounding pipeline that feeds these models"
+    narration: >
+      Wav2Lip and SadTalker are open-source models that take a face image and
+      an audio file and produce a video where the mouth moves in sync with the
+      audio. They require gigabytes of pretrained weights and a GPU to run at
+      usable speed. Today's pipeline is the scaffolding: generate_speech
+      produces the audio, image_to_frames produces the base frames, mux
+      combines them. Plugging in a real lip-sync model means replacing the
+      image_to_frames call with a lip_sync_frames call — the rest of the
+      pipeline is unchanged. The modular design makes the upgrade path obvious.
+
+  - type: exercise
+    heading: "Exercise 2: image_to_frames"
+    prompt: >
+      Implement image_to_frames(image, n_frames, capture_fn=None) -> list.
+      If capture_fn is not None: return capture_fn(image, n_frames).
+      Otherwise (lazy imports numpy, PIL): if image is not a PIL Image,
+      open and convert to RGB. Convert to numpy array and reverse channels
+      ([:, :, ::-1]) to BGR. Return [arr.copy() for _ in range(n_frames)].
+    hint: >
+      if capture_fn is not None: return capture_fn(image, n_frames).
+      import numpy as np; from PIL import Image as PILImage.
+      if not isinstance(image, PILImage.Image): image = PILImage.open(str(image)).convert('RGB').
+      arr = np.array(image)[:,:,::-1].astype(np.uint8).
+      return [arr.copy() for _ in range(n_frames)].
+    narration: >
+      image_to_frames is the bridge between the image domain (PIL) and the
+      video domain (OpenCV BGR numpy arrays). The arr.copy() pattern ensures
+      each frame is mutable independently — important for downstream transforms
+      like adding a text overlay per frame.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "image_to_frames(image, n_frames, capture_fn=None) -> list[ndarray]"
+      - "capture_fn(image, n_frames): signature mirrors the real function inputs"
+      - "PIL open → convert('RGB') → np.array → [:, :, ::-1] for BGR"
+      - "arr.copy() per frame: each frame is an independent numpy array"
+      - "Static pipeline: same frame n times; lip-sync: modify per frame"
+      - "Frames feed into VideoProcessor.to_video() from Day 74"
+    narration: >
+      Frame generation is done. Next: combining a silent video with audio using
+      FFmpeg.
