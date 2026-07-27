@@ -861,10 +861,10 @@ for i, content in enumerate([_LESSON_01, _LESSON_02, _LESSON_03,
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 _NUMPY_HELPER = """\
-import numpy as np
 from pathlib import Path
 
 def _make_test_frames(n=10, height=32, width=32):
+    import numpy as np
     frames = []
     for i in range(n):
         frame = np.zeros((height, width, 3), dtype=np.uint8)
