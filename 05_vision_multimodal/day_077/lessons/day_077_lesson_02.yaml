@@ -1,0 +1,114 @@
+day: "077"
+lesson: 2
+title: "Frame Analysis — BGR to PIL, Vision LLM"
+slides:
+  - type: title
+    heading: "Frame Analysis"
+    subheading: "BGR ndarray -> PIL Image -> vision LLM"
+    narration: >
+      A camera frame is a numpy ndarray in BGR channel order. To send it to
+      a vision LLM via Ollama, it must first become a PIL Image in RGB order,
+      then be base64-encoded. frame_to_image handles the conversion. analyze_frame
+      chains conversion with the Day 76 vision LLM call.
+
+  - type: code
+    label: "frame_to_image"
+    heading: "frame_to_image — BGR to PIL RGB"
+    code: |
+      from PIL import Image
+
+      def frame_to_image(frame):
+          rgb = frame[:, :, ::-1]   # BGR -> RGB (zero-copy axis reversal)
+          return Image.fromarray(rgb)
+
+      # frame[:, :, ::-1]
+      #   first :  all rows
+      #   second : all columns
+      #   ::-1    reverse channel order: [B, G, R] -> [R, G, B]
+    narration: >
+      OpenCV stores frames in BGR order — a historical quirk from its early
+      Windows days where bitmap pixels were stored B-G-R. PIL expects RGB.
+      The zero-copy channel reversal frame[:, :, ::-1] reverses the third
+      axis (channels) without copying memory. Image.fromarray then wraps the
+      result. This is the same conversion introduced in Day 74 for displaying
+      frames with matplotlib.
+
+  - type: code
+    label: "analyze_frame"
+    heading: "analyze_frame — Frame to Vision LLM"
+    code: |
+      import io, base64
+
+      def analyze_frame(frame, question, analyze_fn=None):
+          image = frame_to_image(frame)
+          if analyze_fn is not None:
+              return analyze_fn(image, question)
+          import ollama
+          buf = io.BytesIO()
+          image.save(buf, format='PNG')
+          img_b64 = base64.b64encode(buf.getvalue()).decode()
+          resp = ollama.chat(
+              model='llava',
+              messages=[{
+                  'role': 'user',
+                  'content': question,
+                  'images': [img_b64],
+              }],
+          )
+          return resp['message']['content']
+    narration: >
+      analyze_frame first converts the BGR frame to a PIL Image using
+      frame_to_image, then follows the exact same base64-encode-and-chat
+      pattern from Day 76's analyze_screenshot. The only difference is that
+      the input is a BGR ndarray rather than a PIL Image. The analyze_fn
+      injection receives the PIL Image (after conversion) so the mock does
+      not need to handle BGR arrays.
+
+  - type: concept
+    label: "BGR convention"
+    heading: "Why BGR? OpenCV History"
+    body: >
+      OpenCV stores frames as BGR arrays. Every frame operation must account
+      for this.
+    bullets:
+      - "BGR = Blue-Green-Red channel order (OpenCV convention from Day 74)"
+      - "PIL, matplotlib, and most deep learning frameworks expect RGB"
+      - "frame[:, :, ::-1] reverses the channel axis: [B,G,R] -> [R,G,B]"
+      - "Zero-copy: creates a view of the original array (no new memory)"
+      - "Image.fromarray(rgb) wraps the RGB view as a PIL Image"
+      - "analyze_fn receives PIL Image, not BGR ndarray (conversion done first)"
+    narration: >
+      The BGR/RGB mismatch is the most common source of colour errors when
+      working with OpenCV. Always convert to RGB before passing to PIL,
+      matplotlib, or Ollama. The channel reversal is zero-copy because numpy
+      axis reversal creates a view rather than allocating new memory.
+
+  - type: exercise
+    heading: "Exercise 2: frame_to_image and analyze_frame"
+    prompt: >
+      Implement: (1) frame_to_image(frame) -> PIL.Image: reverse the channel
+      axis with frame[:, :, ::-1] to get RGB, then return Image.fromarray(rgb).
+      (2) analyze_frame(frame, question, analyze_fn=None) -> str: call
+      frame_to_image(frame) to get image; if analyze_fn: return analyze_fn(image,
+      question); else: BytesIO PNG encode -> base64 -> ollama.chat llava ->
+      return resp['message']['content'].
+    hint: >
+      frame_to_image: from PIL import Image; rgb = frame[:, :, ::-1]; return
+      Image.fromarray(rgb).
+      analyze_frame: image = frame_to_image(frame); if analyze_fn: return
+      analyze_fn(image, question); else: import io, base64, ollama; BytesIO +
+      save PNG + b64encode + ollama.chat model='llava' + return content.
+    narration: >
+      frame_to_image is three lines. analyze_frame follows the exact same
+      pattern as Day 76's analyze_screenshot with frame_to_image prepended.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "frame[:, :, ::-1]: reverse channel axis BGR->RGB (zero-copy view)"
+      - "Image.fromarray(rgb): wrap RGB array as PIL Image"
+      - "analyze_frame: frame_to_image first, then base64+ollama.chat llava"
+      - "analyze_fn(pil_image, question) receives PIL Image, not BGR ndarray"
+      - "Same base64+Ollama pattern as Day 76 analyze_screenshot"
+    narration: >
+      Lesson 3 adds rate control and frame persistence.

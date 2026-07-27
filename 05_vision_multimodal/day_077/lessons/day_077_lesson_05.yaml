@@ -1,0 +1,143 @@
+day: "077"
+lesson: 5
+title: "LiveVisionAgent — Context Manager Camera Agent"
+slides:
+  - type: title
+    heading: "LiveVisionAgent"
+    subheading: "Context manager + stateful vision agent"
+    narration: >
+      LiveVisionAgent is the Section 5 class pattern applied to real-time
+      vision: bind injections at construction, delegate to module-level
+      functions, track last captured frame. The context manager interface
+      ensures the camera is always released, even if an exception occurs
+      inside the with block.
+
+  - type: code
+    label: "constructor and open"
+    heading: "Constructor, open, and close"
+    code: |
+      class LiveVisionAgent:
+          def __init__(self, device=0, camera_fn=None, analyze_fn=None):
+              self._device = device
+              self._camera_fn = camera_fn
+              self._analyze_fn = analyze_fn
+              self._cap = None
+              self._last_frame = None
+
+          def open(self, device=None):
+              d = device if device is not None else self._device
+              self._cap = open_camera(device=d, camera_fn=self._camera_fn)
+              return self
+
+          def close(self):
+              if self._cap is not None:
+                  self._cap.release()
+                  self._cap = None
+
+          def __enter__(self):
+              self.open()
+              return self
+
+          def __exit__(self, *args):
+              self.close()
+    narration: >
+      open() calls open_camera with the stored camera_fn injection and returns
+      self, enabling method chaining. close() guards against double-release by
+      checking _cap is not None before calling release. __enter__ calls open()
+      and returns self so the with statement binds the agent. __exit__ calls
+      close() regardless of whether an exception was raised.
+
+  - type: code
+    label: "read, analyze, describe, save"
+    heading: "read, analyze, describe, save"
+    code: |
+          def read(self):
+              if self._cap is None:
+                  raise RuntimeError('Camera not open.')
+              ret, frame = read_frame(self._cap)
+              if ret:
+                  self._last_frame = frame
+              return frame if ret else None
+
+          def analyze(self, question, frame=None):
+              f = frame if frame is not None else self._last_frame
+              if f is None:
+                  raise ValueError('No frame: call read() first or pass frame.')
+              return analyze_frame(f, question, analyze_fn=self._analyze_fn)
+
+          def describe(self, frame=None):
+              return self.analyze('Describe what you see in detail.', frame=frame)
+
+          def save(self, path, frame=None):
+              f = frame if frame is not None else self._last_frame
+              if f is None:
+                  raise ValueError('No frame: call read() first or pass frame.')
+              return save_frame(f, path)
+    narration: >
+      read() stores the last successful frame in _last_frame. analyze() and
+      save() use frame-or-last-frame with a ValueError guard, the same pattern
+      as ScreenAgent from Day 76. describe() is a one-line convenience wrapper
+      around analyze() with a fixed prompt. The analyze_fn injection is
+      forwarded to analyze_frame so the class is fully testable without Ollama.
+
+  - type: concept
+    label: "Context manager"
+    heading: "Python Context Manager Protocol"
+    body: >
+      The with statement guarantees cleanup even when exceptions occur.
+    bullets:
+      - "__enter__: runs on with-block entry, return value bound to 'as' target"
+      - "__exit__(exc_type, exc_val, tb): runs on with-block exit, even on exception"
+      - "Returning None (or False) from __exit__ lets exceptions propagate"
+      - "Camera pattern: __enter__ opens, __exit__ calls release"
+      - "Eliminates try/finally boilerplate in caller code"
+      - "Used by open(), threading.Lock(), database connections, network sockets"
+    narration: >
+      Context managers are the standard Python idiom for resource management.
+      The camera must be released after use — whether the code succeeds or
+      raises an exception. __exit__ receives exception information and can
+      suppress exceptions by returning True (rarely the right choice). Here
+      we return nothing (implicitly None), so exceptions propagate normally
+      and the camera is still released.
+
+  - type: exercise
+    heading: "Exercise 5: LiveVisionAgent"
+    prompt: >
+      Implement LiveVisionAgent(device=0, camera_fn=None, analyze_fn=None).
+      __init__: store all 3 + _cap=None + _last_frame=None.
+      open(device=None): d = device if device is not None else self._device;
+      self._cap = open_camera(device=d, camera_fn=self._camera_fn); return self.
+      read(): RuntimeError if cap None; read_frame(self._cap); store if ret;
+      return frame or None.
+      analyze(question, frame=None): frame-or-last guard (ValueError if None);
+      analyze_frame(f, question, analyze_fn=self._analyze_fn).
+      describe(frame=None): self.analyze('Describe what you see in detail.', frame=frame).
+      save(path, frame=None): frame-or-last guard; save_frame(f, path).
+      close(): if self._cap: release + set None.
+      __enter__: self.open(); return self.
+      __exit__(*args): self.close().
+    hint: >
+      Follow the same image-or-last pattern as ScreenAgent: f = frame if
+      frame is not None else self._last_frame; raise ValueError if None.
+      __enter__: self.open(); return self. __exit__: self.close().
+      open returns self for chaining. close guards: if self._cap is not None.
+    narration: >
+      LiveVisionAgent is the last deliverable of Day 77. Combined with
+      ScreenAgent from Day 76, you now have agents for both screenshot
+      understanding and live camera vision.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 77 Complete"
+    bullets:
+      - "LiveVisionAgent: device/camera_fn/analyze_fn at construction"
+      - "open(): open_camera with stored injection; returns self for chaining"
+      - "close(): cap.release() + set None (guards against double-release)"
+      - "__enter__: open(); __exit__: close() — context manager protocol"
+      - "read(): stores _last_frame; returns None if cap exhausted"
+      - "analyze/describe/save: frame-or-last-frame with ValueError guard"
+      - "Tomorrow (Day 78): Capstone — Media Studio combining all modalities"
+    narration: >
+      Day 77 complete. LiveVisionAgent combines all the pieces built over
+      Days 66 through 77: PIL Image handling, vision LLM analysis, OpenCV
+      frame capture, and the injectable class pattern. Day 78 assembles
+      every Section 5 skill into one Media Studio application.

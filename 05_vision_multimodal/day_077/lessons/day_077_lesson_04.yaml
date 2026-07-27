@@ -1,0 +1,120 @@
+day: "077"
+lesson: 4
+title: "capture_frames and analyze_stream"
+slides:
+  - type: title
+    heading: "Frame Pipelines"
+    subheading: "capture_frames + analyze_stream — full loops"
+    narration: >
+      With open_camera, read_frame, frame_to_image, analyze_frame, and
+      should_analyze all in place, the two pipeline functions are short
+      assemblies of those pieces. capture_frames collects raw frames.
+      analyze_stream combines capture with analysis.
+
+  - type: code
+    label: "capture_frames"
+    heading: "capture_frames — Collect Raw Frames"
+    code: |
+      def capture_frames(device=0, n_frames=5, every_n=1, camera_fn=None):
+          cap = open_camera(device=device, camera_fn=camera_fn)
+          frames = []
+          frame_count = 0
+          try:
+              while len(frames) < n_frames:
+                  ret, frame = read_frame(cap)
+                  if not ret:
+                      break
+                  if should_analyze(frame_count, every_n):
+                      frames.append(frame)
+                  frame_count += 1
+          finally:
+              cap.release()
+          return frames
+    narration: >
+      capture_frames always calls cap.release() in a finally block, matching
+      the pattern from Day 74's VideoCapture usage. The distinction from
+      Day 74's extract_frames is the camera_fn injection — extract_frames
+      injected at the capture level, here the injection replaces the entire
+      VideoCapture with a mock cap. frame_count tracks all frames read; only
+      the ones passing should_analyze are appended to the output list.
+
+  - type: code
+    label: "analyze_stream"
+    heading: "analyze_stream — Capture and Analyze"
+    code: |
+      def analyze_stream(device=0, task='Describe what you see.', n_frames=5,
+                         every_n=1, camera_fn=None, analyze_fn=None):
+          cap = open_camera(device=device, camera_fn=camera_fn)
+          results = []
+          frame_count = 0
+          analyzed = 0
+          try:
+              while analyzed < n_frames:
+                  ret, frame = read_frame(cap)
+                  if not ret:
+                      break
+                  if should_analyze(frame_count, every_n):
+                      description = analyze_frame(frame, task, analyze_fn=analyze_fn)
+                      results.append({'frame_idx': frame_count, 'description': description})
+                      analyzed += 1
+                  frame_count += 1
+          finally:
+              cap.release()
+          return results
+    narration: >
+      analyze_stream adds an analyzed counter alongside frame_count: analyzed
+      stops the outer loop at n_frames analyzed frames, frame_count tracks the
+      total frames consumed from the camera. The result list contains
+      {frame_idx, description} dicts. frame_idx is the raw camera frame number
+      (reflecting every_n skipping), not the analyzed frame index.
+
+  - type: concept
+    label: "Two counters"
+    heading: "Two Counters: frame_count and analyzed"
+    body: >
+      Separating the read counter from the analyzed counter enables rate control.
+    bullets:
+      - "frame_count: every frame read from camera, including skipped ones"
+      - "analyzed: frames that passed should_analyze and were sent to the LLM"
+      - "Loop stops when analyzed == n_frames (not frame_count)"
+      - "frame_idx in result is frame_count value (camera-relative position)"
+      - "With every_n=5: frames 0, 5, 10... are analyzed; frame_count=10 yields analyzed=3"
+      - "finally: cap.release() runs even if analyze_frame raises an exception"
+    narration: >
+      The two-counter pattern is the clean way to implement rate control in
+      a streaming loop. frame_count drives the every_n modulo check.
+      analyzed drives the stopping condition. Storing frame_count in the result
+      preserves the temporal position of each analyzed frame relative to
+      the raw camera stream.
+
+  - type: exercise
+    heading: "Exercise 4: capture_frames and analyze_stream"
+    prompt: >
+      Implement: (1) capture_frames(device=0, n_frames=5, every_n=1,
+      camera_fn=None) -> list: open_camera with camera_fn; try: loop while
+      len(frames) < n_frames; read_frame; break if not ret; if should_analyze:
+      append; frame_count += 1; finally: cap.release(); return frames.
+      (2) analyze_stream(device=0, task='Describe what you see.', n_frames=5,
+      every_n=1, camera_fn=None, analyze_fn=None) -> list[dict]: same loop
+      structure; analyze_frame on passing frames; append {frame_idx, description};
+      stop when analyzed == n_frames.
+    hint: >
+      capture_frames: cap = open_camera(device=device, camera_fn=camera_fn);
+      frames=[]; frame_count=0; try: while len(frames)<n_frames: ret,frame=read_frame(cap);
+      if not ret: break; if should_analyze(frame_count,every_n): frames.append(frame);
+      frame_count+=1; finally: cap.release(); return frames.
+      analyze_stream: same pattern + analyzed counter + analyze_frame call.
+    narration: >
+      The try/finally pattern guarantees cap.release() even when the vision
+      LLM call raises an exception inside the loop.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "capture_frames: open, loop, should_analyze gate, collect, finally release"
+      - "analyze_stream: adds analyze_frame + {frame_idx, description} result dicts"
+      - "Two counters: frame_count (all reads) and analyzed (LLM calls made)"
+      - "Loop condition: analyzed < n_frames (not frame_count)"
+      - "frame_idx = frame_count at analysis time (camera-relative position)"
+    narration: >
+      Lesson 5 wraps everything into LiveVisionAgent with a context manager.

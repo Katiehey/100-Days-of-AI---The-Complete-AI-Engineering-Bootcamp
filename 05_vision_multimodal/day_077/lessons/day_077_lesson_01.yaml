@@ -1,0 +1,100 @@
+day: "077"
+lesson: 1
+title: "Real-Time Vision — Webcam Capture"
+slides:
+  - type: title
+    heading: "Real-Time Vision"
+    subheading: "From static screenshots to live camera frames"
+    narration: >
+      Day 76 captured screenshots of whatever was already on screen. Day 77
+      opens a camera device, reads a continuous stream of frames, and applies
+      vision analysis to each one. The same injection pattern handles both:
+      camera_fn replaces cv2.VideoCapture so the gate runs without a real camera.
+
+  - type: concept
+    label: "Webcam vs file"
+    heading: "VideoCapture Device Index"
+    body: >
+      Day 74 opened video files. Day 77 opens a live camera using a device index.
+    bullets:
+      - "cv2.VideoCapture(0) — default webcam (device index 0)"
+      - "cv2.VideoCapture(1) — second camera or external webcam"
+      - "cv2.VideoCapture('file.mp4') — video file (Day 74 pattern)"
+      - "Same interface: .isOpened(), .read(), .release()"
+      - "Device index 0 is always the built-in or first camera"
+      - ".isOpened() returns False if the device is not available"
+    narration: >
+      The same VideoCapture class works for both video files and live cameras.
+      The only difference is the argument: a file path string opens a file,
+      an integer opens a camera device. Device 0 is the default webcam on any
+      platform. The cap object has identical .read() and .release() methods
+      in both cases.
+
+  - type: code
+    label: "open_camera"
+    heading: "open_camera Implementation"
+    code: |
+      def open_camera(device=0, camera_fn=None):
+          if camera_fn is not None:
+              return camera_fn(device)
+          import cv2
+          cap = cv2.VideoCapture(device)
+          if not cap.isOpened():
+              raise RuntimeError(f'Cannot open camera device {device}')
+          return cap
+
+      def read_frame(cap):
+          return cap.read()
+      # ret, frame = read_frame(cap)  -> (True, ndarray) or (False, None)
+    narration: >
+      open_camera delegates to camera_fn in test mode. In production it opens
+      a real VideoCapture and raises RuntimeError if the device is unavailable.
+      Importing cv2 inside the else branch avoids import errors in environments
+      where opencv is not installed. read_frame is a one-line wrapper around
+      cap.read() that makes the call unit-testable with a mock cap.
+
+  - type: concept
+    label: "Mock camera"
+    heading: "Mock Camera for Headless Testing"
+    body: >
+      A mock cap object implements the same three-method interface as VideoCapture.
+    bullets:
+      - "isOpened() -> True: signals camera is ready"
+      - "read() -> (True, frame_ndarray) or (False, None) at exhaustion"
+      - "release(): no-op in the mock"
+      - "camera_fn(device) -> mock_cap: returned by camera_fn injection"
+      - "Each test call creates a fresh mock with its own frame list"
+      - "Completely replaces cv2 — no display, no hardware required"
+    narration: >
+      The mock cap class stores a list of pre-built numpy arrays and returns
+      them one at a time from read(). When the list is exhausted it returns
+      (False, None), matching VideoCapture end-of-file behaviour. The mock
+      is deterministic — same frames every test run.
+
+  - type: exercise
+    heading: "Exercise 1: open_camera and read_frame"
+    prompt: >
+      Implement open_camera(device=0, camera_fn=None) -> cap.
+      If camera_fn is not None: return camera_fn(device).
+      Otherwise: import cv2; cap = cv2.VideoCapture(device); if not
+      cap.isOpened(): raise RuntimeError; return cap.
+      Implement read_frame(cap) -> (bool, ndarray|None): return cap.read().
+    hint: >
+      open_camera: if camera_fn: return camera_fn(device).
+      import cv2 inside else branch. cap = cv2.VideoCapture(device).
+      if not cap.isOpened(): raise RuntimeError(f'Cannot open camera device {device}').
+      read_frame: return cap.read().
+    narration: >
+      open_camera and read_frame are the foundation. Every other function
+      in live_vision.py builds on these two.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "cv2.VideoCapture(0) opens default webcam; integer argument = device index"
+      - "Same cap interface as file capture from Day 74: .isOpened/.read/.release"
+      - "camera_fn(device) -> mock_cap: replaces VideoCapture for headless testing"
+      - "Mock cap: isOpened()=True, read() returns frames one-by-one, release() no-op"
+      - "read_frame(cap): one-line wrapper around cap.read()"
+    narration: >
+      Lesson 2 adds frame conversion and vision LLM analysis.

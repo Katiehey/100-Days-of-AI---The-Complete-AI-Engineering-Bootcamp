@@ -1,0 +1,101 @@
+day: "077"
+lesson: 3
+title: "Rate Control and Frame Persistence"
+slides:
+  - type: title
+    heading: "Rate Control"
+    subheading: "Analyze every Nth frame — vision LLMs are slow"
+    narration: >
+      A camera produces 30 frames per second. A vision LLM call takes 2 to 10
+      seconds. Trying to analyze every frame would block the capture loop within
+      one second. Rate control — analyzing only every Nth frame — decouples
+      capture speed from analysis speed. The should_analyze predicate implements
+      this with a single modulo check.
+
+  - type: code
+    label: "should_analyze"
+    heading: "should_analyze — Rate Control Predicate"
+    code: |
+      def should_analyze(frame_count, every_n):
+          return frame_count % every_n == 0
+
+      # Examples:
+      # every_n=1  -> analyze every frame (frame 0,1,2,3,...)
+      # every_n=5  -> analyze frames 0, 5, 10, 15, ...
+      # every_n=30 -> analyze ~1 frame per second at 30 FPS
+      # frame_count=0, every_n=1 -> True (first frame is always analyzed)
+    narration: >
+      should_analyze uses modulo: frame_count % every_n == 0 is True when
+      frame_count is a multiple of every_n. At every_n=1, every frame is
+      analyzed. At every_n=30 with a 30 FPS camera, one frame per second is
+      analyzed, giving the vision LLM several seconds to respond per frame.
+      Starting at frame_count=0 means the very first frame is always included.
+
+  - type: code
+    label: "save_frame"
+    heading: "save_frame — Persist a Frame as PNG"
+    code: |
+      from pathlib import Path
+
+      def save_frame(frame, path):
+          out = Path(path)
+          frame_to_image(frame).save(out, format='PNG')
+          return out
+
+      # Never use cv2.imshow() — requires a display (headless fails)
+      # Never use plt.show() — same problem
+      # Save to disk with PIL: no display required
+    narration: >
+      save_frame converts the BGR frame to PIL RGB, then saves as PNG. This
+      is intentionally the same as writing any PIL Image — no new API needed.
+      The important constraint is that cv2.imshow() and plt.show() require a
+      display server and fail in headless environments. Always save to disk
+      or an in-memory buffer rather than showing interactively.
+
+  - type: concept
+    label: "Analysis cost"
+    heading: "Balancing Capture Rate and Analysis Cost"
+    body: >
+      Typical vision LLM latency and frame rates determine the right every_n value.
+    bullets:
+      - "30 FPS camera: one new frame every 33 ms"
+      - "llava analysis: 2-10 seconds per frame on a typical GPU"
+      - "every_n=90 at 30 FPS: analyze ~1 frame every 3 seconds"
+      - "every_n=1: analyze every frame — capture loop blocks immediately"
+      - "For demos: every_n=30 or 60 is a practical starting point"
+      - "For offline batch: every_n=1 fine (capture first, analyze later)"
+    narration: >
+      The right every_n value depends on hardware. On a fast GPU with a small
+      llava variant, every_n=10 might be feasible. On a CPU, every_n=300
+      might still cause a backlog. For real-time feel, a separate thread for
+      analysis while capture continues is the production pattern (Day 83
+      covers async agent loops). For Day 77, the simple blocking approach
+      with every_n rate control is the right starting point.
+
+  - type: exercise
+    heading: "Exercise 3: should_analyze and save_frame"
+    prompt: >
+      Implement: (1) should_analyze(frame_count, every_n) -> bool:
+      return frame_count % every_n == 0.
+      (2) save_frame(frame, path) -> Path: convert frame to PIL image with
+      frame_to_image(frame), call .save(out, format='PNG') on the result,
+      return Path(path).
+    hint: >
+      should_analyze: return frame_count % every_n == 0.
+      save_frame: out = Path(path); frame_to_image(frame).save(out, format='PNG');
+      return out.
+    narration: >
+      Both functions are short. should_analyze is one line. save_frame is
+      three lines following the same PIL save pattern from Day 66.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "should_analyze(frame_count, every_n): frame_count % every_n == 0"
+      - "frame_count=0 at first frame: first frame is always analyzed"
+      - "every_n=30 at 30 FPS: analyze ~1 frame per second"
+      - "save_frame: frame_to_image + PIL .save(format='PNG')"
+      - "Never cv2.imshow() or plt.show() in headless environments"
+    narration: >
+      Lesson 4 assembles rate control and analysis into capture_frames and
+      analyze_stream.
