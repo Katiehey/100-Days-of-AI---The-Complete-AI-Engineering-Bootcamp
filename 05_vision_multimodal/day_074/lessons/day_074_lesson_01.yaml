@@ -1,0 +1,124 @@
+day: "074"
+lesson: 1
+title: "Video Fundamentals and OpenCV VideoCapture"
+slides:
+  - type: title
+    heading: "Video Basics"
+    subheading: "Day 74 — frames, FFmpeg, VideoProcessor"
+    narration: >
+      Day 74 opens Section 5's final module before the capstone. Video is the
+      richest media format: it combines images, audio, and time. Today you will
+      process video files in pure Python: extract metadata, pull frames as
+      numpy arrays, write new video files, and call FFmpeg from code. All
+      exercises are offline — no video file needed.
+
+  - type: concept
+    label: "Video structure"
+    heading: "What Is a Video File?"
+    body: >
+      A video container (MP4, AVI, MKV) stores video frames, an audio track,
+      and metadata. Inside, frames are stored as compressed images in a codec
+      format (H.264, HEVC, VP9).
+    bullets:
+      - "Frame: one still image — a numpy array (H, W, 3), dtype uint8"
+      - "FPS: frames per second — how many frames cover one second of playback"
+      - "Resolution: width x height in pixels (e.g. 1920x1080)"
+      - "Codec: compression algorithm — H.264 for web, MJPG for editing"
+      - "Duration = frame_count / fps (in seconds)"
+    narration: >
+      At the lowest level, a video is just a list of images played quickly
+      enough to create the illusion of motion. The threshold is roughly 24 FPS
+      (cinema standard) or 30 FPS (broadcast TV). Each image is stored as a
+      numpy array with three colour channels. OpenCV uses BGR channel order
+      (Blue-Green-Red) rather than the RGB you get from PIL or matplotlib. This
+      is a historical quirk from early machine vision hardware. Internally,
+      frames are compressed frame-to-frame using I-frames (full images) and
+      P-frames (only the differences from the previous frame). Codecs like
+      H.264 achieve 50x or more compression compared to raw pixel data.
+
+  - type: concept
+    label: "BGR order"
+    heading: "OpenCV BGR vs PIL RGB"
+    body: >
+      OpenCV reads and writes frames in BGR (Blue-Green-Red) channel order.
+      PIL and matplotlib use RGB. Convert between them for display or PIL ops.
+    bullets:
+      - "cv2.VideoCapture reads frames as (H, W, 3) uint8 BGR numpy arrays"
+      - "BGR to RGB: frame_rgb = frame[:, :, ::-1]"
+      - "BGR to PIL: Image.fromarray(frame[:, :, ::-1])"
+      - "BGR to RGB with OpenCV: cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)"
+      - "Saving via PIL/matplotlib: convert to RGB first"
+    narration: >
+      When you do frame[:, :, ::-1] you are reversing the third axis — swapping
+      channel 0 (blue) with channel 2 (red) while keeping channel 1 (green)
+      unchanged. This is a zero-copy slice operation in numpy — no data is
+      copied. The most common bug when mixing OpenCV and matplotlib is
+      forgetting this conversion: matplotlib assumes RGB, so a BGR frame
+      rendered with imshow will have the red and blue channels swapped.
+      In this course we save frames as files rather than displaying them, so
+      this conversion is needed when saving to PNG via PIL.
+
+  - type: code
+    label: "VideoCapture API"
+    heading: "OpenCV VideoCapture — Metadata"
+    code: |
+      import cv2
+
+      # Open a video file
+      cap = cv2.VideoCapture('input.mp4')
+
+      if not cap.isOpened():
+          raise ValueError('Cannot open video')
+
+      # Read metadata properties
+      fps         = cap.get(cv2.CAP_PROP_FPS)
+      frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+      width       = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+      height      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+      duration    = frame_count / fps if fps > 0 else 0.0
+
+      print(f'{fps} fps  {width}x{height}  {frame_count} frames  {duration:.2f}s')
+
+      cap.release()   # always release the capture object
+    narration: >
+      VideoCapture is the entry point for all video reading in OpenCV.
+      The .get() method reads properties identified by integer constants
+      starting with CAP_PROP. The important ones are FPS, FRAME_COUNT,
+      FRAME_WIDTH, and FRAME_HEIGHT. Frame count multiplied by width
+      multiplied by height multiplied by 3 (channels) multiplied by 1 byte
+      gives the raw uncompressed size — dividing by the actual file size tells
+      you the compression ratio. Always call cap.release() to close the file
+      handle and free resources, even if an exception might occur — use
+      try/finally or a context manager wrapper.
+
+  - type: exercise
+    heading: "Exercise 1: get_video_info"
+    prompt: >
+      Implement get_video_info(source, info_fn=None) -> dict.
+      If info_fn is not None: return info_fn(source).
+      Otherwise (lazy import cv2): open VideoCapture(str(source)), check isOpened(),
+      read fps, frame_count (int), width (int), height (int), release cap,
+      compute duration_sec = round(frame_count / fps, 3) if fps > 0 else 0.0.
+      Return dict with keys fps, frame_count, width, height, duration_sec.
+    hint: >
+      if info_fn is not None: return info_fn(source).
+      import cv2; cap = cv2.VideoCapture(str(source)).
+      fps = cap.get(cv2.CAP_PROP_FPS); frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)).
+      width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)).
+      cap.release(). duration = round(frame_count/fps,3) if fps>0 else 0.0. return {...}.
+    narration: >
+      get_video_info is the foundation of the VideoProcessor. All higher-level
+      operations that need FPS or resolution call this first.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Video = frames (numpy arrays) + audio track + metadata in a container"
+      - "Frame shape: (H, W, 3) uint8, BGR channel order"
+      - "BGR to RGB: frame[:, :, ::-1] — numpy channel-reverse, zero-copy"
+      - "VideoCapture: .get(CAP_PROP_FPS/FRAME_COUNT/FRAME_WIDTH/FRAME_HEIGHT)"
+      - "Always cap.release() to close file handle"
+      - "info_fn=None injection: mock returns metadata dict, no OpenCV needed"
+    narration: >
+      The video metadata foundation is laid. Next: extracting the actual
+      frame pixel data.

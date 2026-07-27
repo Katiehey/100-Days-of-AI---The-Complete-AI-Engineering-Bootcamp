@@ -1,0 +1,141 @@
+day: "074"
+lesson: 5
+title: "VideoProcessor — Full Pipeline"
+slides:
+  - type: title
+    heading: "VideoProcessor"
+    subheading: "Full pipeline class — info, frames, to_video, run_ffmpeg"
+    narration: >
+      VideoProcessor wraps all four Day 74 functions behind a single class
+      that binds injection functions at construction time. This is the same
+      pattern as ImageSearchEngine (Day 71), AudioTranscriber (Day 72), and
+      PodcastGenerator (Day 73): one class, bound mocks, clean interface.
+
+  - type: how_it_works
+    label: "VideoProcessor"
+    heading: "VideoProcessor Design"
+    body: >
+      Four injection functions bound at __init__. Four methods, each delegating
+      to the corresponding module-level function.
+    bullets:
+      - "VideoProcessor(info_fn, capture_fn, writer_fn, ffmpeg_fn)"
+      - ".info(source) -> dict — delegates to get_video_info"
+      - ".frames(source, step, max_frames) -> list — delegates to extract_frames"
+      - ".to_video(frames, output_path, fps, fourcc) -> Path"
+      - ".run_ffmpeg(args) -> dict — delegates to run_ffmpeg"
+    narration: >
+      All four injection parameters default to None. Passing only the ones
+      needed for a particular test is fine — the rest fall through to the
+      real implementations. The class binds them once at construction rather
+      than passing them on every call, so calling code reads naturally:
+      proc.frames(source, step=5) rather than extract_frames(source, 5,
+      capture_fn=mock_fn). This is the same reason PodcastGenerator binds
+      tts_fn and voice_map at construction.
+
+  - type: code
+    label: "Implementation"
+    heading: "VideoProcessor Implementation"
+    code: |
+      class VideoProcessor:
+          def __init__(self, info_fn=None, capture_fn=None,
+                       writer_fn=None, ffmpeg_fn=None):
+              self._info_fn    = info_fn
+              self._capture_fn = capture_fn
+              self._writer_fn  = writer_fn
+              self._ffmpeg_fn  = ffmpeg_fn
+
+          def info(self, source):
+              return get_video_info(source, info_fn=self._info_fn)
+
+          def frames(self, source, step=1, max_frames=None):
+              return extract_frames(source, step=step,
+                                    max_frames=max_frames,
+                                    capture_fn=self._capture_fn)
+
+          def to_video(self, frames, output_path, fps=30.0, fourcc='mp4v'):
+              return frames_to_video(frames, output_path, fps=fps,
+                                     fourcc=fourcc,
+                                     writer_fn=self._writer_fn)
+
+          def run_ffmpeg(self, args):
+              return run_ffmpeg(args, ffmpeg_fn=self._ffmpeg_fn)
+    narration: >
+      Each method is a single line that forwards to the module-level function
+      with the bound injection function. This thin delegation is intentional:
+      the business logic lives in the module-level functions, which are
+      independently testable. The class is an ergonomic wrapper that makes
+      calls shorter and groups related operations. If you want to add a
+      batch_frames method or a transcode convenience method, add them here
+      without touching the underlying functions.
+
+  - type: code
+    label: "Full pipeline"
+    heading: "Full Video Processing Pipeline"
+    code: |
+      import numpy as np
+      import tempfile
+      from pathlib import Path
+      from video_processor import VideoProcessor
+
+      # Mock functions — no video file or FFmpeg needed
+      _FRAMES = [np.zeros((64, 64, 3), dtype=np.uint8) for _ in range(20)]
+      _mock_info    = lambda src: {'fps': 30.0, 'frame_count': 20,
+                                   'width': 64, 'height': 64, 'duration_sec': 0.667}
+      _mock_capture = lambda src: _FRAMES
+      _mock_writer  = lambda frms, path, fps: (Path(path).write_bytes(b'V'), Path(path))[1]
+      _mock_ffmpeg  = lambda args: {'returncode': 0, 'stdout': '', 'stderr': ''}
+
+      proc = VideoProcessor(info_fn=_mock_info, capture_fn=_mock_capture,
+                            writer_fn=_mock_writer, ffmpeg_fn=_mock_ffmpeg)
+
+      meta   = proc.info('source.mp4')
+      frames = proc.frames('source.mp4', step=2, max_frames=5)
+      print(meta['fps'], len(frames))   # 30.0  5
+
+      with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as f:
+          out = proc.to_video(frames, f.name)
+      print(out, Path(out).stat().st_size)
+
+      res = proc.run_ffmpeg(['-i', 'source.mp4', '-vn', 'audio.mp3'])
+      print(res['returncode'])   # 0
+    narration: >
+      This is the full video pipeline in 15 lines. With real implementations
+      (no mock functions), the same code extracts frames from a real video,
+      applies any transformation to the numpy arrays, writes a new video, and
+      runs FFmpeg to extract the audio track. Swapping from mock to real
+      means removing the injection arguments from the VideoProcessor constructor
+      — all call sites remain unchanged.
+
+  - type: exercise
+    heading: "Exercise 5: VideoProcessor Class"
+    prompt: >
+      Implement VideoProcessor:
+      __init__(info_fn=None, capture_fn=None, writer_fn=None, ffmpeg_fn=None):
+        store all four as self._info_fn, self._capture_fn, self._writer_fn, self._ffmpeg_fn.
+      info(source) -> dict: return get_video_info(source, info_fn=self._info_fn).
+      frames(source, step=1, max_frames=None) -> list:
+        return extract_frames(source, step=step, max_frames=max_frames, capture_fn=self._capture_fn).
+      to_video(frames, output_path, fps=30.0, fourcc='mp4v') -> Path:
+        return frames_to_video(frames, output_path, fps=fps, fourcc=fourcc, writer_fn=self._writer_fn).
+      run_ffmpeg(args) -> dict: return run_ffmpeg(args, ffmpeg_fn=self._ffmpeg_fn).
+    hint: >
+      Each method is one return statement delegating to the module-level function
+      with the corresponding self._xxx_fn bound injection function.
+    narration: >
+      VideoProcessor is the Day 74 deliverable. Combined with the vision
+      pipeline from Day 67 and the audio transcriber from Day 72, you can
+      now process all three modalities of video: video frames (Day 74),
+      audio track (Day 72), and visual content (Day 67).
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 74 Complete"
+    bullets:
+      - "VideoProcessor binds info_fn, capture_fn, writer_fn, ffmpeg_fn at construction"
+      - "Four methods each delegate to module-level function + bound injection fn"
+      - "Full pipeline: info → frames → transform numpy arrays → to_video → run_ffmpeg"
+      - "BGR numpy arrays as the common currency between OpenCV and PIL/numpy ops"
+      - "Tomorrow (Day 75): Talking-Head Pipeline — lip sync, Wav2Lip, compositing"
+    narration: >
+      Day 74 is complete. You can read video metadata, extract frames as numpy
+      arrays, write processed frames to a new video, and run FFmpeg conversions
+      from Python — all testable without a video file or FFmpeg installed.

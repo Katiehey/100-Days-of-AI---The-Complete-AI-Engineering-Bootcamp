@@ -1,0 +1,104 @@
+day: "074"
+lesson: 3
+title: "Writing Video with VideoWriter"
+slides:
+  - type: title
+    heading: "Writing Video Files"
+    subheading: "frames_to_video — VideoWriter, fourcc, fps"
+    narration: >
+      The reverse of extraction: taking a list of numpy frame arrays and
+      writing them to a video file. VideoWriter requires three parameters to
+      match the frames exactly: codec, fps, and frame size. Getting any one
+      wrong produces a corrupt or empty file.
+
+  - type: concept
+    label: "VideoWriter"
+    heading: "VideoWriter and fourcc Codes"
+    body: >
+      VideoWriter encodes frames into a video file. The fourcc parameter
+      selects the codec. The frame size must match the actual frame dimensions.
+    bullets:
+      - "fourcc = four-character code identifying the codec"
+      - "mp4v: MPEG-4 video, used in .mp4 files — good default"
+      - "XVID: Xvid codec, used in .avi files"
+      - "MJPG: Motion JPEG, each frame a JPEG — large but compatible"
+      - "cv2.VideoWriter_fourcc(*'mp4v') converts the string to an integer code"
+    narration: >
+      The fourcc code was introduced in the early days of video on Windows to
+      label codecs in AVI files. It is literally four ASCII characters packed
+      into a 32-bit integer. The asterisk unpacking (*'mp4v') expands the
+      string into four character arguments: cv2.VideoWriter_fourcc('m', 'p',
+      '4', 'v'). The codec must match the output file extension: mp4v for
+      .mp4 files, XVID for .avi. If the codec is unavailable on the system,
+      OpenCV silently falls back or produces an empty file. MJPG is the most
+      compatible fallback since it requires no external codec.
+
+  - type: code
+    label: "VideoWriter usage"
+    heading: "VideoWriter: Frame Size and Write Loop"
+    code: |
+      import cv2
+      from pathlib import Path
+
+      def frames_to_video(frames, output_path, fps=30.0,
+                          fourcc='mp4v', writer_fn=None):
+          if writer_fn is not None:
+              return writer_fn(frames, output_path, fps)
+          frames       = list(frames)
+          if not frames:
+              raise ValueError('frames list is empty')
+          h, w         = frames[0].shape[:2]   # height, width from frame
+          fourcc_code  = cv2.VideoWriter_fourcc(*fourcc)
+          out_path     = Path(output_path)
+          writer       = cv2.VideoWriter(str(out_path), fourcc_code, fps, (w, h))
+          for frame in frames:
+              writer.write(frame)
+          writer.release()
+          return out_path
+
+      # Key: VideoWriter takes (width, height), NOT (height, width)
+      # h, w = frame.shape[:2]  -> shape is (H, W, channels), so [:2] = (H, W)
+      # (w, h)                  -> VideoWriter wants (W, H) = (width, height)
+    narration: >
+      The h, w = frames[0].shape[:2] line unpacks height and width from the
+      first frame's shape tuple — numpy shape is always height-first, which
+      is the opposite of how VideoWriter expects them. Passing (w, h) to
+      VideoWriter gives (width, height) in OpenCV's expected order. If you
+      accidentally pass (h, w) (height, width), OpenCV will write a transposed
+      video — frames will be squeezed into the wrong aspect ratio. The
+      writer.release() call is mandatory: it flushes the codec buffer and
+      writes the file footer. Without it, many video players cannot open the
+      file.
+
+  - type: exercise
+    heading: "Exercise 3: frames_to_video"
+    prompt: >
+      Implement frames_to_video(frames, output_path, fps=30.0, fourcc='mp4v', writer_fn=None) -> Path.
+      If writer_fn is not None: return writer_fn(frames, output_path, fps).
+      Otherwise (lazy import cv2): list(frames), raise ValueError if empty,
+      h,w = frames[0].shape[:2], fourcc_code = cv2.VideoWriter_fourcc(*fourcc),
+      out_path = Path(output_path), writer = cv2.VideoWriter(str(out_path), fourcc_code, fps, (w,h)),
+      loop writing frames, writer.release(), return out_path.
+    hint: >
+      if writer_fn is not None: return writer_fn(frames, output_path, fps).
+      import cv2; frames=list(frames); if not frames: raise ValueError('frames list is empty').
+      h,w=frames[0].shape[:2]; code=cv2.VideoWriter_fourcc(*fourcc).
+      writer=cv2.VideoWriter(str(Path(output_path)),code,fps,(w,h)).
+      for f in frames: writer.write(f). writer.release(). return Path(output_path).
+    narration: >
+      frames_to_video completes the read-process-write loop: extract frames
+      from a source video, transform each frame (resize, annotate, filter),
+      write to a new video file.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "fourcc: four-char codec code — mp4v for .mp4, XVID for .avi"
+      - "cv2.VideoWriter_fourcc(*fourcc) packs 4 chars into codec int"
+      - "VideoWriter size is (width, height) — reverse of numpy shape"
+      - "h,w = frames[0].shape[:2] then pass (w,h) to VideoWriter"
+      - "writer.release() mandatory — flushes codec buffer, writes footer"
+      - "writer_fn=None injection: mock writes placeholder bytes, returns Path"
+    narration: >
+      Reading and writing video is done. Next: FFmpeg for format conversion
+      and audio extraction.

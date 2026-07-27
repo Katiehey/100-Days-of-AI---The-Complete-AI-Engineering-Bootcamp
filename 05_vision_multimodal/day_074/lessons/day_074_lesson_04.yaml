@@ -1,0 +1,126 @@
+day: "074"
+lesson: 4
+title: "FFmpeg from Python"
+slides:
+  - type: title
+    heading: "FFmpeg from Python"
+    subheading: "subprocess.run — format conversion, audio extraction"
+    narration: >
+      FFmpeg is the Swiss Army knife of media processing: it converts between
+      formats, extracts audio tracks, resizes video, and hundreds of other
+      operations. Calling it from Python with subprocess.run wraps all of this
+      power with testable injection and clean output capture.
+
+  - type: concept
+    label: "FFmpeg basics"
+    heading: "FFmpeg Command Structure"
+    body: >
+      Every FFmpeg command follows the same pattern: input flags, input file,
+      filter/codec flags, output file. The -y flag overwrites output without
+      prompting.
+    bullets:
+      - "ffmpeg -y -i input.mp4 output.avi — convert format"
+      - "ffmpeg -y -i input.mp4 -vn output.mp3 — extract audio (-vn = no video)"
+      - "ffmpeg -y -i in.mp4 -vf scale=640:-1 out.mp4 — resize to 640 wide"
+      - "ffmpeg -y -i in.mp4 -ss 10 -t 30 clip.mp4 — 30s clip starting at 10s"
+      - "-y: overwrite output without asking (essential for automation)"
+    narration: >
+      The -i flag specifies the input file. Everything before the first -i is
+      global options (like -y). Everything between -i and the output file is
+      output options: codec (-c:v), audio codec (-c:a), no video (-vn),
+      video filters (-vf), duration (-t), start time (-ss). The output file
+      is always the last argument. FFmpeg infers the output format from the
+      file extension. The -y flag is essential when running FFmpeg from code
+      because without it, FFmpeg blocks waiting for a y/n prompt when the
+      output file already exists.
+
+  - type: code
+    label: "run_ffmpeg"
+    heading: "run_ffmpeg Implementation"
+    code: |
+      import subprocess
+
+      def run_ffmpeg(args, ffmpeg_fn=None):
+          if ffmpeg_fn is not None:
+              return ffmpeg_fn(args)
+          result = subprocess.run(
+              ['ffmpeg', '-y'] + list(args),
+              capture_output=True, text=True,
+          )
+          return {
+              'returncode': result.returncode,
+              'stdout':     result.stdout,
+              'stderr':     result.stderr,
+          }
+
+      # Format conversion
+      r = run_ffmpeg(['-i', 'input.mp4', 'output.avi'])
+      print(r['returncode'])   # 0 = success, non-zero = error
+
+      # Extract audio
+      r = run_ffmpeg(['-i', 'video.mp4', '-vn', 'audio.mp3'])
+
+      # Resize to 640px wide (keep aspect ratio)
+      r = run_ffmpeg(['-i', 'video.mp4', '-vf', 'scale=640:-1', 'small.mp4'])
+    narration: >
+      subprocess.run blocks until the command finishes, then returns a
+      CompletedProcess object. capture_output=True redirects both stdout and
+      stderr to the result object — without it, FFmpeg's verbose progress
+      output floods the terminal. text=True decodes bytes to str using the
+      system locale. returncode 0 means success; any other value means an
+      error. FFmpeg always writes progress to stderr (not stdout), so check
+      result.stderr for error messages. The injection pattern
+      ffmpeg_fn=lambda args: dict(returncode=0,...) lets you test all calling
+      code without FFmpeg installed.
+
+  - type: concept
+    label: "FFmpeg stderr"
+    heading: "Reading FFmpeg Output"
+    body: >
+      FFmpeg writes its progress and error messages to stderr, not stdout.
+      Always check result.stderr for diagnostics when returncode is non-zero.
+    bullets:
+      - "returncode 0: success"
+      - "returncode non-zero: check result.stderr for the error message"
+      - "FFmpeg always logs to stderr — stdout is typically empty"
+      - "stderr on success: codec info, frame count, duration summary"
+      - "stderr on failure: 'No such file or directory' or 'codec not found'"
+    narration: >
+      The reason FFmpeg uses stderr for progress is that stdout is reserved
+      for piped binary output — if you pipe FFmpeg output to another program,
+      stdout carries the video data and stderr carries human-readable progress.
+      When calling from Python, capture_output=True captures both. A
+      returncode of 0 with a non-empty stderr is normal: FFmpeg prints
+      verbose codec information even on successful runs. Only a non-zero
+      returncode indicates failure. Check result.stderr.split(newline)[-5:]
+      to see the last few lines for a quick diagnosis.
+
+  - type: exercise
+    heading: "Exercise 4: run_ffmpeg"
+    prompt: >
+      Implement run_ffmpeg(args, ffmpeg_fn=None) -> dict.
+      If ffmpeg_fn is not None: return ffmpeg_fn(args).
+      Otherwise: import subprocess; result = subprocess.run(
+      ['ffmpeg', '-y'] + list(args), capture_output=True, text=True).
+      Return {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}.
+    hint: >
+      if ffmpeg_fn is not None: return ffmpeg_fn(args).
+      import subprocess; result = subprocess.run(['ffmpeg','-y']+list(args), capture_output=True, text=True).
+      return {'returncode': result.returncode, 'stdout': result.stdout, 'stderr': result.stderr}.
+    narration: >
+      run_ffmpeg wraps FFmpeg's entire capability behind one testable function.
+      Any video conversion, audio extraction, or filter operation becomes a
+      single function call.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "FFmpeg: -y (overwrite), -i (input), output flags, output file"
+      - "subprocess.run(['ffmpeg','-y']+args, capture_output=True, text=True)"
+      - "returncode 0 = success; non-zero = check stderr for error"
+      - "FFmpeg writes progress to stderr — stdout is binary pipe"
+      - "Common ops: format convert, -vn audio extract, -vf scale=W:-1 resize"
+      - "ffmpeg_fn=None injection: lambda args: dict(returncode=0,...)"
+    narration: >
+      All four core functions are built. The final lesson assembles them into
+      VideoProcessor.

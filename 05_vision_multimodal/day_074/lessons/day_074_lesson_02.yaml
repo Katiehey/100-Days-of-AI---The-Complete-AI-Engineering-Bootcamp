@@ -1,0 +1,128 @@
+day: "074"
+lesson: 2
+title: "Frame Extraction"
+slides:
+  - type: title
+    heading: "Frame Extraction"
+    subheading: "extract_frames — step, max_frames, numpy arrays"
+    narration: >
+      Extracting frames is the most common video processing operation. A one-
+      hour video at 30 FPS contains 108,000 frames. Extracting every frame
+      fills gigabytes of RAM. Step and max_frames parameters let you sample
+      efficiently — taking every 10th frame for a timelapse, or capping at 100
+      frames for a quick preview.
+
+  - type: how_it_works
+    label: "Frame loop"
+    heading: "The cap.read() Frame Loop"
+    body: >
+      cap.read() returns (ret, frame) — ret is False when the video ends
+      or a read error occurs. The standard frame loop checks ret first.
+    bullets:
+      - "cap.read() -> (ret: bool, frame: np.ndarray | None)"
+      - "ret=False means end of file or error — stop the loop"
+      - "frame is (H, W, 3) uint8 BGR numpy array when ret=True"
+      - "step: only keep frames where idx % step == 0"
+      - "max_frames: break early when enough frames collected"
+    narration: >
+      The two-return-value pattern (ret, frame) is OpenCV's way of combining
+      the end-of-stream signal with the frame data into a single call. The
+      name ret is short for return code — True means success, False means
+      the video has ended or the source is unavailable. The frame when ret is
+      False is typically None, so always check ret before using the frame.
+      The step parameter is applied with the modulo operator: idx % step == 0
+      selects frames at indices 0, step, 2*step, and so on. Combined with
+      max_frames, you get a streaming take(max) + stride sampler.
+
+  - type: code
+    label: "extract_frames"
+    heading: "extract_frames Implementation"
+    code: |
+      import cv2
+
+      def extract_frames(source, step=1, max_frames=None, capture_fn=None):
+          if capture_fn is not None:
+              all_frames = capture_fn(source)
+              stepped    = all_frames[::step]
+              return stepped[:max_frames] if max_frames is not None else stepped
+          cap    = cv2.VideoCapture(str(source))
+          frames = []
+          idx    = 0
+          while True:
+              ret, frame = cap.read()
+              if not ret:
+                  break
+              if idx % step == 0:
+                  frames.append(frame)
+                  if max_frames is not None and len(frames) >= max_frames:
+                      break
+              idx += 1
+          cap.release()
+          return frames
+
+      # Testing with mock
+      import numpy as np
+      mock_frames = [np.zeros((64,64,3), dtype=np.uint8)] * 10
+      frames = extract_frames('video.mp4', step=2, max_frames=3,
+                               capture_fn=lambda src: mock_frames)
+      print(len(frames))   # 3 (10 frames // step=2 = 5, capped at max=3)
+    narration: >
+      The mock path slices the full frame list using Python list slicing:
+      all_frames[::step] produces every nth element, then [:max_frames]
+      caps the result. The real path applies step during reading with
+      the modulo check, which is more memory-efficient for large videos
+      because intermediate frames are never stored in memory. Both paths
+      return the same result for the same video and parameters.
+
+  - type: concept
+    label: "Frame shapes"
+    heading: "Working With Frame Numpy Arrays"
+    body: >
+      Each frame is a numpy array. PIL, matplotlib, and numpy operations all
+      apply directly. Save frames as PNG with PIL to inspect them without
+      a display.
+    bullets:
+      - "frame.shape -> (height, width, 3) — note: height first, width second"
+      - "frame.dtype -> uint8 (values 0-255 per channel)"
+      - "PIL from BGR frame: Image.fromarray(frame[:, :, ::-1])"
+      - "Save frame as PNG: Image.fromarray(frame[:,:,::-1]).save('frame.png')"
+      - "Frame from PIL: np.array(pil_img)[:, :, ::-1] (RGB to BGR)"
+    narration: >
+      The height-first, width-second shape order in numpy conflicts with
+      OpenCV's (width, height) pair in VideoWriter — this is the most common
+      source of shape errors. Always extract h, w = frame.shape[:2] from the
+      actual frame array and pass (w, h) to VideoWriter. The [:2] slice drops
+      the channel count, leaving just the spatial dimensions. When you see a
+      weirdly colored image in saved output, check the BGR/RGB conversion first.
+
+  - type: exercise
+    heading: "Exercise 2: extract_frames"
+    prompt: >
+      Implement extract_frames(source, step=1, max_frames=None, capture_fn=None) -> list.
+      If capture_fn is not None: all_frames = capture_fn(source); stepped = all_frames[::step];
+      return stepped[:max_frames] if max_frames is not None else stepped.
+      Otherwise (lazy import cv2): VideoCapture loop with idx counter,
+      keep frames where idx % step == 0, break when max_frames reached or ret=False,
+      cap.release(), return frames list.
+    hint: >
+      Mock path: all_frames = capture_fn(source); stepped = all_frames[::step];
+      return stepped[:max_frames] if max_frames else stepped.
+      Real path: import cv2; cap = VideoCapture; idx=0; while True: ret,frame=cap.read();
+      if not ret: break; if idx%step==0: frames.append(frame); if max_frames and len>=max_frames: break;
+      idx+=1; cap.release(); return frames.
+    narration: >
+      extract_frames is the workhorse of any video analysis pipeline — whether
+      for frame-by-frame vision analysis, generating thumbnails, or building
+      training data.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "cap.read() -> (ret, frame): check ret before using frame"
+      - "step parameter: idx % step == 0 selects every nth frame"
+      - "max_frames: break early to avoid reading the whole file"
+      - "frame.shape = (H, W, 3) — height first, width second"
+      - "BGR to PIL: Image.fromarray(frame[:, :, ::-1])"
+      - "Mock path: slice capture_fn result with [::step][:max_frames]"
+    narration: >
+      Frame extraction is complete. Next: writing frames back to a video file.
