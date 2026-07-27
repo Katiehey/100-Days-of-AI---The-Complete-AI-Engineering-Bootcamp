@@ -1,0 +1,111 @@
+day: "073"
+lesson: 4
+title: "Multi-Segment Synthesis"
+slides:
+  - type: title
+    heading: "Multi-Segment Synthesis"
+    subheading: "synthesize_segments — script-to-audio pipeline"
+    narration: >
+      A podcast is not one voice reading one block of text. It is a script:
+      multiple speakers, each with different voice, rate, and pitch settings.
+      This lesson builds synthesize_segments, which takes a list of segment
+      dicts and returns a list of audio bytes — one per segment.
+
+  - type: how_it_works
+    label: "Segment dict"
+    heading: "The Segment Dict Format"
+    body: >
+      Each segment is a dict with text and optional voice, rate, pitch keys.
+      Missing optional keys default to neutral values.
+    bullets:
+      - "text (required): the spoken content"
+      - "voice (optional): voice ShortName, defaults to en-US-AriaNeural"
+      - "rate (optional): speed adjustment, defaults to +0%"
+      - "pitch (optional): pitch adjustment, defaults to +0Hz"
+    narration: >
+      The segment dict format is intentionally flat — all values at the top
+      level, no nesting. This makes it easy to build from a simple script
+      file (JSON or YAML), to log, and to debug. The defaults mean a
+      minimal script can have just the text key. Using dict.get with a
+      default value handles missing keys without raising KeyError, so the
+      caller does not need to specify every key for every segment.
+
+  - type: code
+    label: "synthesize_segments"
+    heading: "synthesize_segments Implementation"
+    code: |
+      def synthesize_segments(segments, tts_fn=None):
+          out = []
+          for seg in segments:
+              audio = synthesize(
+                  seg['text'],
+                  voice=seg.get('voice', 'en-US-AriaNeural'),
+                  tts_fn=tts_fn,
+                  rate=seg.get('rate', '+0%'),
+                  pitch=seg.get('pitch', '+0Hz'),
+              )
+              out.append(audio)
+          return out
+
+      # Example script
+      script = [
+          {'text': 'Welcome to the show.', 'voice': 'en-US-AriaNeural', 'rate': '-5%'},
+          {'text': 'Thanks for having me!', 'voice': 'en-US-GuyNeural',  'rate': '+10%'},
+          {'text': "Let's dive in.", 'voice': 'en-US-AriaNeural'},
+      ]
+      parts = synthesize_segments(script, tts_fn=mock_tts)
+      print(len(parts))   # 3
+    narration: >
+      synthesize_segments is a thin loop: for each segment dict, delegate
+      to synthesize with the segment's parameters. The result is a list of
+      bytes objects — one per segment — that can be saved to individual files
+      or joined. The tts_fn flows through from synthesize_segments to
+      synthesize, so the mock works for all segments without any changes.
+
+  - type: concept
+    label: "Audio joining"
+    heading: "Joining Audio Segments"
+    body: >
+      For MP3 output, concatenating bytes produces a valid file.
+      For WAV output, headers must be combined carefully.
+    bullets:
+      - "MP3: MPEG frames are self-delineating — concatenation is valid"
+      - "bytes concatenation: b''.join(parts) gives one playable MP3"
+      - "WAV: has a file header with length fields — cannot naively concatenate"
+      - "For WAV joining: use pydub or soundfile to re-encode"
+    narration: >
+      The easiest approach for the podcast generator is to save each
+      segment as a numbered .mp3 file (segment_01.mp3, segment_02.mp3)
+      and let the user join them with any audio editor or ffmpeg. If a
+      single output file is required, pydub provides an AudioSegment class
+      that handles concatenation with proper encoding. For this course,
+      the PodcastGenerator.save method writes numbered files — clean,
+      simple, and requires no additional audio packages.
+
+  - type: exercise
+    heading: "Exercise 4: synthesize_segments"
+    prompt: >
+      Implement synthesize_segments(segments, tts_fn=None) -> list[bytes].
+      For each seg in segments: call synthesize with seg['text'],
+      voice=seg.get('voice', 'en-US-AriaNeural'), tts_fn=tts_fn,
+      rate=seg.get('rate', '+0%'), pitch=seg.get('pitch', '+0Hz').
+      Append the result. Return the list.
+    hint: >
+      out = []; for seg in segments: out.append(synthesize(seg['text'],
+      voice=seg.get('voice','en-US-AriaNeural'), tts_fn=tts_fn, ...)); return out.
+    narration: >
+      synthesize_segments assembles a script into a list of audio parts.
+      Combined with PodcastGenerator.save, it drives the entire
+      text-to-podcast pipeline.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "Segment dict: {text, voice?, rate?, pitch?} — optional keys default to neutral"
+      - "synthesize_segments: loop → synthesize per segment → list[bytes]"
+      - "tts_fn flows through from synthesize_segments to synthesize"
+      - "MP3 concatenation: b''.join(parts) produces valid playable MP3"
+      - "WAV concatenation: needs pydub or soundfile (re-encode approach)"
+    narration: >
+      All building blocks are ready. The final lesson assembles them into
+      PodcastGenerator — the Day 73 deliverable.

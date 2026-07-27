@@ -1,0 +1,115 @@
+day: "073"
+lesson: 1
+title: "Neural TTS and Edge TTS"
+slides:
+  - type: title
+    heading: "Text-to-Speech Deep Dive"
+    subheading: "Day 73 — Edge TTS, voices, SSML, podcast generator"
+    narration: >
+      Day 1 used Edge TTS to turn headlines into spoken MP3. Today you go
+      deeper: neural TTS architecture, voice selection across dozens of
+      locales, prosody control with SSML, and assembling a multi-voice
+      podcast generator. All free, all local API calls to Microsoft Edge.
+
+  - type: concept
+    label: "Neural TTS"
+    heading: "How Neural TTS Works"
+    body: >
+      Neural text-to-speech converts text to audio using a neural network
+      trained on hours of human speech. The result is far more natural
+      than older concatenative or parametric systems.
+    bullets:
+      - "Text encoder: tokenise + embed the input text"
+      - "Acoustic model: predict mel spectrogram (frequency-time heatmap) from tokens"
+      - "Vocoder: convert mel spectrogram to raw audio waveform"
+      - "FastSpeech2/VITS: end-to-end models that skip the mel spectrogram step"
+    narration: >
+      The mel spectrogram is a compact representation of audio: frequency on
+      one axis, time on the other, with colour representing energy. The
+      acoustic model (often a transformer) predicts one spectrogram frame per
+      phoneme, with duration and pitch predicted in parallel. The vocoder
+      (HiFi-GAN or similar) runs the inverse transform from spectrogram back
+      to audio samples at high quality. Microsoft's Edge Neural TTS uses
+      their internal SoundStorm or similar architecture — the exact details
+      are proprietary, but the results are near-human quality.
+
+  - type: concept
+    label: "Edge TTS"
+    heading: "Edge TTS: Free Neural TTS via the Browser"
+    body: >
+      Edge TTS is a free Python package that calls the same speech
+      synthesis service used by Microsoft Edge's read-aloud feature.
+    bullets:
+      - "pip install edge-tts — installs the Python client"
+      - "No API key — uses the same public endpoint as the Edge browser"
+      - "300+ voices across 100+ locales"
+      - "Outputs MP3 audio bytes via an async streaming API"
+    narration: >
+      Microsoft makes this synthesis service freely available through their
+      Edge browser's read-aloud feature. The edge-tts Python package calls
+      the same endpoint. There is no official public API documentation or
+      SLA — use it for personal and course projects. For production
+      commercial use, the Azure Cognitive Services TTS API is the supported
+      alternative (paid, but same voice quality). For this course, edge-tts
+      is the right choice: zero cost, excellent quality, 300+ voices.
+
+  - type: code
+    label: "Basic usage"
+    heading: "Edge TTS: Basic Synthesis"
+    code: |
+      # Real usage (requires pip install edge-tts + network)
+      import asyncio, edge_tts
+
+      async def speak(text, voice='en-US-AriaNeural'):
+          communicate = edge_tts.Communicate(text, voice)
+          chunks = []
+          async for chunk in communicate.stream():
+              if chunk['type'] == 'audio':
+                  chunks.append(chunk['data'])
+          return b''.join(chunks)
+
+      audio = asyncio.run(speak('Hello, welcome to the podcast!'))
+      open('output.mp3', 'wb').write(audio)
+      print(len(audio), 'bytes')
+
+      # Testing mode — tts_fn=None injection, no network
+      mock_tts = lambda text, **kw: b'AUDIO:' + text[:10].encode()
+      result = mock_tts('Hello there')
+      print(result)   # b'AUDIO:Hello the'
+    narration: >
+      The Communicate class wraps one synthesis request. The stream method
+      returns an async generator of chunks — each chunk is a dict with type
+      (audio, WordBoundary, or SessionEnd) and data (bytes for audio chunks).
+      Collecting only the audio chunks and joining them produces the full
+      MP3 file. The asyncio.run call works in scripts; in Jupyter notebooks
+      install nest_asyncio and call apply() once to allow nested event loops.
+
+  - type: exercise
+    heading: "Exercise 1: build_prosody_ssml"
+    prompt: >
+      Implement build_prosody_ssml(text, rate='+0%', pitch='+0Hz', volume='+0%') -> str.
+      Return a full SSML document string:
+      '<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="en-US">'
+      '<prosody rate="{rate}" pitch="{pitch}" volume="{volume}">'
+      '{text}'
+      '</prosody></speak>'
+      Use f-string substitution for the parameter values.
+    hint: >
+      Return a single f-string that concatenates all four XML tags with the
+      text in the middle. Include the speak and prosody opening/closing tags.
+    narration: >
+      SSML is the bridge between plain text and fine-grained voice control.
+      build_prosody_ssml is the foundation of all rate, pitch, and volume
+      adjustments in the podcast generator.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Neural TTS: text encoder + acoustic model + vocoder"
+      - "Edge TTS: pip install edge-tts, free, 300+ voices, no API key"
+      - "Communicate(text, voice, rate, pitch).stream() — async generator"
+      - "Collect audio chunks, join bytes, write to .mp3"
+      - "tts_fn=None injection: mock returns bytes, no network needed in exercises"
+    narration: >
+      The TTS foundation is laid. Next: the voice catalogue — how to
+      select voices by locale, gender, and style.

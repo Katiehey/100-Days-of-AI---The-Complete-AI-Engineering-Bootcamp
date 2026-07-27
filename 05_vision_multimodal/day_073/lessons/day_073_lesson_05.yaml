@@ -1,0 +1,142 @@
+day: "073"
+lesson: 5
+title: "PodcastGenerator — Full Pipeline"
+slides:
+  - type: title
+    heading: "PodcastGenerator"
+    subheading: "Full pipeline class — script to audio files"
+    narration: >
+      The previous lessons built all the components. This lesson assembles
+      them into PodcastGenerator: a class that maps role names (host, guest,
+      narrator) to voices and synthesizes a full script to numbered audio
+      files.
+
+  - type: how_it_works
+    label: "PodcastGenerator"
+    heading: "PodcastGenerator Design"
+    body: >
+      A voice_map binds role names to voice ShortNames. Four methods
+      cover: single segment, full script build, save to disk.
+    bullets:
+      - "PodcastGenerator(voice_map=None, tts_fn=None)"
+      - "synthesize_segment(text, voice_key='host', rate, pitch) -> bytes"
+      - "build(script) -> list[bytes] — one bytes per script entry"
+      - "save(script, output_dir) -> list[Path] — writes segment_01.mp3, ..."
+    narration: >
+      The voice_map is a dict mapping role names to voice ShortNames —
+      for example host maps to en-US-AriaNeural and guest to en-US-GuyNeural.
+      This abstraction separates the script (which uses semantic role names)
+      from the implementation (which uses specific voice names). Swapping a
+      voice only requires changing the voice_map, not touching any script
+      entries. build synthesizes all segments via synthesize_segment. save
+      calls build and writes each bytes object to a numbered .mp3 file.
+
+  - type: code
+    label: "Implementation"
+    heading: "PodcastGenerator Implementation"
+    code: |
+      DEFAULT_VOICE_MAP = {
+          'host':     'en-US-AriaNeural',
+          'guest':    'en-US-GuyNeural',
+          'narrator': 'en-GB-LibbyNeural',
+      }
+
+      class PodcastGenerator:
+          def __init__(self, voice_map=None, tts_fn=None):
+              self._voice_map = voice_map if voice_map is not None else DEFAULT_VOICE_MAP
+              self._tts_fn    = tts_fn
+
+          def synthesize_segment(self, text, voice_key='host',
+                                  rate='+0%', pitch='+0Hz'):
+              voice = self._voice_map.get(voice_key, DEFAULT_VOICE_MAP['host'])
+              return synthesize(text, voice=voice, tts_fn=self._tts_fn,
+                                rate=rate, pitch=pitch)
+
+          def build(self, script):
+              return [self.synthesize_segment(
+                          e['text'], e.get('voice_key', 'host'),
+                          e.get('rate', '+0%'), e.get('pitch', '+0Hz'))
+                      for e in script]
+
+          def save(self, script, output_dir):
+              parts = self.build(script)
+              out = Path(output_dir)
+              out.mkdir(parents=True, exist_ok=True)
+              paths = []
+              for i, audio in enumerate(parts, start=1):
+                  p = out / f'segment_{i:02d}.mp3'
+                  p.write_bytes(audio); paths.append(p)
+              return paths
+    narration: >
+      synthesize_segment looks up the voice name from the voice_map using
+      dict.get with a fallback to the default host voice — so unknown role
+      names degrade gracefully rather than raising KeyError. build is a
+      list comprehension over script entries. save calls build, creates
+      the output directory, and writes numbered files. The from pathlib
+      import Path at the top of the module makes Path available in the class
+      body.
+
+  - type: code
+    label: "Full usage"
+    heading: "Full Podcast Generation"
+    code: |
+      from podcast_generator import PodcastGenerator
+
+      # With mock — no network needed
+      mock = lambda text, **kw: b'AUDIO:' + text[:12].encode()
+      gen = PodcastGenerator(tts_fn=mock)
+
+      script = [
+          {'text': 'Welcome to AI Engineering Daily.',   'voice_key': 'host'},
+          {'text': "Today's topic: multimodal AI.",      'voice_key': 'host',   'rate': '-5%'},
+          {'text': "I find this genuinely exciting!",    'voice_key': 'guest',  'rate': '+10%'},
+          {'text': "We will explore vision and speech.", 'voice_key': 'narrator'},
+      ]
+      parts = gen.build(script)
+      print(len(parts), [len(p) for p in parts])
+
+      # Or save to files
+      import tempfile, pathlib
+      with tempfile.TemporaryDirectory() as tmpdir:
+          paths = gen.save(script, tmpdir)
+          for p in paths:
+              print(pathlib.Path(p).name, pathlib.Path(p).stat().st_size, 'bytes')
+    narration: >
+      The full pipeline: define a script as a list of dicts with text and
+      voice_key, call build or save, get audio. Swapping to real synthesis
+      means removing the tts_fn argument from the constructor — one change,
+      rest of the code unchanged. The voice_map can be customised per
+      podcast: a French podcast would pass a voice_map with French voice
+      names, the script logic remains identical.
+
+  - type: exercise
+    heading: "Exercise 5: PodcastGenerator Class"
+    prompt: >
+      Implement PodcastGenerator:
+      __init__(voice_map=None, tts_fn=None): store both; use DEFAULT_VOICE_MAP if voice_map is None.
+      synthesize_segment(text, voice_key='host', rate='+0%', pitch='+0Hz') -> bytes:
+        voice = self._voice_map.get(voice_key, DEFAULT_VOICE_MAP['host']); call synthesize.
+      build(script) -> list[bytes]: list comprehension calling synthesize_segment per entry.
+      save(script, output_dir) -> list[Path]: build + mkdir + write segment_NN.mp3 files.
+    hint: >
+      synthesize_segment: voice = self._voice_map.get(voice_key, DEFAULT_VOICE_MAP['host']);
+      return synthesize(text, voice=voice, tts_fn=self._tts_fn, rate=rate, pitch=pitch).
+      build: [self.synthesize_segment(e['text'], e.get('voice_key','host'), ...) for e in script].
+    narration: >
+      PodcastGenerator is the Day 73 deliverable. It turns a plain-text
+      script into numbered audio files with one call, using mock injection
+      for development and real Edge TTS for production.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Day 73 Complete"
+    bullets:
+      - "PodcastGenerator: voice_map + tts_fn bound at construction"
+      - "synthesize_segment: role name → voice lookup → synthesize"
+      - "build: list comprehension over script entries"
+      - "save: build + mkdir + write segment_NN.mp3"
+      - "Tomorrow (Day 74): Video Basics — frames, FFmpeg from Python"
+    narration: >
+      Day 73 is complete. You can write a multi-voice podcast script,
+      assign voices by role, control rate and pitch per segment, and
+      produce numbered audio files — all with a single class that runs
+      in tests without any network access.

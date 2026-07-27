@@ -1,0 +1,115 @@
+day: "073"
+lesson: 2
+title: "Voices and Voice Selection"
+slides:
+  - type: title
+    heading: "Voices and Voice Selection"
+    subheading: "Locales, genders, SSML prosody control"
+    narration: >
+      Edge TTS has over 300 voices. Choosing the right voice for a podcast
+      means matching locale, gender, and style to the content. This lesson
+      covers the voice catalogue structure, how to filter voices
+      programmatically, and how SSML prosody parameters control the character
+      of the speech.
+
+  - type: concept
+    label: "Voice dict"
+    heading: "Voice Catalogue Structure"
+    body: >
+      Each Edge TTS voice is a dict with four key fields. select_voice
+      filters the catalogue by locale and gender to find the best match.
+    bullets:
+      - "ShortName: unique voice identifier like en-US-AriaNeural"
+      - "Gender: Female or Male"
+      - "Locale: BCP-47 language code like en-US, fr-FR, ja-JP"
+      - "SuggestedCodec: usually audio-24khz-48kbitrate-mono-mp3"
+    narration: >
+      ShortName is the string passed to Communicate. It uniquely identifies
+      the voice. The naming convention is locale-NameNeural, where Name is
+      the voice's persona name and Neural indicates it is a neural TTS voice
+      (as opposed to the older Standard voices). Locale uses BCP-47 codes:
+      en-US for American English, en-GB for British English, fr-FR for
+      French French, zh-CN for Simplified Chinese, and so on. Gender is
+      Female or Male. There are also multi-style voices that can speak in
+      different emotional styles (cheerful, sad, newscast).
+
+  - type: code
+    label: "select_voice"
+    heading: "select_voice: Filter by Locale and Gender"
+    code: |
+      COMMON_VOICES = [
+          {'ShortName': 'en-US-AriaNeural',   'Gender': 'Female', 'Locale': 'en-US'},
+          {'ShortName': 'en-US-GuyNeural',    'Gender': 'Male',   'Locale': 'en-US'},
+          {'ShortName': 'en-GB-LibbyNeural',  'Gender': 'Female', 'Locale': 'en-GB'},
+          {'ShortName': 'fr-FR-DeniseNeural', 'Gender': 'Female', 'Locale': 'fr-FR'},
+      ]
+
+      def select_voice(voices, locale='en-US', gender=None):
+          for v in voices:
+              if v.get('Locale') != locale:
+                  continue
+              if gender is not None and v.get('Gender','').lower() != gender.lower():
+                  continue
+              return v
+          return None
+
+      print(select_voice(COMMON_VOICES, 'en-US')['ShortName'])          # en-US-AriaNeural
+      print(select_voice(COMMON_VOICES, 'en-US', 'Male')['ShortName']) # en-US-GuyNeural
+      print(select_voice(COMMON_VOICES, 'zh-CN'))                       # None
+    narration: >
+      The filter iterates the voices list and returns the first voice that
+      matches both criteria. Returning None when no match exists is safe:
+      the caller can fall back to a default voice. The gender comparison
+      is case-insensitive so the caller can pass Female, female, or FEMALE.
+      In a podcast generator, select_voice lets you specify the podcast
+      locale and automatically assign voices — host gets the first Female
+      in the locale, guest gets the first Male.
+
+  - type: concept
+    label: "SSML prosody"
+    heading: "SSML Prosody Parameters"
+    body: >
+      Three SSML parameters control how speech sounds: rate, pitch, and
+      volume. Each uses a percentage or Hz offset from the neutral baseline.
+    bullets:
+      - "rate: speed — '+20%' faster, '-20%' slower, 'fast'/'slow' also valid"
+      - "pitch: tone — '+5Hz' higher, '-5Hz' lower, 'high'/'low' also valid"
+      - "volume: loudness — '+10%' louder, '-30%' quieter, 'loud'/'soft'"
+      - "Combine: a fast excited guest vs slow measured narrator"
+    narration: >
+      The default for all three parameters is +0%/+0Hz/+0% — neutral. For
+      a podcast host introducing sections, a slightly slower rate (like -5%)
+      and lower pitch (-2Hz) creates a calm, authoritative tone. For guest
+      responses, slightly faster (+10%) and higher pitch (+3Hz) sounds
+      more animated and conversational. The narrator voice for story
+      segments often benefits from a slightly slower rate and extra
+      volume (+5%) for clarity. These are subtle adjustments — big
+      values like +50% or -30Hz sound robotic or comical.
+
+  - type: exercise
+    heading: "Exercise 2: select_voice"
+    prompt: >
+      Implement select_voice(voices, locale='en-US', gender=None) -> dict | None.
+      Iterate voices. For each voice: skip if v.get('Locale') != locale.
+      If gender is not None: skip if v.get('Gender','').lower() != gender.lower().
+      Return the first matching voice, or None if no match.
+    hint: >
+      for v in voices: if v.get('Locale') != locale: continue.
+      if gender is not None and v.get('Gender','').lower() != gender.lower(): continue.
+      return v. After loop: return None.
+    narration: >
+      select_voice is the voice routing table for the PodcastGenerator.
+      Given a locale and optional gender preference, it finds the best
+      available voice automatically.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Voice dict: ShortName, Gender, Locale, SuggestedCodec"
+      - "ShortName format: locale-NameNeural (e.g. en-US-AriaNeural)"
+      - "select_voice: iterate, match Locale exactly, match Gender case-insensitively"
+      - "Return first match or None (caller provides fallback)"
+      - "SSML prosody: rate (+/-%), pitch (+/-Hz), volume (+/-%) — subtle adjustments"
+    narration: >
+      Voice selection is done. Next: the core synthesize function with
+      tts_fn injection.

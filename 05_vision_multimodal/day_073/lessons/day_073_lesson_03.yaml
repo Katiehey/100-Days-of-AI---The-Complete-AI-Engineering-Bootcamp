@@ -1,0 +1,119 @@
+day: "073"
+lesson: 3
+title: "The synthesize Function"
+slides:
+  - type: title
+    heading: "The synthesize Function"
+    subheading: "Core TTS with tts_fn=None injection"
+    narration: >
+      With SSML building and voice selection covered, this lesson builds
+      the core synthesis function — synthesize, which converts text to audio
+      bytes with the now-familiar fn=None injection pattern.
+
+  - type: how_it_works
+    label: "synthesize"
+    heading: "synthesize: Edge TTS with Mock Injection"
+    body: >
+      Same contract as describe_fn (Day 67), embed_fn (Day 71), and
+      transcribe_fn (Day 72): a callable that replaces the network call
+      in tests.
+    bullets:
+      - "tts_fn(text, voice=voice, rate=rate, pitch=pitch) -> bytes"
+      - "When None: async edge_tts.Communicate.stream() → collect audio chunks"
+      - "asyncio.run(_run()): sync wrapper around the async API"
+      - "Works in scripts; Jupyter needs nest_asyncio"
+    narration: >
+      The mock contract is: callable that takes text as the first positional
+      argument and voice, rate, pitch as keyword arguments, and returns bytes.
+      The simplest useful mock is a lambda that returns a fixed bytes object
+      (for size tests) or encodes a snippet of the text (for content tests).
+      The real implementation wraps the async Communicate.stream() call in
+      a small async function and runs it with asyncio.run. The asyncio.run
+      approach works in scripts and terminals; Jupyter users need to install
+      nest_asyncio to allow nested event loops.
+
+  - type: code
+    label: "Implementation"
+    heading: "synthesize Implementation"
+    code: |
+      import asyncio
+
+      def synthesize(text, voice='en-US-AriaNeural', tts_fn=None,
+                     rate='+0%', pitch='+0Hz'):
+          if tts_fn is not None:
+              return tts_fn(text, voice=voice, rate=rate, pitch=pitch)
+          import edge_tts
+          async def _run():
+              comm = edge_tts.Communicate(text, voice, rate=rate, pitch=pitch)
+              chunks = []
+              async for chunk in comm.stream():
+                  if chunk['type'] == 'audio':
+                      chunks.append(chunk['data'])
+              return b''.join(chunks)
+          return asyncio.run(_run())
+
+      # Test with mock
+      mock_tts = lambda text, **kw: b'AUDIO:' + text[:12].encode()
+      audio = synthesize('Hello world!', tts_fn=mock_tts)
+      print(audio)   # b'AUDIO:Hello world!'
+    narration: >
+      The lazy import of edge_tts means the module loads cleanly without
+      edge-tts installed. The _run inner function is defined inside the
+      else branch and immediately passed to asyncio.run. Keeping it as a
+      nested function rather than a module-level async function avoids
+      polluting the module namespace with an async function that has no
+      standalone use.
+
+  - type: code
+    label: "SSML + synthesize"
+    heading: "Combining SSML and synthesize"
+    code: |
+      # Build SSML with prosody, then synthesize
+      ssml = build_prosody_ssml(
+          'Welcome to the podcast. Today we discuss machine learning.',
+          rate='-5%', pitch='-2Hz',
+      )
+      print(ssml[:80])   # <speak version="1.0" ...><prosody rate="-5%" ...>...
+
+      # Pass the SSML string as text to synthesize
+      audio = synthesize(ssml, voice='en-US-AriaNeural', tts_fn=mock_tts)
+      print(len(audio))
+    narration: >
+      When text is an SSML string, Edge TTS uses the prosody parameters
+      from the SSML rather than the constructor rate/pitch. This lets you
+      embed fine-grained prosody control directly in the content. For a
+      podcast generator, the simplest approach is to use the constructor
+      parameters for global voice style and pass plain text — reserve SSML
+      for special segments that need different pacing (like a fast-read
+      disclaimer or a slow dramatic pause).
+
+  - type: exercise
+    heading: "Exercise 3: synthesize"
+    prompt: >
+      Implement synthesize(text, voice='en-US-AriaNeural', tts_fn=None,
+      rate='+0%', pitch='+0Hz') -> bytes.
+      If tts_fn is not None: return tts_fn(text, voice=voice, rate=rate, pitch=pitch).
+      Otherwise: lazy import edge_tts, define async _run() that creates
+      edge_tts.Communicate(text, voice, rate=rate, pitch=pitch), collects
+      audio chunks from .stream(), joins and returns bytes. Call asyncio.run(_run()).
+    hint: >
+      if tts_fn is not None: return tts_fn(text, voice=voice, rate=rate, pitch=pitch).
+      import asyncio, edge_tts.
+      async def _run(): comm = edge_tts.Communicate(...); collect audio chunks; return b''.join(chunks).
+      return asyncio.run(_run()).
+    narration: >
+      synthesize is the hub function that all higher-level code delegates
+      to. Getting the injection pattern right means PodcastGenerator and
+      synthesize_segments are automatically testable.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "synthesize: text + voice + rate + pitch + tts_fn → bytes"
+      - "Mock contract: tts_fn(text, voice=..., rate=..., pitch=...) -> bytes"
+      - "Real: async Communicate.stream(), collect audio chunks, asyncio.run"
+      - "Lazy import edge_tts: module loads without edge-tts installed"
+      - "SSML as text: pass build_prosody_ssml output directly to synthesize"
+    narration: >
+      The core synthesize function is complete. Next: synthesizing multiple
+      segments for a full script.
