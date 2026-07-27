@@ -1,0 +1,105 @@
+day: "076"
+lesson: 2
+title: "Screenshot Capture with PIL.ImageGrab"
+slides:
+  - type: title
+    heading: "Screenshot Capture"
+    subheading: "PIL.ImageGrab — turn the screen into a PIL Image"
+    narration: >
+      Before any analysis can happen, the agent needs to see the screen.
+      PIL.ImageGrab.grab converts the visible pixels of the screen or a
+      region into a PIL Image. Once captured, the image enters the same
+      processing pipeline as any other PIL Image from Day 66.
+
+  - type: code
+    label: "capture_screenshot"
+    heading: "capture_screenshot Implementation"
+    code: |
+      from PIL import Image
+
+      def capture_screenshot(region=None, screenshot_fn=None):
+          if screenshot_fn is not None:
+              return screenshot_fn(region)
+          from PIL import ImageGrab
+          return ImageGrab.grab(bbox=region)
+
+      # Full screen:
+      # img = capture_screenshot()
+      # Top-left quadrant of a 1920x1080 display:
+      # img = capture_screenshot(region=(0, 0, 960, 540))
+    narration: >
+      PIL.ImageGrab.grab captures the screen as a PIL Image in RGB mode.
+      The bbox parameter is a four-tuple: left, top, right, bottom in screen
+      pixels. If bbox is None, the entire screen is captured. The import of
+      ImageGrab is inside the else branch so the module loads without a
+      display in test environments.
+
+  - type: concept
+    label: "PIL.ImageGrab"
+    heading: "PIL.ImageGrab API"
+    body: >
+      ImageGrab.grab returns a PIL Image you can process with all Day 66 tools.
+    bullets:
+      - "PIL.ImageGrab.grab(bbox=None) -> Image: full screen or region"
+      - "bbox=(left, top, right, bottom): pixel coordinates, top-left origin"
+      - "Returns RGB mode Image (no alpha channel)"
+      - "Requires display: fails headlessly without screenshot_fn mock"
+      - "macOS: may need Screen Recording permission in System Preferences"
+      - "Result is a standard PIL Image: resize, crop, save, convert all work"
+    narration: >
+      On macOS you may see a permission prompt the first time you call
+      ImageGrab.grab. On Linux it requires Xlib. In all testing and gate
+      contexts, the screenshot_fn mock replaces this call. The returned PIL
+      Image can be processed with any tool from Day 66.
+
+  - type: concept
+    label: "Region capture"
+    heading: "Region Capture and Coordinates"
+    body: >
+      Region captures focus the vision model on the relevant part of the screen.
+    bullets:
+      - "Full capture: capture_screenshot() or grab(bbox=None)"
+      - "Region: capture_screenshot(region=(x1, y1, x2, y2))"
+      - "Capture size is (right - left) by (bottom - top) pixels"
+      - "Multi-monitor: coordinates extend past primary display width"
+      - "Smaller region means faster encoding and faster vision model call"
+    narration: >
+      Capturing the full screen is simple but creates a large image that is
+      slower to process. Capturing only the relevant region reduces the image
+      size and focuses the vision model on the right content. On multi-monitor
+      setups, coordinates can extend to the right or left of the primary
+      display.
+
+  - type: exercise
+    heading: "Exercise 2: analyze_screenshot, describe_screen, read_screen_text"
+    prompt: >
+      Implement: (1) analyze_screenshot(image, question, analyze_fn=None) -> str:
+      if analyze_fn: return analyze_fn(image, question); else convert image to
+      base64 and call ollama llava. (2) describe_screen(image, analyze_fn=None)
+      -> str: call analyze_screenshot with "Describe what you see on this screen
+      in detail." (3) read_screen_text(image, analyze_fn=None) -> str: call
+      analyze_screenshot with "Extract all visible text from this image exactly
+      as it appears."
+    hint: >
+      analyze_screenshot: if analyze_fn: return analyze_fn(image, question).
+      import io, base64, ollama; buf=BytesIO(); image.save(buf, 'PNG');
+      img_b64=base64.b64encode(buf.getvalue()).decode();
+      resp=ollama.chat(model='llava', messages=[{role/content/images}]);
+      return resp['message']['content'].
+      describe_screen and read_screen_text delegate to analyze_screenshot with
+      a fixed prompt string.
+    narration: >
+      analyze_screenshot is the core vision tool. describe_screen and
+      read_screen_text are convenience wrappers with purpose-built prompts.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "PIL.ImageGrab.grab(bbox=None) -> Image: full or region screenshot"
+      - "bbox=(left, top, right, bottom) in screen pixel coordinates"
+      - "Import inside else branch: avoids display requirement on module load"
+      - "analyze_screenshot converts PIL Image to base64, calls llava"
+      - "describe_screen and read_screen_text are fixed-prompt wrappers"
+    narration: >
+      Lesson 3 adds find_elements and answer_about_screen, completing the
+      vision tool layer.

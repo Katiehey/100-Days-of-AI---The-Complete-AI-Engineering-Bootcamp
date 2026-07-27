@@ -1,0 +1,128 @@
+day: "076"
+lesson: 3
+title: "Vision Analysis Tools"
+slides:
+  - type: title
+    heading: "Vision Tools"
+    subheading: "describe, read text, find elements, answer questions"
+    narration: >
+      The vision tools are the agent's perception layer. Each tool wraps
+      analyze_screenshot with a purpose-built prompt. Having separate named
+      functions makes the agent's intent clear and makes each tool
+      independently testable with the same analyze_fn mock.
+
+  - type: code
+    label: "analyze_screenshot"
+    heading: "analyze_screenshot — Core Vision Function"
+    code: |
+      import io
+      import base64
+
+      def analyze_screenshot(image, question, analyze_fn=None):
+          if analyze_fn is not None:
+              return analyze_fn(image, question)
+          import ollama
+          buf = io.BytesIO()
+          image.save(buf, format='PNG')
+          img_b64 = base64.b64encode(buf.getvalue()).decode()
+          resp = ollama.chat(
+              model='llava',
+              messages=[{
+                  'role': 'user',
+                  'content': question,
+                  'images': [img_b64],
+              }],
+          )
+          return resp['message']['content']
+    narration: >
+      analyze_screenshot is the single function that all vision tools delegate
+      to. It converts the PIL Image to a PNG in a BytesIO buffer, base64-
+      encodes it, and passes it to llava along with the question. The base64
+      conversion pattern is the same one used in Day 67's image_to_base64,
+      here inlined so screen_agent.py is self-contained.
+
+  - type: code
+    label: "vision tools"
+    heading: "Four Vision Tools"
+    code: |
+      def describe_screen(image, analyze_fn=None):
+          return analyze_screenshot(
+              image,
+              'Describe what you see on this screen in detail.',
+              analyze_fn=analyze_fn,
+          )
+
+      def read_screen_text(image, analyze_fn=None):
+          return analyze_screenshot(
+              image,
+              'Extract all visible text from this image exactly as it appears.',
+              analyze_fn=analyze_fn,
+          )
+
+      def find_elements(image, element_type, analyze_fn=None):
+          question = (
+              f'List all {element_type} elements visible in this screenshot. '
+              'Be specific about their labels, text, or content.'
+          )
+          return analyze_screenshot(image, question, analyze_fn=analyze_fn)
+
+      def answer_about_screen(image, question, analyze_fn=None):
+          return analyze_screenshot(image, question, analyze_fn=analyze_fn)
+    narration: >
+      Each tool has a clear name and purpose. describe_screen gives a full
+      description of the screen content. read_screen_text extracts all visible
+      text verbatim, using the exactly-as-appears instruction to prevent the
+      model from paraphrasing. find_elements builds a question that names
+      the element type being searched: button, menu, input field, and so on.
+      answer_about_screen passes the question through directly for ad-hoc
+      queries.
+
+  - type: concept
+    label: "Question-driven dispatch"
+    heading: "Question-Driven Tool Design"
+    body: >
+      All four tools share one underlying function. The question string directs
+      what the vision model focuses on.
+    bullets:
+      - "describe: open question, full scene description"
+      - "read_text: extraction instruction, verbatim output"
+      - "find_elements: type-specific query, lists matching UI components"
+      - "answer_about_screen: caller-supplied question for ad-hoc queries"
+      - "Same analyze_fn mock tests all four tools with a single lambda"
+    narration: >
+      The prompt is the tool. By choosing the right question string, you direct
+      the vision model to describe, extract, or enumerate. The mock function
+      that returns a fixed string for any question tests all four tools with
+      the same lambda. In production, the question text shapes the quality of
+      the answer significantly.
+
+  - type: exercise
+    heading: "Exercise 3: find_elements and answer_about_screen"
+    prompt: >
+      Implement: (1) find_elements(image, element_type, analyze_fn=None) -> str:
+      build question f"List all {element_type} elements visible in this screenshot.
+      Be specific about their labels, text, or content." then call
+      analyze_screenshot(image, question, analyze_fn=analyze_fn).
+      (2) answer_about_screen(image, question, analyze_fn=None) -> str:
+      return analyze_screenshot(image, question, analyze_fn=analyze_fn).
+    hint: >
+      find_elements: question = f"List all {element_type} elements visible in
+      this screenshot. Be specific about their labels, text, or content."
+      return analyze_screenshot(image, question, analyze_fn=analyze_fn).
+      answer_about_screen: one line, passes question straight through.
+    narration: >
+      find_elements is the most useful tool for UI understanding: ask for all
+      buttons, links, input fields, or any other element type by name.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "analyze_screenshot: PIL Image + question -> llava -> str"
+      - "All vision tools delegate to analyze_screenshot with a fixed prompt"
+      - "describe_screen: open question, full scene description"
+      - "read_screen_text: verbatim text extraction"
+      - "find_elements: element-type query, lists matching UI components"
+      - "answer_about_screen: pass-through for ad-hoc questions"
+    narration: >
+      Lesson 4 adds the text reasoning layer: run_screen_task chains the visual
+      description with llama3.2 to answer higher-level tasks.

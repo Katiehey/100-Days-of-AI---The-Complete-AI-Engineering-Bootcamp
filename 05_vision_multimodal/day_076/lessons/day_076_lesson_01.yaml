@@ -1,0 +1,91 @@
+day: "076"
+lesson: 1
+title: "Multimodal Agents — Perception and Reasoning"
+slides:
+  - type: title
+    heading: "Multimodal Agents"
+    subheading: "Vision + text reasoning in a single agent loop"
+    narration: >
+      A multimodal agent combines a vision model to perceive images with a
+      language model to reason about what it perceives. Day 76 builds a
+      screenshot-understanding assistant that can describe screens, extract
+      text, find UI elements, and answer questions about what is visible
+      using a two-LLM pipeline.
+
+  - type: concept
+    label: "Agent types"
+    heading: "Three Kinds of AI Agents"
+    body: >
+      Agents differ by how they perceive the world and what actions they can take.
+    bullets:
+      - "Text agents: input is text, output is text (Days 3-20)"
+      - "Tool-using agents: input is text, can call Python functions (Day 17)"
+      - "Multimodal agents: input is text plus images, reason across both"
+      - "Screen agents: multimodal agent specialised for computer interfaces"
+    narration: >
+      The progression is natural. Once you can process text, you add tools
+      so the agent can act. Once you add vision, the agent can perceive the
+      visual world, not just the text world. Screen agents are the practical
+      version: they look at a screenshot and help the user understand or
+      interact with what is on screen.
+
+  - type: concept
+    label: "Two-LLM pipeline"
+    heading: "The Two-LLM Pipeline"
+    body: >
+      Screen understanding uses two models in sequence.
+    bullets:
+      - "Stage 1 (vision LLM): screenshot -> natural-language description"
+      - "Stage 2 (text LLM): description + task -> answer"
+      - "Vision LLM: llava via Ollama (multimodal, introduced Day 67)"
+      - "Text LLM: llama3.2 via Ollama (reasoning, introduced Day 3)"
+      - "Separation of concerns: each model does what it is trained for"
+    narration: >
+      A vision-only LLM is good at translating images into words but may not
+      be the best at complex reasoning. A text-only LLM cannot see images
+      but excels at reasoning. By chaining them, the vision LLM converts the
+      screenshot to text, and the text LLM reasons about the task using that
+      text description. This two-step pipeline is modular and easy to test.
+
+  - type: concept
+    label: "Injection pattern"
+    heading: "Three Injection Points for Testing"
+    body: >
+      Three injection points make ScreenAgent fully testable without hardware.
+    bullets:
+      - "screenshot_fn=None: replaces PIL.ImageGrab.grab (needs display)"
+      - "analyze_fn=None: replaces llava call (needs GPU or Ollama)"
+      - "llm_fn=None: replaces llama3.2 call (needs Ollama)"
+      - "All three None: real models run in production"
+      - "All three mocked: gate runs headlessly with no models or display"
+    narration: >
+      A real screen agent needs a display for screenshots and a running vision
+      model. Neither is available in headless test environments. By injecting
+      all three capabilities as optional callables, every function and the
+      ScreenAgent class can be tested with deterministic mocks. The fn=None
+      injection pattern is the same one used in Days 67 through 75.
+
+  - type: exercise
+    heading: "Exercise 1: capture_screenshot"
+    prompt: >
+      Implement capture_screenshot(region=None, screenshot_fn=None) -> Image.
+      If screenshot_fn is not None: return screenshot_fn(region).
+      Otherwise: from PIL import ImageGrab; return ImageGrab.grab(bbox=region).
+    hint: >
+      if screenshot_fn is not None: return screenshot_fn(region).
+      from PIL import ImageGrab; return ImageGrab.grab(bbox=region).
+    narration: >
+      capture_screenshot is the perception entry point. The screenshot_fn
+      injection lets the gate test the rest of the pipeline without a
+      real display.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Multimodal agents combine vision perception and text reasoning"
+      - "Screen agents specialise in computer interfaces and screenshots"
+      - "Two-LLM pipeline: llava describes the screen, llama3.2 reasons about tasks"
+      - "Three injection points: screenshot_fn, analyze_fn, llm_fn"
+      - "All three mock out hardware and model dependencies for testing"
+    narration: >
+      Lesson 2 implements capture_screenshot and introduces the PIL.ImageGrab API.

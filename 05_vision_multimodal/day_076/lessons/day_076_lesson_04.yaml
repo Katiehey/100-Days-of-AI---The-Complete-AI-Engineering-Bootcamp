@@ -1,0 +1,117 @@
+day: "076"
+lesson: 4
+title: "Two-LLM Reasoning with run_screen_task"
+slides:
+  - type: title
+    heading: "Two-LLM Reasoning"
+    subheading: "Vision description + text reasoning = run_screen_task"
+    narration: >
+      Vision tools answer direct perceptual questions: what is on screen,
+      what text is there. run_screen_task goes further: it captures the
+      visual description, injects it into a text prompt, and uses a second
+      language model to reason about a task in the context of what is visible.
+
+  - type: code
+    label: "run_screen_task"
+    heading: "run_screen_task Implementation"
+    code: |
+      def run_screen_task(image, task, analyze_fn=None, llm_fn=None):
+          description = describe_screen(image, analyze_fn=analyze_fn)
+          lines = [
+              'You are a screen-reading assistant.',
+              'Here is what is visible on screen:',
+              '',
+              description,
+              '',
+              f'Task: {task}',
+              '',
+              'Answer based only on what is visible on screen.',
+          ]
+          context_prompt = '
+'.join(lines)
+          if llm_fn is not None:
+              answer = llm_fn(context_prompt)
+          else:
+              import ollama
+              resp = ollama.chat(
+                  model='llama3.2',
+                  messages=[{'role': 'user', 'content': context_prompt}],
+              )
+              answer = resp['message']['content']
+          return {'description': description, 'answer': answer, 'task': task}
+    narration: >
+      run_screen_task has two injection points: analyze_fn for the vision step
+      and llm_fn for the reasoning step. The function returns a dict with three
+      keys: description (raw vision output), answer (reasoning output), and
+      task (the original task string). Building the prompt as a list of lines
+      and joining with newline avoids escape sequences in the string literals.
+
+  - type: concept
+    label: "Why two models"
+    heading: "Why Use Two Models?"
+    body: >
+      Specialisation beats a single model trying to do both vision and reasoning.
+    bullets:
+      - "Vision LLMs (llava): trained on image-text pairs, strong at describing"
+      - "Text LLMs (llama3.2): trained on reasoning corpora, strong at inference"
+      - "Each model does what it is best at"
+      - "Swap either model without rewriting the other"
+      - "Same retrieve-then-generate pattern as RAG from Day 13"
+    narration: >
+      Routing different subtasks to different specialised models is a general
+      pattern. In RAG from Day 13, retrieval and generation are separate steps.
+      Here, perception (vision LLM) and reasoning (text LLM) are separate.
+      The output of the first step is a text description, a natural bridge
+      between the two models.
+
+  - type: concept
+    label: "Context prompt"
+    heading: "Context Prompt Design"
+    body: >
+      How you structure the visual context in the text prompt affects answer quality.
+    bullets:
+      - "Lead with a role statement to calibrate the model"
+      - "Label the screen content block so the model knows where visual info ends"
+      - "State the task explicitly after the context"
+      - "Constrain to visible information to reduce hallucination"
+      - "Return dict includes description for logging and debugging"
+    narration: >
+      The prompt structure matters. Starting with a role statement calibrates
+      the model. Labelling the screen content block helps the model know where
+      the visual information ends and the task begins. Telling the model to
+      answer based only on what is visible on screen discourages hallucination
+      about content not in the description.
+
+  - type: exercise
+    heading: "Exercise 4: run_screen_task"
+    prompt: >
+      Implement run_screen_task(image, task, analyze_fn=None, llm_fn=None) -> dict.
+      Call describe_screen(image, analyze_fn=analyze_fn) to get description.
+      Build a context_prompt joining: role statement, screen content header,
+      empty line, description, empty line, "Task: {task}", empty line,
+      constraint. If llm_fn: answer = llm_fn(context_prompt); else call
+      ollama.chat llama3.2. Return {"description": description, "answer":
+      answer, "task": task}.
+    hint: >
+      description = describe_screen(image, analyze_fn=analyze_fn).
+      lines = ['You are a screen-reading assistant.', 'Here is what is
+      visible on screen:', '', description, '', f'Task: {task}', '',
+      'Answer based only on what is visible on screen.'].
+      context_prompt = '
+'.join(lines).
+      if llm_fn: answer = llm_fn(context_prompt); else ollama.chat llama3.2.
+      return {'description': description, 'answer': answer, 'task': task}.
+    narration: >
+      run_screen_task is the highest-level function before the class wrapper.
+      It combines vision and reasoning into a single reusable pipeline.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "run_screen_task: describe_screen + text LLM -> {description, answer, task}"
+      - "describe_screen uses analyze_fn; text reasoning uses llm_fn"
+      - "Two injection points: analyze_fn (vision) and llm_fn (text)"
+      - "Build prompt as list of lines joined with newline (no escape sequences)"
+      - "Constrain to visible content to reduce hallucination"
+    narration: >
+      Lesson 5 wraps everything into the ScreenAgent class with history tracking.
