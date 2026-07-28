@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–77 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–4 complete. Days 66–77 (Images in Python, Vision LLM, OCR & Document AI, Multimodal Extraction, Image Generation, Vision + RAG, Speech-to-Text, Text-to-Speech Deep Dive, Video Basics, Talking-Head Pipeline, Multimodal Agents, Real-Time Vision) complete. Days 78–100 pending (next: Day 78 — Capstone: Media Studio).
+**Authoring status:** Days 1–78 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Days 66–78 (Images in Python, Vision LLM, OCR & Document AI, Multimodal Extraction, Image Generation, Vision + RAG, Speech-to-Text, Text-to-Speech Deep Dive, Video Basics, Talking-Head Pipeline, Multimodal Agents, Real-Time Vision, Media Studio Capstone) complete. Days 79–100 pending (next: Day 79 — What Is an Agent? — start fresh session for Section 6).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
