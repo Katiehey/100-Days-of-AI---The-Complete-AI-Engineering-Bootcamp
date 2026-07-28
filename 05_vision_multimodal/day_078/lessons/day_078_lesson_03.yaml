@@ -1,0 +1,96 @@
+day: "078"
+lesson: 3
+title: "transcribe_media — Audio to Text"
+slides:
+  - type: title
+    heading: "transcribe_media"
+    subheading: "Audio bytes or file path -> Whisper transcript"
+    narration: >
+      transcribe_media brings the Day 72 Whisper integration into the Media
+      Studio. Like describe_media, it handles two input forms: raw audio bytes
+      (for programmatic pipelines) and file paths (for files on disk). The
+      transcribe_fn injection replaces the entire Whisper call for testing.
+
+  - type: code
+    label: "transcribe_media"
+    heading: "transcribe_media Implementation"
+    code: |
+      def transcribe_media(source, transcribe_fn=None):
+          if transcribe_fn is not None:
+              return transcribe_fn(source)
+          import whisper, os, tempfile
+          model = whisper.load_model('base')
+          if isinstance(source, bytes):
+              with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                  f.write(source)
+                  tmp = f.name
+              try:
+                  raw = model.transcribe(tmp)
+              finally:
+                  os.unlink(tmp)
+          else:
+              raw = model.transcribe(str(source))
+          segments = [
+              {'start': s['start'], 'end': s['end'], 'text': s['text'].strip()}
+              for s in raw.get('segments', [])
+          ]
+          return {'text': raw.get('text', '').strip(), 'segments': segments}
+    narration: >
+      transcribe_fn receives source directly — mock functions can accept either
+      bytes or path without caring which. The real path uses the same
+      NamedTemporaryFile pattern from Day 72: write bytes to temp WAV, transcribe,
+      unlink in finally. The result normalises the Whisper output to a consistent
+      dict: text (stripped string) and segments (list of start/end/text dicts).
+
+  - type: concept
+    label: "Result normalisation"
+    heading: "Normalising Whisper Output"
+    body: >
+      Whisper returns a rich dict. transcribe_media extracts the essential fields.
+    bullets:
+      - "raw['text']: full transcript string — strip() removes leading/trailing whitespace"
+      - "raw['segments']: list of dicts with many fields — keep start, end, text only"
+      - "s['text'].strip(): remove leading space that Whisper prepends to each segment"
+      - "raw.get('text', ''): guard against missing key in mock or edge cases"
+      - "Return: {'text': str, 'segments': [{start, end, text}, ...]}"
+      - "Mock must return the same dict structure for downstream code to work"
+    narration: >
+      Whisper segments have many fields: avg_logprob, no_speech_prob, tokens,
+      temperature, and more. transcribe_media keeps only start, end, and text
+      — the fields callers actually use. The mock must return the same structure:
+      a dict with 'text' string and 'segments' list. This contract is what
+      allows the mock and the real model to be swapped without changing callers.
+
+  - type: exercise
+    heading: "Exercise 3: transcribe_media"
+    prompt: >
+      Implement transcribe_media(source, transcribe_fn=None) -> dict.
+      If transcribe_fn is not None: return transcribe_fn(source).
+      Else: import whisper, os, tempfile; model = whisper.load_model('base').
+      If isinstance(source, bytes): NamedTemporaryFile(suffix='.wav', delete=False),
+      write source, try: raw=model.transcribe(tmp); finally: os.unlink(tmp).
+      Else: raw = model.transcribe(str(source)).
+      segments = [{start,end,text.strip()} for s in raw.get('segments',[])].
+      Return {'text': raw.get('text','').strip(), 'segments': segments}.
+    hint: >
+      if transcribe_fn: return transcribe_fn(source).
+      import whisper, os, tempfile; model = whisper.load_model('base').
+      if isinstance(source, bytes): NamedTemporaryFile + try/finally unlink.
+      else: raw = model.transcribe(str(source)).
+      Extract segments: [{'start':s['start'],'end':s['end'],'text':s['text'].strip()}...].
+      return {'text': raw.get('text','').strip(), 'segments': segments}.
+    narration: >
+      transcribe_media is structurally similar to Day 72's transcribe_audio.
+      The main difference is the normalised output dict and the dual input form.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "transcribe_fn(source) receives source directly (bytes or path)"
+      - "bytes path: NamedTemporaryFile(suffix='.wav', delete=False) + try/finally unlink"
+      - "path: model.transcribe(str(source)) — str() handles Path objects"
+      - "Normalised output: {'text': stripped str, 'segments': [{start,end,text}]}"
+      - "s['text'].strip(): Whisper prepends a space to each segment text"
+    narration: >
+      Lesson 4 adds synthesize_speech and narrate_image — the TTS and
+      cross-modal composition pipelines.

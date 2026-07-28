@@ -1,0 +1,99 @@
+day: "078"
+lesson: 1
+title: "Media Studio — Capstone Architecture"
+slides:
+  - type: title
+    heading: "Media Studio"
+    subheading: "Section 5 Capstone — one studio for every modality"
+    narration: >
+      Days 66 through 77 built thirteen individual tools: image processing,
+      vision LLM, OCR, structured extraction, image generation, visual search,
+      speech-to-text, text-to-speech, video processing, talking-head pipeline,
+      screenshot agents, and real-time camera vision. Day 78 assembles three
+      of the most composable into a Media Studio that can describe images,
+      transcribe audio, synthesize speech, and chain them into cross-modal
+      pipelines like image narration.
+
+  - type: concept
+    label: "Three pipelines"
+    heading: "Three Core Pipelines"
+    body: >
+      MediaStudio combines three direction-orthogonal pipelines.
+    bullets:
+      - "Vision: image -> text (describe_media using llava)"
+      - "Speech-to-Text: audio -> text (transcribe_media using Whisper)"
+      - "Text-to-Speech: text -> audio (synthesize_speech using edge-tts)"
+      - "Cross-modal: image -> describe -> speak = narrate_image"
+      - "All three introduced in Days 67/72/73 — MediaStudio composes them"
+    narration: >
+      The three pipelines are direction-orthogonal. Vision goes image-to-text.
+      Speech recognition goes audio-to-text. TTS goes text-to-audio. Each
+      direction is reversible across different modalities. Chaining vision
+      and TTS produces image narration — a talking description of any image.
+      The MediaStudio class is the composition layer.
+
+  - type: concept
+    label: "Three injections"
+    heading: "Three Injection Points"
+    body: >
+      MediaStudio has one injection per pipeline, keeping mock setup minimal.
+    bullets:
+      - "describe_fn(pil_image, prompt) -> str: replaces llava (Day 67 pattern)"
+      - "transcribe_fn(source) -> dict: replaces Whisper (Day 72 pattern)"
+      - "tts_fn(text, voice, rate, pitch) -> bytes: replaces edge-tts (Day 73 pattern)"
+      - "All three None: production mode (real models)"
+      - "All three mocked: gate runs offline with no models"
+    narration: >
+      Each injection follows the exact pattern established in its original day.
+      describe_fn matches the Day 76/77 analyze_fn signature: PIL Image plus
+      prompt string. transcribe_fn matches Day 72's transcribe_fn: receives
+      source (bytes or path), returns the same dict structure. tts_fn matches
+      Day 73's tts_fn: four positional args (text, voice, rate, pitch).
+
+  - type: concept
+    label: "Media type detection"
+    heading: "MEDIA_EXTENSIONS and detect_media_type"
+    body: >
+      A module-level dict maps type names to sets of extensions.
+    bullets:
+      - "MEDIA_EXTENSIONS: {'image': {'.jpg','.png',...}, 'audio': {...}, 'video': {...}}"
+      - "detect_media_type(path): Path(path).suffix.lower() -> look up in dict"
+      - "Loop over dict items; return key when ext is in value set"
+      - "Return 'unknown' if no match"
+      - "Case-insensitive: .PNG and .png both return 'image'"
+      - "Only extension checked — no file magic bytes (no file needs to exist)"
+    narration: >
+      detect_media_type uses only the file extension — the file does not need
+      to exist. This means process_media can dispatch correctly even before
+      opening the file, and tests can use fictitious paths like 'test.mp3'
+      without creating real audio files. The module-level dict is the single
+      source of truth for supported extensions.
+
+  - type: exercise
+    heading: "Exercise 1: MEDIA_EXTENSIONS and detect_media_type"
+    prompt: >
+      Define MEDIA_EXTENSIONS = {'image': {'.jpg','.jpeg','.png','.bmp','.gif',
+      '.webp','.tiff'}, 'audio': {'.mp3','.wav','.ogg','.flac','.m4a','.aac'},
+      'video': {'.mp4','.avi','.mov','.mkv','.webm','.flv'}}.
+      Implement detect_media_type(path) -> str: ext = Path(path).suffix.lower();
+      loop over MEDIA_EXTENSIONS.items(); return media_type if ext in extensions;
+      return 'unknown'.
+    hint: >
+      from pathlib import Path. ext = Path(path).suffix.lower().
+      for media_type, extensions in MEDIA_EXTENSIONS.items():
+          if ext in extensions: return media_type.
+      return 'unknown'.
+    narration: >
+      detect_media_type is the routing function for the whole studio. Getting
+      it right means process_media dispatches correctly to the right pipeline.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "MediaStudio: 3 pipelines (vision/STT/TTS) + cross-modal composition"
+      - "3 injections: describe_fn, transcribe_fn, tts_fn — all 4-positional from Day 73"
+      - "MEDIA_EXTENSIONS: module-level dict, type name -> extension set"
+      - "detect_media_type: suffix.lower() + dict loop -> 'image'/'audio'/'video'/'unknown'"
+      - "Extension-only check: file does not need to exist"
+    narration: >
+      Lesson 2 implements describe_media — image description with a vision LLM.

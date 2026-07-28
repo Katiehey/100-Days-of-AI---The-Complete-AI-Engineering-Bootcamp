@@ -1,0 +1,110 @@
+day: "078"
+lesson: 4
+title: "synthesize_speech and narrate_image"
+slides:
+  - type: title
+    heading: "TTS and Cross-Modal"
+    subheading: "synthesize_speech + narrate_image"
+    narration: >
+      synthesize_speech brings the Day 73 edge-tts integration into the Media
+      Studio. narrate_image chains vision and TTS: describe the image with
+      llava, then speak the description with edge-tts. This is the first
+      cross-modal pipeline in the course — image input, audio output.
+
+  - type: code
+    label: "synthesize_speech"
+    heading: "synthesize_speech Implementation"
+    code: |
+      import asyncio
+
+      def synthesize_speech(text, voice='en-US-AriaNeural', rate='+0%',
+                            pitch='+0Hz', tts_fn=None):
+          if tts_fn is not None:
+              return tts_fn(text, voice, rate, pitch)
+          import edge_tts
+          async def _run():
+              chunks = []
+              async for chunk in edge_tts.Communicate(
+                      text, voice, rate=rate, pitch=pitch).stream():
+                  if chunk['type'] == 'audio':
+                      chunks.append(chunk['data'])
+              return b''.join(chunks)
+          return asyncio.run(_run())
+    narration: >
+      synthesize_speech is the same Day 73 pattern: async edge-tts stream
+      wrapped in asyncio.run. The tts_fn injection receives all four positional
+      args: text, voice, rate, pitch. This is the same contract as Day 73's
+      tts_fn mock. The function is synchronous from the caller's perspective —
+      asyncio.run handles the event loop.
+
+  - type: code
+    label: "narrate_image"
+    heading: "narrate_image — Cross-Modal Pipeline"
+    code: |
+      def narrate_image(source, voice='en-US-AriaNeural',
+                        describe_fn=None, tts_fn=None):
+          description = describe_media(source, describe_fn=describe_fn)
+          audio = synthesize_speech(description, voice=voice, tts_fn=tts_fn)
+          return {'description': description, 'audio': audio}
+    narration: >
+      narrate_image is five lines: call describe_media to get a text description,
+      call synthesize_speech to turn that text to audio, return both in a dict.
+      The describe_fn and tts_fn injections are forwarded to the respective
+      module-level functions. The return dict matches the TalkingHeadPipeline
+      pattern from Day 75: a result dict that includes both the intermediate
+      description and the final audio, making debugging easier.
+
+  - type: concept
+    label: "Cross-modal"
+    heading: "Cross-Modal Pipeline Design"
+    body: >
+      Cross-modal pipelines connect two modalities through a text bridge.
+    bullets:
+      - "Image -> text bridge (llava description) -> audio = image narration"
+      - "Text bridge: the description string links the two modalities"
+      - "Result dict includes description: intermediate output for debugging"
+      - "Each stage independently injectable: can mock vision but use real TTS"
+      - "Pattern extends: video -> frames -> describe each -> script -> podcast"
+      - "Text is the universal interchange format between modalities"
+    narration: >
+      Text is the natural bridge between modalities. Every Day 66-77 tool
+      either produces text (vision, OCR, STT) or consumes text (TTS, prompts).
+      Cross-modal pipelines are just vision or audio tools on either side of
+      a text bridge. narrate_image is the simplest cross-modal pipeline:
+      one vision call and one TTS call. More complex chains (video narration,
+      document reading) extend this pattern.
+
+  - type: exercise
+    heading: "Exercise 4: synthesize_speech and narrate_image"
+    prompt: >
+      Implement: (1) synthesize_speech(text, voice='en-US-AriaNeural',
+      rate='+0%', pitch='+0Hz', tts_fn=None) -> bytes: if tts_fn: return
+      tts_fn(text, voice, rate, pitch); else: import asyncio, edge_tts;
+      async def _run(): collect audio chunks from edge_tts.Communicate.stream();
+      return asyncio.run(_run()).
+      (2) narrate_image(source, voice='en-US-AriaNeural', describe_fn=None,
+      tts_fn=None) -> dict: description = describe_media(source, describe_fn);
+      audio = synthesize_speech(description, voice=voice, tts_fn=tts_fn);
+      return {'description': description, 'audio': audio}.
+    hint: >
+      synthesize_speech: if tts_fn: return tts_fn(text, voice, rate, pitch).
+      import asyncio, edge_tts; async def _run(): chunks=[]; async for chunk
+      in edge_tts.Communicate(text, voice, rate=rate, pitch=pitch).stream():
+      if chunk['type']=='audio': chunks.append(chunk['data']); return b''.join(chunks).
+      return asyncio.run(_run()).
+      narrate_image: two calls + return dict.
+    narration: >
+      synthesize_speech re-uses the Day 73 async pattern. narrate_image is
+      a three-line function: describe, synthesize, return dict.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "synthesize_speech: tts_fn(text, voice, rate, pitch) injection (Day 73 contract)"
+      - "Real path: asyncio.run(edge_tts async stream) -> bytes"
+      - "narrate_image: describe_media -> synthesize_speech -> {description, audio}"
+      - "Cross-modal: text is the bridge between image and audio modalities"
+      - "Result dict includes intermediate description for debugging"
+    narration: >
+      Lesson 5 assembles everything into the MediaStudio class with process_media
+      and batch processing.

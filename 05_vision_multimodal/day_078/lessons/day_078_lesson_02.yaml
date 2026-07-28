@@ -1,0 +1,94 @@
+day: "078"
+lesson: 2
+title: "describe_media — Image to Text"
+slides:
+  - type: title
+    heading: "describe_media"
+    subheading: "PIL Image or file path -> vision LLM description"
+    narration: >
+      describe_media is the vision pipeline of the Media Studio. It accepts
+      either a PIL Image object or a file path, converts to base64, and calls
+      llava via Ollama. The describe_fn injection follows the same pattern
+      as analyze_fn from Days 76 and 77.
+
+  - type: code
+    label: "describe_media"
+    heading: "describe_media Implementation"
+    code: |
+      import io, base64
+      from pathlib import Path
+
+      def describe_media(source, describe_fn=None):
+          from PIL import Image
+          if isinstance(source, (str, Path)):
+              image = Image.open(source)
+          else:
+              image = source           # PIL Image passed directly
+          prompt = 'Describe this image in detail, including all visible content.'
+          if describe_fn is not None:
+              return describe_fn(image, prompt)
+          import ollama
+          buf = io.BytesIO()
+          image.save(buf, format='PNG')
+          img_b64 = base64.b64encode(buf.getvalue()).decode()
+          resp = ollama.chat(
+              model='llava',
+              messages=[{'role': 'user', 'content': prompt, 'images': [img_b64]}],
+          )
+          return resp['message']['content']
+    narration: >
+      describe_media handles both input forms: a PIL Image object from memory
+      (for programmatic pipelines) or a file path string (for processing files
+      on disk). The isinstance check dispatches correctly. Image.open is lazy
+      — it loads on demand when image.save() is called. The describe_fn
+      receives the PIL Image rather than the base64 string, making mocks
+      simpler and more flexible.
+
+  - type: concept
+    label: "Dual input"
+    heading: "Dual Input: PIL Image and File Path"
+    body: >
+      Accepting both forms makes describe_media usable in all contexts.
+    bullets:
+      - "PIL Image: received from camera (Day 77), screenshot (Day 76), generation (Day 70)"
+      - "File path: received from disk, uploaded file, output of save_frame"
+      - "isinstance(source, (str, Path)): check for either string or Path object"
+      - "Image.open is lazy: file is read on first pixel access or .save()"
+      - "describe_fn(pil_image, prompt): always receives PIL Image regardless of input form"
+      - "Same describe_fn(pil_image, question) signature as analyze_fn in Day 76/77"
+    narration: >
+      The dual input form is a common pattern when a function needs to work
+      in both interactive (PIL Image in memory) and batch (file path from disk)
+      contexts. Always normalising to PIL Image before calling the injection
+      means the mock is always a simple lambda that receives PIL Image, never
+      needing to handle file I/O.
+
+  - type: exercise
+    heading: "Exercise 2: describe_media"
+    prompt: >
+      Implement describe_media(source, describe_fn=None) -> str.
+      from PIL import Image. If isinstance(source, (str, Path)): image =
+      Image.open(source); else: image = source.
+      prompt = 'Describe this image in detail, including all visible content.'
+      If describe_fn is not None: return describe_fn(image, prompt).
+      Else: BytesIO + image.save PNG + base64.b64encode + ollama.chat model='llava'
+      + return resp['message']['content'].
+    hint: >
+      from PIL import Image; isinstance check on (str, Path); Image.open for paths.
+      prompt = 'Describe this image in detail, including all visible content.'
+      if describe_fn: return describe_fn(image, prompt).
+      else: io.BytesIO + save + b64encode + ollama.chat llava.
+    narration: >
+      describe_media is three logical blocks: input normalisation, mock path,
+      real path. Follow the same base64+Ollama pattern used in Days 67, 76, 77.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "isinstance(source, (str, Path)): route file path vs PIL Image"
+      - "Image.open(source): lazy load — decoded on first pixel access"
+      - "describe_fn(pil_image, prompt): always receives PIL Image"
+      - "Real path: BytesIO PNG -> base64 -> ollama.chat llava"
+      - "Fixed prompt: 'Describe this image in detail, including all visible content.'"
+    narration: >
+      Lesson 3 adds transcribe_media — the audio-to-text pipeline using Whisper.

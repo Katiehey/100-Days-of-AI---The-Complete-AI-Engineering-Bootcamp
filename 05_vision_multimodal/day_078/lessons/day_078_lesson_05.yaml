@@ -1,0 +1,128 @@
+day: "078"
+lesson: 5
+title: "MediaStudio — Unified Interface and Batch Processing"
+slides:
+  - type: title
+    heading: "MediaStudio"
+    subheading: "Section 5 complete — one class, all modalities"
+    narration: >
+      MediaStudio is the Section 5 capstone class. It binds three injections
+      at construction, delegates every operation to a module-level function,
+      and adds two higher-level methods: process (auto-detect and dispatch)
+      and batch (process a list of sources). The class is the same pattern
+      used throughout Section 5: bind at construction, delegate, no logic
+      duplicated in the class body.
+
+  - type: code
+    label: "MediaStudio"
+    heading: "MediaStudio Class"
+    code: |
+      class MediaStudio:
+          def __init__(self, describe_fn=None, transcribe_fn=None, tts_fn=None):
+              self._describe_fn = describe_fn
+              self._transcribe_fn = transcribe_fn
+              self._tts_fn = tts_fn
+
+          def describe(self, source):
+              return describe_media(source, describe_fn=self._describe_fn)
+
+          def transcribe(self, source):
+              return transcribe_media(source, transcribe_fn=self._transcribe_fn)
+
+          def speak(self, text, voice='en-US-AriaNeural', rate='+0%', pitch='+0Hz'):
+              return synthesize_speech(text, voice=voice, rate=rate, pitch=pitch,
+                                       tts_fn=self._tts_fn)
+
+          def narrate(self, source, voice='en-US-AriaNeural'):
+              return narrate_image(source, voice=voice,
+                                   describe_fn=self._describe_fn, tts_fn=self._tts_fn)
+
+          def process(self, source):
+              return process_media(source, describe_fn=self._describe_fn,
+                                   transcribe_fn=self._transcribe_fn, tts_fn=self._tts_fn)
+
+          def batch(self, sources):
+              return [self.process(s) for s in sources]
+    narration: >
+      Every method is one line that delegates to the module-level function,
+      forwarding the stored injections. speak exposes voice, rate, and pitch
+      parameters for prosody control (Day 73). narrate chains describe and TTS
+      using both the describe_fn and tts_fn. process delegates to process_media
+      which calls detect_media_type to choose the right pipeline. batch is a
+      list comprehension over process.
+
+  - type: code
+    label: "process_media"
+    heading: "process_media — Auto-Dispatch"
+    code: |
+      def process_media(source, describe_fn=None, transcribe_fn=None, tts_fn=None):
+          media_type = detect_media_type(source)
+          if media_type == 'image':
+              result = describe_media(source, describe_fn=describe_fn)
+          elif media_type == 'audio':
+              result = transcribe_media(source, transcribe_fn=transcribe_fn)
+          else:
+              result = {'note': f'Media type {media_type!r} detected but not processed'}
+          return {'type': media_type, 'source': str(source), 'result': result}
+    narration: >
+      process_media is the routing layer. detect_media_type returns the type
+      string, which drives the dispatch. Image sources are described, audio
+      sources are transcribed, and unknown or video sources get a note dict
+      rather than an error. The return dict always has the same three keys:
+      type, source, and result — making batch results consistent regardless
+      of media type.
+
+  - type: concept
+    label: "Section 5 pattern"
+    heading: "The Section 5 Class Pattern"
+    body: >
+      Every Section 5 class follows the same three-part structure.
+    bullets:
+      - "Construction: bind injections, initialise internal state"
+      - "Delegation: each method calls the module-level function + stored fn"
+      - "No logic in class body: class is a convenient binding layer only"
+      - "Tested at two levels: module functions (individual) + class (integration)"
+      - "Section 5 classes: ImageProcessor, VisionAnalyzer, DocumentReader, ImageExtractor,"
+      - "ImageGenerator, ImageSearchEngine, AudioTranscriber, PodcastGenerator,"
+      - "VideoProcessor, TalkingHeadPipeline, ScreenAgent, LiveVisionAgent, MediaStudio"
+    narration: >
+      Day 78 is the 13th Section 5 class and the last of the section. Each one
+      follows the same pattern, making them predictable to use and easy to test.
+      The module-level functions can be used directly for simple pipelines.
+      The class adds convenience for longer sessions that need consistent
+      injection bindings across many calls.
+
+  - type: exercise
+    heading: "Exercise 5: MediaStudio + process_media"
+    prompt: >
+      Implement process_media(source, describe_fn=None, transcribe_fn=None,
+      tts_fn=None) -> dict: detect_media_type(source) -> media_type; if 'image':
+      describe_media; elif 'audio': transcribe_media; else: {'note':...};
+      return {'type':media_type, 'source':str(source), 'result':result}.
+      Implement MediaStudio(describe_fn=None, transcribe_fn=None, tts_fn=None):
+      store all 3; describe/transcribe/speak/narrate/process/batch methods
+      each delegate to module-level function with stored injections.
+    hint: >
+      process_media: media_type=detect_media_type(source); if/elif/else dispatch;
+      return {'type':media_type,'source':str(source),'result':result}.
+      MediaStudio: store injections; each method = one delegation line;
+      batch: [self.process(s) for s in sources].
+    narration: >
+      MediaStudio is the final class of Section 5. Section 6 — AI Agents —
+      begins on Day 79 and uses many of the tools built here.
+
+  - type: summary
+    heading: "Lesson 5 Summary — Section 5 Complete"
+    bullets:
+      - "process_media: detect_media_type -> dispatch -> {type, source, result}"
+      - "Unknown/video types: {'note': ...} result dict, not an error"
+      - "MediaStudio: 3 injections; describe/transcribe/speak/narrate/process/batch"
+      - "batch: [self.process(s) for s in sources] list comprehension"
+      - "Section 5 pattern: bind at construction, delegate in methods, no class logic"
+      - "Section 5 complete (Days 66-78) — 13 classes, all injectable, all gate-green"
+    narration: >
+      Section 5 is complete. Thirteen days built a full vision and multimodal
+      stack: image processing, vision LLM, OCR, structured extraction, image
+      generation, visual search, speech-to-text, TTS, video, talking-head,
+      screenshot agents, live camera, and now the Media Studio capstone.
+      Section 6 begins Day 79 with AI Agent fundamentals.
