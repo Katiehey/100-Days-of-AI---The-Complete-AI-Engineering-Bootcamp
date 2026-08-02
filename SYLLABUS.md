@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–79 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Day 79 (What Is an Agent? — SimpleAgent from scratch: agent loop, tool registry, safe_calculate via ast, parse_action never-raises, llm_fn injection, max_iterations safeguard) complete. Days 80–100 pending (next: Day 80 — The Agent Loop / ReAct — react_agent.py).
+**Authoring status:** Days 1–80 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Day 79 (What Is an Agent? — SimpleAgent: agent loop, tool registry, safe_calculate via ast, parse_action never-raises, llm_fn injection, max_iterations) and Day 80 (The Agent Loop / ReAct — react_agent.py: Thought/Action/Observation, scratchpad, parse_react_step, trace) complete. Days 81–100 pending (next: Day 81 — Tool-Using Agents — tool_agent.py).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
