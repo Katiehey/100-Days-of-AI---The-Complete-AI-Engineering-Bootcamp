@@ -1,0 +1,93 @@
+day: "080"
+lesson: 3
+title: "Acting and Observing"
+slides:
+  - type: title
+    heading: "Acting and Observing"
+    subheading: "Run the tool, turn the result into an Observation"
+    narration: >
+      With parsing and formatting in place, the agent needs to act. execute_action
+      runs the tool a step names and returns its result as a string - which becomes
+      the next Observation. call_llm is the same injectable model call from Day 79.
+      Both are deliberately thin, and both are testable with mocks.
+
+  - type: code
+    label: "execute_action"
+    heading: "execute_action - Errors Become Observations"
+    code: |
+      def execute_action(step, tools):
+          name = step.get("tool")
+          if name not in tools:
+              return "Error: unknown tool " + repr(name)
+          try:
+              return str(tools[name]["fn"](step.get("input", {})))
+          except Exception as exc:
+              return "Error running " + str(name) + ": " + str(exc)
+    narration: >
+      execute_action is Day 79's execute_tool adapted to a ReAct step: it reads the
+      tool name and the parsed Input, runs the tool function, and returns the
+      result as a string. If the tool is unknown or throws, the error comes back as
+      text. That is the point - the error becomes the Observation, and the model
+      reads it on the next turn and can reason its way around it. An exception would
+      just kill the loop.
+
+  - type: concept
+    label: "The observe step"
+    heading: "Observation Closes the Loop"
+    body: >
+      The Observation is the bridge from acting back to reasoning.
+    bullets:
+      - "execute_action produces the raw result string"
+      - "format_observation wraps it as 'Observation: ...'"
+      - "It is appended to the scratchpad the model sees next turn"
+      - "Real result in, grounded reasoning out"
+      - "A tool error is just an Observation the model can react to"
+    narration: >
+      The Observation is what makes ReAct more than a fixed plan. The model does
+      not know in advance what the calculator will return, or whether a lookup will
+      find anything. It acts, observes the real result, and adjusts. That
+      act-observe-reason cycle is how an agent handles tasks whose steps depend on
+      intermediate results - the kind of task a fixed pipeline cannot.
+
+  - type: code
+    label: "call_llm"
+    heading: "call_llm - The Injection Point"
+    code: |
+      def call_llm(messages, llm_fn=None):
+          if llm_fn is not None:
+              return llm_fn(messages)
+          import ollama
+          resp = ollama.chat(model="llama3.2", messages=messages)
+          return resp["message"]["content"]
+    narration: >
+      call_llm is unchanged from Day 79 and for the same reason: it is the single
+      seam where the agent meets the model. Inject a mock llm_fn that returns
+      scripted ReAct steps, and the whole loop runs offline and deterministically -
+      which is exactly how the tests drive it. Reasoning quality is the model's job;
+      loop correctness is yours, and the injection lets you test the loop without
+      the model.
+
+  - type: exercise
+    heading: "Exercise 3: Acting and Observing"
+    prompt: >
+      Implement execute_action(step, tools): unknown tool -> error string; else run
+      the tool fn on step['input'] in try/except and return the result as a string,
+      never raising. Implement call_llm(messages, llm_fn=None) as on Day 79.
+    hint: >
+      execute_action mirrors Day 79's execute_tool but reads step['tool'] and
+      step['input']. call_llm: if llm_fn is not None return llm_fn(messages).
+    narration: >
+      This is the act-and-observe half of ReAct: run the tool, and let even errors
+      come back as observations.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "execute_action runs the step's tool; unknown/errors -> text, never raises"
+      - "The result becomes the next Observation via format_observation"
+      - "Observation grounds the next Thought in a real result"
+      - "call_llm(messages, llm_fn=None): same injectable seam as Day 79"
+      - "A scripted llm_fn makes the ReAct loop deterministic and offline"
+    narration: >
+      Lesson 4 assembles it all into run_react_agent - the reason-act-observe loop
+      with the max_iterations safeguard.

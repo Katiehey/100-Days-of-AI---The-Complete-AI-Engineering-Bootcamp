@@ -1,0 +1,103 @@
+day: "080"
+lesson: 2
+title: "The Scratchpad"
+slides:
+  - type: title
+    heading: "The Scratchpad"
+    subheading: "The agent's working memory for one task"
+    narration: >
+      A ReAct agent needs to remember what it has already tried within a single
+      task. It does this with a scratchpad: a running transcript of every Thought,
+      Action, Input, and Observation so far. Each turn you render the latest step
+      back into text, append the observation, and feed the whole scratchpad to the
+      model. This lesson builds the formatting functions that create it.
+
+  - type: concept
+    label: "What the scratchpad is"
+    heading: "A Running Transcript"
+    body: >
+      The scratchpad is the ReAct trace, as text, fed back each turn.
+    bullets:
+      - "Turn 1 out: Thought / Action / Input"
+      - "Turn 1 back: Observation (your loop appends it)"
+      - "Turn 2 sees the full turn-1 transcript before reasoning again"
+      - "It grows each turn - the model always sees the whole task so far"
+      - "This is per-task working memory, not long-term memory (that's Day 82)"
+    narration: >
+      The scratchpad is short-term memory scoped to one task. It starts empty. The
+      model produces a Thought, Action, and Input; your loop runs the tool and
+      appends the Observation. On the next turn the model sees that entire
+      exchange and reasons about what to do next. The scratchpad grows until the
+      task is done, then it is discarded. Persisting memory across tasks and
+      sessions is a different problem - that is Day 82.
+
+  - type: code
+    label: "format_step"
+    heading: "Rendering Steps Back to Text"
+    code: |
+      def format_step(step):
+          return ("Thought: " + step["thought"] + "\n"
+                  + "Action: " + step["tool"] + "\n"
+                  + "Input: " + json.dumps(step["input"]))
+
+      def format_observation(result):
+          return "Observation: " + str(result)
+    narration: >
+      format_step is the inverse of parse_react_step: it takes the structured step
+      and writes it back out in ReAct text. format_observation prefixes the tool
+      result with the Observation label the model expects. Together they turn one
+      round of the loop into the two-or-three lines that get appended to the
+      scratchpad. The model only understands text, so everything it needs to
+      remember has to be rendered back into text.
+
+  - type: code
+    label: "build_react_prompt"
+    heading: "Assembling the Prompt"
+    code: |
+      def build_react_prompt(task, tools, scratchpad):
+          system = "\n".join([
+              "You are a reasoning agent. Use the ReAct format...",
+              "Available tools:", build_tool_descriptions(tools),
+              "Thought: ...", "Action: <tool>", 'Input: {"param": "value"}',
+              "When done: Thought: ... then Final Answer: <answer>",
+          ])
+          user = "Task: " + str(task)
+          if scratchpad:
+              user = user + "\n\n" + scratchpad.rstrip()
+          user = user + "\n\nThought:"
+          return [{"role": "system", "content": system},
+                  {"role": "user", "content": user}]
+    narration: >
+      The system message explains the ReAct format and lists the tools with
+      build_tool_descriptions from Day 79. The user message carries the task, then
+      the scratchpad if there is one, and ends on the word Thought to nudge the
+      model to continue reasoning rather than restart. That trailing Thought colon
+      is a small but effective prompt-engineering trick: it puts the model right
+      where you want it in the format.
+
+  - type: exercise
+    heading: "Exercise 2: Building the Trace"
+    prompt: >
+      Implement format_step (Thought/Action/Input text, json.dumps the input),
+      format_observation ('Observation: ' + str(result)), and build_react_prompt
+      (system describes the format + tools; user has the task, the scratchpad,
+      and a trailing 'Thought:').
+    hint: >
+      format_step joins three lines with newlines. build_react_prompt: use
+      build_tool_descriptions for the tool list; append scratchpad.rstrip() to the
+      user message when non-empty; end with 'Thought:'.
+    narration: >
+      These functions create the scratchpad the model reasons over - the agent's
+      memory of the task in progress.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "Scratchpad = running ReAct transcript, fed back each turn"
+      - "format_step: structured step -> Thought/Action/Input text"
+      - "format_observation: 'Observation: ' + result"
+      - "build_react_prompt: system (format + tools) + user (task + scratchpad)"
+      - "Trailing 'Thought:' nudges the model to keep reasoning"
+    narration: >
+      Lesson 3 runs the action and calls the model - the act-and-observe half of
+      ReAct.

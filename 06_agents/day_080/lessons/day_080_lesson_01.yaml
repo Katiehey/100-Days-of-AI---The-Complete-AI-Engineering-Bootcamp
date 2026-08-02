@@ -1,0 +1,111 @@
+day: "080"
+lesson: 1
+title: "The ReAct Pattern"
+slides:
+  - type: title
+    heading: "The Agent Loop: ReAct"
+    subheading: "Reason, Act, Observe - repeat"
+    narration: >
+      Yesterday your agent emitted a bare JSON action each turn and got straight
+      to work. Today you make it think first. ReAct - short for Reason and Act -
+      has the model write a Thought before every Action, then read an Observation
+      before the next Thought. That out-loud reasoning is not decoration: on
+      multi-step tool tasks it measurably improves how often the agent picks the
+      right tool and reaches the right answer. The loop skeleton from Day 79 is
+      unchanged; what changes is the shape of each turn.
+
+  - type: concept
+    label: "Why reason first"
+    heading: "Reasoning Before Acting"
+    body: >
+      A Thought is a cheap planning step the model takes before committing.
+    bullets:
+      - "Day 79: model jumps straight to an action - no visible reasoning"
+      - "ReAct: Thought first, then Action, then Observation - then repeat"
+      - "The Thought lets the model plan, catch mistakes, and stay on track"
+      - "The Observation grounds the next Thought in a real tool result"
+      - "Same loop as Day 79; each turn is now Thought/Action/Observation"
+    narration: >
+      Think about how you solve a multi-step problem: you reason about what to do,
+      do one thing, look at the result, then reason again. ReAct gives the model
+      that same rhythm. The Thought is a short planning step - what do I know, what
+      do I need next. The Action carries it out. The Observation feeds the real
+      result back so the next Thought is grounded in fact, not guesswork. It is
+      the same loop you built yesterday, with a reasoning step bolted onto the
+      front of every turn.
+
+  - type: concept
+    label: "The format"
+    heading: "The ReAct Turn Format"
+    body: >
+      Each turn is a small, fixed text template.
+    bullets:
+      - "Thought: reasoning about what to do next"
+      - "Action: one tool name from the list"
+      - 'Input: {"param": "value"} - JSON arguments for the tool'
+      - "Then the loop appends: Observation: <tool result>"
+      - "To finish: Thought: ... then Final Answer: <answer>"
+    narration: >
+      The format is deliberately simple text, not strict JSON, because small
+      local models follow a light template far more reliably than they emit
+      perfect JSON. Thought, Action, Input on the way out; Observation appended by
+      your loop on the way back. When the model has enough to answer, it swaps the
+      Action for a Final Answer line. Your job in Lesson 1 is to parse this format
+      out of the model's reply.
+
+  - type: code
+    label: "parse_react_step"
+    heading: "Parsing One Step - Line by Line"
+    code: |
+      def _line_value(text, prefix):
+          for line in text.splitlines():
+              if line.strip().lower().startswith(prefix.lower()):
+                  return line.strip()[len(prefix):].strip()
+          return ""
+
+      def parse_react_step(text):
+          thought = _line_value(text, "Thought:")
+          final = _after_marker(text, "Final Answer:")
+          if final is not None:
+              return {"type": "final", "thought": thought, "answer": final}
+          action = _line_value(text, "Action:")
+          if action:
+              args = safe_parse_json(_line_value(text, "Input:")) or {}
+              return {"type": "action", "thought": thought,
+                      "tool": action, "input": args}
+          return {"type": "final", "thought": thought, "answer": text.strip()}
+    narration: >
+      Because the format is line-oriented, you parse it line by line. _line_value
+      scans for the first line starting with a label and returns the rest. Check
+      for a Final Answer first - if the model is done, that wins. Otherwise pull
+      the Action name and parse the Input with the same tolerant safe_parse_json
+      from Day 79. And crucially, if there is no recognisable action at all, fall
+      back to a final answer holding the raw text. Like Day 79's parse_action,
+      this function never raises - a garbled step still ends the loop cleanly.
+
+  - type: exercise
+    heading: "Exercise 1: Parsing the ReAct Format"
+    prompt: >
+      Implement _line_value, _after_marker, and parse_react_step. Handle a
+      Thought/Action/Input step, a Final Answer step, and a fallback to final
+      when there is no recognisable action. Must never raise, and tolerate
+      lowercase markers.
+    hint: >
+      _line_value: loop over text.splitlines(), match line.strip().lower()
+      .startswith(prefix.lower()). Check Final Answer before Action. Parse Input
+      with safe_parse_json(...) or {}.
+    narration: >
+      This parser is what turns the model's reasoning into structured steps your
+      loop can act on.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "ReAct = Reason + Act: Thought, then Action, then Observation, repeat"
+      - "Reasoning out loud improves multi-step tool use"
+      - "Turn format is light text (Thought/Action/Input), not strict JSON"
+      - "parse_react_step reads it line by line and NEVER raises"
+      - "Final Answer ends the loop; no action -> fall back to final"
+    narration: >
+      Lesson 2 builds the scratchpad - rendering steps and observations back into
+      text so the model can reason over its own history.

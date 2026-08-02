@@ -1,0 +1,93 @@
+day: "080"
+lesson: 4
+title: "The ReAct Loop"
+slides:
+  - type: title
+    heading: "The ReAct Loop"
+    subheading: "run_react_agent - reason, act, observe, repeat"
+    narration: >
+      Now everything comes together. run_react_agent keeps a scratchpad, and each
+      turn it builds a prompt, gets a step, and either finishes or runs a tool and
+      appends the observation. The growing scratchpad is fed back every turn, so the
+      model reasons over its own trail. And like every loop this section, it is
+      bounded by max_iterations.
+
+  - type: code
+    label: "run_react_agent"
+    heading: "The Loop in Full"
+    code: |
+      def run_react_agent(task, tools=None, llm_fn=None, max_iterations=10):
+          if tools is None:
+              tools = DEFAULT_TOOLS
+          scratchpad, trace = "", []
+          for i in range(max_iterations):
+              messages = build_react_prompt(task, tools, scratchpad)
+              step = parse_react_step(call_llm(messages, llm_fn=llm_fn))
+              if step["type"] == "final":
+                  trace.append(step)
+                  return {"answer": step["answer"], "thought": step["thought"],
+                          "trace": trace, "iterations": i + 1, "stopped": False}
+              result = execute_action(step, tools)
+              step["observation"] = result
+              trace.append(step)
+              scratchpad += format_step(step) + "\n"
+              scratchpad += format_observation(result) + "\n"
+          return {"answer": "Stopped: reached max_iterations without a final answer.",
+                  "thought": "", "trace": trace,
+                  "iterations": max_iterations, "stopped": True}
+    narration: >
+      Read the loop. Build the prompt from the task and scratchpad, call the model,
+      parse the step. If it is final, return the answer. Otherwise run the tool,
+      attach the observation to the step, record it in the trace, and append both
+      the step and the observation to the scratchpad. Next turn, that scratchpad
+      goes back in. Two records are kept: the scratchpad text for the model, and the
+      trace list for you. The for-range over max_iterations is the same safeguard as
+      Day 79 - a model that never says Final Answer returns stopped, it does not
+      hang.
+
+  - type: concept
+    label: "Two views of the run"
+    heading: "Scratchpad vs Trace"
+    body: >
+      The same events, recorded twice, for two audiences.
+    bullets:
+      - "scratchpad: text - what the MODEL reads each turn"
+      - "trace: list of step dicts - what YOU inspect afterwards"
+      - "trace[i]['observation'] holds each tool result"
+      - "Return dict: {answer, thought, trace, iterations, stopped}"
+      - "Inspecting the trace is how you debug an agent's reasoning"
+    narration: >
+      Keeping both a text scratchpad and a structured trace is a deliberate design
+      choice. The model needs text, so the scratchpad is text. But when you debug an
+      agent - why did it pick that tool, what did it observe - you want structured
+      data, so the trace is a list of dicts. Being able to read the trace after a run
+      is one of the most practical debugging tools you have when an agent
+      misbehaves.
+
+  - type: exercise
+    heading: "Exercise 4: The ReAct Loop"
+    prompt: >
+      Implement run_react_agent(task, tools=None, llm_fn=None, max_iterations=10).
+      Keep a scratchpad and a trace. Each turn: build prompt, call model, parse
+      step; finish -> return; else execute_action, attach observation, append to
+      trace and scratchpad. Bound by max_iterations, returning stopped=True on
+      overrun.
+    hint: >
+      scratchpad='' and trace=[]. for i in range(max_iterations). On final return
+      {answer, thought, trace, iterations:i+1, stopped:False}. Else append
+      format_step(step) and format_observation(result) to scratchpad.
+    narration: >
+      This is the day's centrepiece. When your scripted mock drives it - act, then
+      finish - you have a working reasoning agent.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "run_react_agent: build prompt -> call -> parse -> finish or act+observe"
+      - "Scratchpad (text, for the model) grows each turn with steps + observations"
+      - "Trace (list of dicts, for you) records every step + its observation"
+      - "Returns {answer, thought, trace, iterations, stopped}"
+      - "max_iterations turns a non-finishing model into a clean stopped: True"
+    narration: >
+      Lesson 5 wraps the loop in the ReactAgent class - the same class shape as
+      Day 79's SimpleAgent.

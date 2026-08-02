@@ -1,0 +1,96 @@
+day: "080"
+lesson: 5
+title: "ReactAgent - Putting It Together"
+slides:
+  - type: title
+    heading: "ReactAgent"
+    subheading: "The reasoning agent as a reusable class"
+    narration: >
+      The final piece is a class. ReactAgent binds the tools and the model once,
+      runs tasks through run_react_agent, and keeps a history of runs. It is the
+      same class shape you built on Day 79 - bind at construction, delegate in
+      methods, copy the registry, return a history copy. Only the loop inside is
+      different.
+
+  - type: code
+    label: "ReactAgent"
+    heading: "ReactAgent - Same Shape, New Engine"
+    code: |
+      class ReactAgent:
+          def __init__(self, tools=None, llm_fn=None, max_iterations=10):
+              self.tools = dict(DEFAULT_TOOLS if tools is None else tools)
+              self._llm_fn = llm_fn
+              self.max_iterations = max_iterations
+              self._history = []
+
+          def add_tool(self, name, description, fn, parameters=None):
+              self.tools[name] = {"description": description,
+                                  "parameters": parameters or {}, "fn": fn}
+              return self
+
+          def run(self, task):
+              result = run_react_agent(task, tools=self.tools,
+                                       llm_fn=self._llm_fn,
+                                       max_iterations=self.max_iterations)
+              self._history.append({"task": task, "result": result})
+              return result
+
+          def history(self):
+              return list(self._history)
+
+          def clear_history(self):
+              self._history.clear()
+    narration: >
+      The constructor copies DEFAULT_TOOLS with dict so add_tool never leaks into
+      the global registry - the same subtle bug you guarded against on Day 79. run
+      delegates straight to run_react_agent and records the run. history returns a
+      copy; clear_history empties in place. Because the class is so thin, the
+      reasoning power all lives in the loop, and the class just makes it convenient
+      to use across many tasks.
+
+  - type: concept
+    label: "Reading the trace"
+    heading: "Inspecting the Reasoning"
+    body: >
+      Every run returns a trace you can read step by step.
+    bullets:
+      - "result['answer'] - the final answer"
+      - "result['trace'] - every Thought/Action/Input + Observation"
+      - "Print the trace to watch the agent reason through a task"
+      - "This visibility is ReAct's big practical win over a bare loop"
+      - "Day 79 -> Day 80: same skeleton, added reasoning + a readable trace"
+    narration: >
+      One real advantage of ReAct is transparency. Because the model reasons in
+      text and you keep the trace, you can read exactly how the agent reached its
+      answer: what it thought, which tool it chose, what it observed, and how that
+      changed its next move. When an agent gives a wrong answer, the trace usually
+      shows you precisely where its reasoning went off the rails - far easier to
+      debug than a single opaque output.
+
+  - type: exercise
+    heading: "Exercise 5: ReactAgent"
+    prompt: >
+      Implement ReactAgent: __init__ copies DEFAULT_TOOLS and stores llm_fn,
+      max_iterations, and an empty history; add_tool registers a tool and returns
+      self; run delegates to run_react_agent and records the run; history returns a
+      copy; clear_history empties in place.
+    hint: >
+      self.tools = dict(DEFAULT_TOOLS if tools is None else tools). run calls
+      run_react_agent with the bound tools/llm_fn. history() returns
+      list(self._history).
+    narration: >
+      This completes your reasoning agent - hand it a model and tools and watch it
+      think its way to an answer.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 80 Complete"
+    bullets:
+      - "ReactAgent binds tools + llm_fn, runs tasks, keeps a readable trace"
+      - "Same class shape as SimpleAgent: bind, delegate, copy, copy-out"
+      - "result['trace'] exposes the full Thought/Action/Observation reasoning"
+      - "ReAct = Day 79 loop + reason-before-act + a scratchpad"
+      - "Transparency: the trace shows exactly how the agent reasoned"
+    narration: >
+      You turned a bare action loop into a reasoning agent. Day 81 gives the agent
+      many more tools and teaches it to route to the right one - tool selection at
+      scale.
