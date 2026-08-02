@@ -1,0 +1,96 @@
+day: "081"
+lesson: 5
+title: "ToolAgent - The Multi-Tool Assistant"
+slides:
+  - type: title
+    heading: "ToolAgent"
+    subheading: "Route every request to the right tool"
+    narration: >
+      The last piece is the assistant. ToolAgent binds a registry and a model,
+      answers each request by routing it to the best tool, and keeps a history.
+      Where Day 80's agent worked a single hard task through a reasoning loop, this
+      assistant fields varied one-shot requests and dispatches each one - the
+      everyday shape of a tool-using assistant.
+
+  - type: code
+    label: "ToolAgent"
+    heading: "ToolAgent - Bind, Route, Remember"
+    code: |
+      class ToolAgent:
+          def __init__(self, registry=None, llm_fn=None):
+              self.registry = registry if registry is not None else build_default_registry()
+              self._llm_fn = llm_fn
+              self._history = []
+
+          def add_tool(self, name, description, fn, parameters=None):
+              self.registry.add(name, description, fn, parameters)
+              return self
+
+          def tools(self):
+              return self.registry.names()
+
+          def ask(self, query):
+              result = route_query(query, self.registry, llm_fn=self._llm_fn)
+              self._history.append({"query": query, "result": result})
+              return result
+
+          def history(self):
+              return list(self._history)
+
+          def clear_history(self):
+              self._history.clear()
+    narration: >
+      ToolAgent follows the same class pattern as SimpleAgent and ReactAgent: bind
+      the registry and model once, delegate the real work, and keep a history.
+      ask routes one request and records it. add_tool extends the agent's own
+      registry, so you can teach it new abilities at runtime. tools lists what it
+      can do. Each agent gets a fresh registry from build_default_registry, so one
+      agent's new tool never leaks into another.
+
+  - type: concept
+    label: "Three agents, one shape"
+    heading: "The Section's Class Pattern"
+    body: >
+      Every agent this section wears the same skeleton.
+    bullets:
+      - "Day 79 SimpleAgent: bare action loop"
+      - "Day 80 ReactAgent: reasoning loop with a trace"
+      - "Day 81 ToolAgent: one-shot routing over many tools"
+      - "All: bind at construction, delegate, keep a history copy"
+      - "Only the engine inside changes - the handle stays familiar"
+    narration: >
+      Step back and notice the pattern. Three days, three agents, one class shape:
+      bind the tools and model at construction, delegate the work to module
+      functions, keep a history, and return a copy of it. What changes is the engine
+      inside - a bare loop, a reasoning loop, a router. Keeping the class shape
+      constant means each new agent is easy to pick up, and you can focus on the new
+      idea rather than relearning the scaffolding.
+
+  - type: exercise
+    heading: "Exercise 5: ToolAgent"
+    prompt: >
+      Implement ToolAgent: __init__ uses the given registry or
+      build_default_registry(), stores llm_fn and an empty history; add_tool extends
+      the registry and returns self; tools() lists names; ask() routes via
+      route_query and records the ask; history() returns a copy; clear_history()
+      empties in place.
+    hint: >
+      self.registry = registry if registry is not None else build_default_registry().
+      ask: route_query(query, self.registry, llm_fn=self._llm_fn); append
+      {'query','result'}; return result.
+    narration: >
+      This completes the multi-tool assistant - hand it a model and a registry and
+      it routes every request to the right tool.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 81 Complete"
+    bullets:
+      - "ToolAgent binds a registry + llm_fn, routes each request, keeps history"
+      - "add_tool extends the agent's own registry at runtime"
+      - "Same class shape as SimpleAgent and ReactAgent"
+      - "Day 81 adds: typed schemas, validation, a registry, and routing"
+      - "Selection + validation = two guards on every tool call"
+    narration: >
+      You built a tool-using assistant that scales to a whole toolbox. Day 82 gives
+      an agent memory - short-term working memory and long-term memory that persists
+      across sessions.

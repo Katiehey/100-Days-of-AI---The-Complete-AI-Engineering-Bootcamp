@@ -1,0 +1,98 @@
+day: "081"
+lesson: 3
+title: "Tool Selection"
+slides:
+  - type: title
+    heading: "Tool Selection"
+    subheading: "The model routes a request to the right tool"
+    narration: >
+      With one tool there is nothing to choose. With a dozen, picking the right one
+      is the whole game - and that is tool selection, or routing. The model reads
+      the request and the toolbox, and returns the single best tool along with the
+      arguments to call it. This lesson builds the selection prompt and the parser
+      that turns the model's choice into a structured decision.
+
+  - type: concept
+    label: "What routing is"
+    heading: "Routing = Choose One Tool + Its Args"
+    body: >
+      Selection is a single, focused decision.
+    bullets:
+      - "Input: the request + the toolbox description"
+      - "Output: {tool, args} - which tool, called how"
+      - "A special 'none' choice for when nothing fits"
+      - "One shot: pick and extract in a single model call"
+      - "Different from Day 80's loop - here, one decision per request"
+    narration: >
+      Routing is a single decision: given the request and the list of tools, which
+      one, and with what arguments. The model returns a small JSON object naming the
+      tool and its args. Crucially there is a none option, because sometimes no tool
+      fits and the honest answer is to run nothing. This is a different shape from
+      the Day 80 reasoning loop - there the agent worked one task over many steps;
+      here it makes one routing decision per request.
+
+  - type: code
+    label: "select_tool"
+    heading: "select_tool - Parse the Choice, Safely"
+    code: |
+      def select_tool(query, registry, llm_fn=None):
+          response = call_llm(build_selection_prompt(query, registry), llm_fn=llm_fn)
+          data = safe_parse_json(response) or {}
+          name = data.get("tool", "none")
+          args = data.get("args", {})
+          if name not in registry:
+              name = "none"
+          return {"tool": name, "args": args if isinstance(args, dict) else {}}
+    narration: >
+      select_tool builds the prompt, calls the model, and parses the reply with the
+      tolerant safe_parse_json from Day 79. Two guards make it robust: if the model
+      names a tool that is not in the registry - a hallucinated tool - coerce the
+      choice to none; and if args is not a dict, replace it with an empty one. Like
+      every parser this section, it never raises. Garbage in still gives a valid
+      choice out - just none.
+
+  - type: concept
+    label: "Guard the choice"
+    heading: "The Model Can Choose Wrong"
+    body: >
+      Never trust the selected name blindly.
+    bullets:
+      - "Models hallucinate tool names that don't exist"
+      - "name not in registry -> coerce to 'none'"
+      - "Unparseable reply -> {} -> 'none'"
+      - "Selection chooses the tool; it does NOT validate the args yet"
+      - "Argument validation happens at execute time (Lesson 2)"
+    narration: >
+      A subtle but important point: selection decides which tool, not whether the
+      arguments are any good. The model can hallucinate a tool that does not exist,
+      so you check the name against the registry and fall back to none. But even a
+      valid tool name can come with bad arguments - and those are caught later, at
+      execute time, by the validator from Lesson 1. Selection and validation are two
+      separate guards, and the next lesson chains them.
+
+  - type: exercise
+    heading: "Exercise 3: Tool Selection"
+    prompt: >
+      Implement build_selection_prompt(query, registry) - system lists the tools
+      and asks for {"tool","args"} or {"tool":"none"} - and select_tool(query,
+      registry, llm_fn=None) which parses the reply, coerces unknown tool names to
+      'none', and never raises.
+    hint: >
+      build_selection_prompt uses registry.describe() for the tool list. select_tool:
+      safe_parse_json(response) or {}; if name not in registry: name='none';
+      guard args is a dict.
+    narration: >
+      This is the routing brain of the assistant - one call that turns a request
+      into a tool choice.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "Selection = route a request to one tool + its args"
+      - "build_selection_prompt lists the tools and asks for {tool, args}"
+      - "select_tool parses the choice and NEVER raises"
+      - "Unknown/hallucinated tool name -> coerced to 'none'"
+      - "Selection picks the tool; validation of args comes at execute time"
+    narration: >
+      Lesson 4 chains selection with validation and execution into one router:
+      route_query.

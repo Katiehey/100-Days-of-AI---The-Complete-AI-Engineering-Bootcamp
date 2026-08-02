@@ -1,0 +1,105 @@
+day: "081"
+lesson: 1
+title: "Tools at Scale"
+slides:
+  - type: title
+    heading: "Tool-Using Agents"
+    subheading: "A toolbox, typed schemas, and validation"
+    narration: >
+      Days 79 and 80 gave an agent a couple of tools and let it call them. Today
+      is about tools at scale: a real toolbox of many tools, each declaring a
+      typed parameter schema, with validation that runs before any tool touches
+      the model's arguments. The lesson starts with the two foundations - the
+      schema and the validator - because everything else this day depends on
+      them.
+
+  - type: concept
+    label: "Why schemas"
+    heading: "Every Tool Declares a Schema"
+    body: >
+      A tool is more than a name and a function.
+    bullets:
+      - "name + description: so the model can choose it"
+      - "parameters: each with a type and whether it is required"
+      - "fn: the function that runs"
+      - "The schema is the contract the model must satisfy"
+      - "repeat(text: string, times: integer) - times is required and typed"
+    narration: >
+      When an agent has one tool, you can be sloppy about arguments. When it has a
+      dozen, the model will sometimes pick the right tool but pass the wrong
+      arguments - a missing field, or a word where a number belongs. Declaring a
+      schema for every parameter - its type, and whether it is required - turns
+      those mistakes into something you can detect before the tool runs, instead
+      of a confusing crash inside the tool body.
+
+  - type: code
+    label: "validate_args"
+    heading: "Validating Against the Schema"
+    code: |
+      _TYPE_CHECKS = {
+          "string": lambda v: isinstance(v, str),
+          "integer": lambda v: (isinstance(v, int) and not isinstance(v, bool))
+                               or (isinstance(v, str) and v.strip().lstrip("-").isdigit()),
+          "number": lambda v: isinstance(v, (int, float)) or _is_number(v),
+      }
+
+      def validate_args(tool, args):
+          for pname, pspec in tool.get("parameters", {}).items():
+              if pspec.get("required") and pname not in args:
+                  return False, "missing required parameter: " + pname
+              if pname in args:
+                  check = _TYPE_CHECKS.get(pspec.get("type"))
+                  if check is not None and not check(args[pname]):
+                      return False, "parameter " + pname + " must be " + str(pspec.get("type"))
+          return True, ""
+    narration: >
+      validate_args walks the declared parameters and checks two things: required
+      parameters must be present, and present values must match their declared
+      type. It returns a pair - ok, and an error message - rather than raising, so
+      the caller decides what to do. Notice it is lenient about numbers as
+      strings, because models often send a number as text. The point is not strict
+      typing; it is catching the mistakes that would otherwise blow up a tool.
+
+  - type: concept
+    label: "Fail early, clearly"
+    heading: "A Clear Error Beats a Traceback"
+    body: >
+      Validation converts a crash into a recoverable message.
+    bullets:
+      - "No validation: repeat with no 'times' -> KeyError deep in the tool"
+      - "With validation: 'missing required parameter: times'"
+      - "The agent can read that and try again"
+      - "Errors are data the agent reasons about - the Day 79-80 principle"
+      - "Validation is the gate every tool call passes through"
+    narration: >
+      This continues the fail-safe theme from the last two days. A tool that throws
+      a KeyError from three functions deep tells the agent nothing useful. A message
+      that says missing required parameter times tells it exactly what went wrong
+      and what to fix. Turning failures into clear, structured data - rather than
+      exceptions - is what lets an agent recover instead of falling over.
+
+  - type: exercise
+    heading: "Exercise 1: The Toolbox and Argument Validation"
+    prompt: >
+      Build DEFAULT_TOOLS - a list of tools (calculator, word_count, uppercase,
+      reverse, repeat), each with a typed parameter schema. Implement
+      validate_args(tool, args) returning (ok, error): required params must be
+      present, present values must match their declared type.
+    hint: >
+      Each parameter is {'type', 'required', 'description'}. validate_args loops
+      the parameters; check required-and-missing first, then type via a
+      _TYPE_CHECKS lookup. Return (True, '') when all pass.
+    narration: >
+      This builds the toolbox and the validator that guards every call the rest of
+      the day makes.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "At scale, every tool declares a typed parameter schema"
+      - "parameters: name -> {type, required, description}"
+      - "validate_args returns (ok, error), never raises"
+      - "Required-and-missing and wrong-type are both caught before running"
+      - "A clear error is recoverable; a deep traceback is not"
+    narration: >
+      Lesson 2 wraps the toolbox and the validator in a first-class ToolRegistry.

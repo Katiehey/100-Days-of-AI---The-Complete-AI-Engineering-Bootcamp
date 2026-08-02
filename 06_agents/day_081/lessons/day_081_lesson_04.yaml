@@ -1,0 +1,73 @@
+day: "081"
+lesson: 4
+title: "The Router"
+slides:
+  - type: title
+    heading: "route_query"
+    subheading: "Select, validate, execute - in one call"
+    narration: >
+      Now the pieces connect. route_query takes a request, selects a tool, and runs
+      it through the registry's validate-then-execute gate. One request goes in; a
+      structured tool, args, and result come out - with every failure mode handled
+      as data rather than a crash.
+
+  - type: code
+    label: "route_query"
+    heading: "The Whole Router"
+    code: |
+      def route_query(query, registry, llm_fn=None):
+          choice = select_tool(query, registry, llm_fn=llm_fn)
+          if choice["tool"] == "none":
+              return {"tool": "none", "args": {}, "result": "No suitable tool found."}
+          result = registry.execute(choice["tool"], choice["args"])
+          return {"tool": choice["tool"], "args": choice["args"], "result": result}
+    narration: >
+      route_query is short because the hard work lives in the pieces it calls.
+      select_tool decides which tool and with what arguments. If the answer is none,
+      return a clear result and run nothing. Otherwise, registry.execute validates
+      the arguments and runs the tool, returning the result or a precise error
+      string. The return dict always has the same three keys - tool, args, result -
+      so the caller handles every outcome the same way.
+
+  - type: concept
+    label: "Two guards, in order"
+    heading: "Selection Then Validation"
+    body: >
+      Two independent guards protect the tool call.
+    bullets:
+      - "Guard 1 (select): is this a real tool, or none?"
+      - "Guard 2 (execute): are the arguments valid for it?"
+      - "Both must pass before the tool function runs"
+      - "Either failing yields a result string, never an exception"
+      - "This is defence in depth for tool calls"
+    narration: >
+      Notice the two guards in sequence. Selection asks: is this a real tool, and
+      does anything fit at all. Execution asks: are the arguments valid for the tool
+      that was chosen. Both have to pass before the tool function ever runs, and if
+      either fails the caller gets a readable result string rather than an
+      exception. Two small, independent checks give you defence in depth - the model
+      has to get both the tool and the arguments right to make anything happen.
+
+  - type: exercise
+    heading: "Exercise 4: The Router"
+    prompt: >
+      Implement route_query(query, registry, llm_fn=None): select_tool first; if
+      the tool is 'none', return a no-tool result; otherwise registry.execute the
+      chosen tool with its args and return {tool, args, result}.
+    hint: >
+      choice = select_tool(...); if choice['tool']=='none' return the no-tool dict;
+      else result = registry.execute(choice['tool'], choice['args']); return the
+      three-key dict.
+    narration: >
+      This is the single entry point the assistant will call for every request.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "route_query = select_tool -> registry.execute"
+      - "'none' -> run nothing, return a clear result"
+      - "Always returns {tool, args, result} - one shape for every outcome"
+      - "Two guards in order: valid tool, then valid args"
+      - "Every failure is a result string, never an exception"
+    narration: >
+      Lesson 5 wraps the router in a ToolAgent - the multi-tool assistant.

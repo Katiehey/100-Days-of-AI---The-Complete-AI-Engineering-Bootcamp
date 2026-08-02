@@ -1,0 +1,96 @@
+day: "081"
+lesson: 2
+title: "The ToolRegistry"
+slides:
+  - type: title
+    heading: "The ToolRegistry"
+    subheading: "One object that owns, describes, validates, and runs tools"
+    narration: >
+      In Days 79 and 80 the registry was a bare dict and execution just called the
+      function. As the toolbox grows you want a proper object: one place that owns
+      the tools, renders them for a prompt, and - crucially - always validates
+      before it executes. That object is the ToolRegistry.
+
+  - type: concept
+    label: "Why an object"
+    heading: "From Bare Dict to First-Class Object"
+    body: >
+      A registry is more than storage - it enforces the rules.
+    bullets:
+      - "register / add: put tools in"
+      - "get / names / contains / len: inspect what's there"
+      - "describe: render the toolbox as prompt text"
+      - "validate: check args against a tool's schema"
+      - "execute: validate THEN run - the single choke point"
+    narration: >
+      The registry gives you one object with a clear job. You can add tools, look
+      them up, count them, and ask whether a name exists. describe renders the
+      whole toolbox into the text the model reads when choosing. But the most
+      important method is execute, because it is the single choke point through
+      which every tool call passes - and it always validates first.
+
+  - type: code
+    label: "execute"
+    heading: "execute - Validate, Then Run"
+    code: |
+      def execute(self, name, args):
+          tool = self.get(name)
+          if tool is None:
+              return "Error: unknown tool " + repr(name)
+          ok, err = validate_args(tool, args)
+          if not ok:
+              return "Error: " + err
+          try:
+              return str(tool["fn"](args))
+          except Exception as exc:
+              return "Error running " + name + ": " + str(exc)
+    narration: >
+      execute is three guards and a call. Unknown tool - return an error string.
+      Invalid arguments - return the validation error. Otherwise run the function,
+      and even then wrap it in try-except so an unexpected failure still comes back
+      as text. Because every caller goes through execute, no one can skip the
+      validation and hand raw model output straight to a tool. That single
+      guarantee is why the registry is an object and not a loose dict.
+
+  - type: code
+    label: "describe"
+    heading: "describe - Render for the Prompt"
+    code: |
+      def describe(self):
+          lines = []
+          for name, tool in self._tools.items():
+              params = ", ".join(tool.get("parameters", {}))
+              lines.append("- " + name + "(" + params + "): " + tool["description"])
+          return "\n".join(lines)
+    narration: >
+      describe turns the toolbox into the menu the model sees. One line per tool -
+      the name, its parameter names in parentheses, and the description. This is the
+      same idea as build_tool_descriptions from Day 79, now a method on the object
+      that owns the tools. When you add a tool to the registry, it automatically
+      appears in the next prompt - no separate list to keep in sync.
+
+  - type: exercise
+    heading: "Exercise 2: The ToolRegistry"
+    prompt: >
+      Implement ToolRegistry: register/add (return self), get, names, __contains__,
+      __len__, describe, validate, and execute (unknown tool or invalid args ->
+      error string; else run fn in try/except). Then build_default_registry()
+      returns ToolRegistry(DEFAULT_TOOLS).
+    hint: >
+      Store tools in a dict keyed by name. execute: get the tool, validate_args,
+      then run in try/except - all failures return an 'Error: ...' string, never
+      raise.
+    narration: >
+      This registry becomes the backbone every later piece of the day runs on.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "ToolRegistry owns the tools and enforces the rules"
+      - "register/add, get, names, contains, len, describe"
+      - "execute is the choke point: validate THEN run, never raises"
+      - "describe renders the toolbox straight into the prompt"
+      - "build_default_registry() = ToolRegistry(DEFAULT_TOOLS)"
+    narration: >
+      Lesson 3 uses the registry's description to let the model select a tool -
+      routing.
