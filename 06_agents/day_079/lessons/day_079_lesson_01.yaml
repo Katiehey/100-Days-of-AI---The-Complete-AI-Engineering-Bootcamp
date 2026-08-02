@@ -1,0 +1,129 @@
+day: "079"
+lesson: 1
+title: "What Is an Agent?"
+slides:
+  - type: title
+    heading: "What Is an Agent?"
+    subheading: "Section 6 opens - from fixed pipelines to autonomous loops"
+    narration: >
+      Sections 1 through 5 built pipelines: a fixed sequence of steps that runs
+      the same way every time. Section 6 builds agents. An agent is a language
+      model wrapped in a loop that can call tools and decide for itself when it
+      is finished. Over the next ten days you build agents from scratch: the
+      loop, ReAct reasoning, tool routing, memory, planning, multi-agent teams,
+      MCP, retrieval, and guardrails. Day 79 is the foundation - the smallest
+      thing that is genuinely an agent.
+
+  - type: concept
+    label: "Pipeline vs agent"
+    heading: "Pipeline vs Agent"
+    body: >
+      The one difference is who decides the next step.
+    bullets:
+      - "Pipeline: you hard-code the steps - describe, then summarise, then save"
+      - "Agent: the model chooses the next action each turn, from a set of tools"
+      - "Pipeline path is fixed; agent path depends on what it sees along the way"
+      - "Agent = LLM + a loop + tools + a stop condition"
+      - "More flexible, but needs safeguards - a loop can misbehave"
+    narration: >
+      In a pipeline you decide the order of operations in advance. In an agent
+      the model decides: given the task and what has happened so far, it picks
+      the next action. That is the whole idea. It buys flexibility - the agent
+      can handle tasks whose steps you could not enumerate ahead of time - at
+      the cost of needing guardrails, because a loop that decides its own steps
+      can also decide to loop forever.
+
+  - type: concept
+    label: "The loop"
+    heading: "The Agent Loop"
+    body: >
+      Every agent, no matter how fancy, is this loop.
+    bullets:
+      - "1. Build a prompt from the task + history so far"
+      - "2. Ask the model for ONE action"
+      - "3. If the action is 'finish', return the answer"
+      - "4. Otherwise run the tool and record the result"
+      - "5. Repeat - up to max_iterations"
+    narration: >
+      Read the five steps. Build a prompt, ask for one action, check whether it
+      is a finish, run the tool if not, record what happened, and go around
+      again. The loop terminates two ways: the model says it is done, or it hits
+      the iteration cap. Today you build exactly this. Day 80 makes the model
+      reason out loud before each action - the ReAct pattern - but the skeleton
+      never changes.
+
+  - type: concept
+    label: "Tool registry"
+    heading: "Tools Live in a Registry"
+    body: >
+      A tool is a name, a description, and a function.
+    bullets:
+      - "Registry: dict of name -> {description, parameters, fn}"
+      - "description + parameters go into the prompt so the model can choose"
+      - "fn(args_dict) -> str is what actually runs"
+      - "Add a capability by adding one dict entry - nothing else changes"
+      - "This is the same tool-use idea as Day 17, now driven by a loop"
+    narration: >
+      The registry is the menu of things the agent can do. Each entry has a
+      description and parameter list, which get rendered into the prompt so the
+      model knows the option exists, and a function that does the work. Adding a
+      new ability is one dict entry. You saw tool use on Day 17 as a single call
+      and response; an agent is that same idea placed inside a loop so tools can
+      be chained without you scripting the chain.
+
+  - type: code
+    label: "safe_calculate"
+    heading: "A Safe Calculator - Never eval()"
+    code: |
+      import ast, operator
+      _OPS = {ast.Add: operator.add, ast.Sub: operator.sub,
+              ast.Mult: operator.mul, ast.Div: operator.truediv,
+              ast.Pow: operator.pow, ast.Mod: operator.mod,
+              ast.USub: operator.neg}
+
+      def _eval_node(node):
+          if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+              return node.value
+          if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+              return _OPS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
+          if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+              return _OPS[type(node.op)](_eval_node(node.operand))
+          raise ValueError("unsupported expression")
+
+      def safe_calculate(expression):
+          tree = ast.parse(expression, mode="eval")
+          return _eval_node(tree.body)
+    narration: >
+      The calculator is the agent's first tool, and it shows a rule you will
+      follow all section: never call eval on model output. eval would happily
+      run underscore-underscore-import to open a shell. Instead we parse the
+      expression into an abstract syntax tree and walk it, allowing only numbers
+      and arithmetic operators. Anything else - a name, a function call - raises
+      ValueError. The worst a malicious expression can do is fail.
+
+  - type: exercise
+    heading: "Exercise 1: Tools and the Registry"
+    prompt: >
+      Implement safe_calculate with an _OPS dict and a recursive _eval_node.
+      Build DEFAULT_TOOLS with a calculator and a word_count tool, each with
+      description, parameters, and fn. Implement build_tool_descriptions(tools)
+      to render one line per tool for the prompt.
+    hint: >
+      ast.parse(expression, mode="eval"); walk node.body. _OPS maps ast node
+      types to operator functions. Tool fn takes an args dict and returns a
+      string. build_tool_descriptions joins '- name(params): description' lines.
+    narration: >
+      This exercise builds the agent's hands - the tools - and the safe
+      calculator that keeps model output from running as code.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Pipeline = fixed steps; agent = model chooses the next action in a loop"
+      - "Agent = LLM + loop + tools + stop condition"
+      - "Tool registry: name -> {description, parameters, fn(args) -> str}"
+      - "safe_calculate uses ast, never eval - never run model output as code"
+      - "Day 80 adds ReAct reasoning; the loop skeleton stays the same"
+    narration: >
+      Lesson 2 tackles the messy reality of LLM output: parsing it into an
+      action the loop can act on, without ever crashing.

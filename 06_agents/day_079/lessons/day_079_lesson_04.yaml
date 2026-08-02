@@ -1,0 +1,108 @@
+day: "079"
+lesson: 4
+title: "The Agent Loop"
+slides:
+  - type: title
+    heading: "The Agent Loop"
+    subheading: "run_agent - where autonomy actually happens"
+    narration: >
+      Everything so far has been parts. run_agent is the engine that turns them
+      into an agent. It builds a prompt from the task and the history, asks the
+      model for an action, runs it, and repeats until the model finishes or the
+      iteration cap is reached. This one function is where a pipeline becomes an
+      agent.
+
+  - type: code
+    label: "build_agent_prompt"
+    heading: "build_agent_prompt - Task + History"
+    code: |
+      def build_agent_prompt(task, tools, history):
+          system = "\n".join([
+              "You are a tool-using agent. Choose ONE action as JSON.",
+              "Available tools:", build_tool_descriptions(tools),
+              'To use a tool: {"tool": "<name>", "args": {...}}',
+              'To finish:      {"tool": "finish", "answer": "<answer>"}',
+          ])
+          lines = ["Task: " + str(task)]
+          for step in history:
+              lines.append("You called: " + json.dumps(step["action"]))
+              lines.append("Result: " + str(step["result"]))
+          lines.append("What is your next action?")
+          return [{"role": "system", "content": system},
+                  {"role": "user", "content": "\n".join(lines)}]
+    narration: >
+      The system message tells the model its job, lists the tools, and shows the
+      exact JSON format for a tool call and for finishing. The user message
+      carries the task followed by every past step - what the agent called and
+      what came back. Feeding the history back each turn is what lets the model
+      build on its own earlier actions instead of starting from scratch.
+
+  - type: code
+    label: "run_agent"
+    heading: "run_agent - The Bounded Loop"
+    code: |
+      def run_agent(task, tools=None, llm_fn=None, max_iterations=10):
+          if tools is None:
+              tools = DEFAULT_TOOLS
+          history = []
+          for i in range(max_iterations):
+              messages = build_agent_prompt(task, tools, history)
+              action = parse_action(call_llm(messages, llm_fn=llm_fn))
+              if action["type"] == "finish":
+                  return {"answer": action["answer"], "steps": history,
+                          "iterations": i + 1, "stopped": False}
+              result = execute_tool(action, tools)
+              history.append({"action": action, "result": result})
+          return {"answer": "Stopped: reached max_iterations without finishing.",
+                  "steps": history, "iterations": max_iterations, "stopped": True}
+    narration: >
+      Read the loop. Build the prompt, call the model, parse the action. If it is
+      a finish, return the answer along with the steps and a stopped flag set to
+      false. Otherwise execute the tool, append the step, and go round again. The
+      for-range over max_iterations is the safeguard: if the model never finishes,
+      the loop returns with stopped set to true instead of hanging forever.
+
+  - type: concept
+    label: "max_iterations"
+    heading: "Why the Iteration Cap Matters"
+    body: >
+      An unbounded agent loop is a bug waiting to happen.
+    bullets:
+      - "A confused model can call tools forever, never finishing"
+      - "for i in range(max_iterations) turns a hang into a clean return"
+      - "Return stopped: True so the caller knows it did not finish"
+      - "Default 10 is plenty for simple tasks; raise it for harder ones"
+      - "Every agent loop in this course carries this cap"
+    narration: >
+      The iteration cap is the single most important safety feature of an agent
+      loop. Without it, a model that keeps asking for tools - or gets stuck in a
+      two-step cycle - hangs your program. With it, the worst case is a bounded
+      amount of work and an honest stopped-equals-true result. Every loop you
+      write this section has this cap; it is not optional.
+
+  - type: exercise
+    heading: "Exercise 4: The Agent Loop"
+    prompt: >
+      Implement build_agent_prompt(task, tools, history) returning [system, user]
+      messages with the tools and history rendered in. Implement
+      run_agent(task, tools=None, llm_fn=None, max_iterations=10) as the bounded
+      loop returning {answer, steps, iterations, stopped}.
+    hint: >
+      build_agent_prompt: system lists tools + JSON format; user has task + each
+      step. run_agent: for i in range(max_iterations); finish -> return; else
+      execute_tool + append; loop end -> stopped True.
+    narration: >
+      This is the heart of the day. When your scripted mock drives it - tool
+      call, then finish - you have a working agent.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "build_agent_prompt: system (tools + format) + user (task + history)"
+      - "History is fed back every turn so the model builds on past steps"
+      - "run_agent: for i in range(max_iterations); finish returns, else run + record"
+      - "Returns {answer, steps, iterations, stopped}"
+      - "max_iterations turns a potential hang into a clean stopped: True"
+    narration: >
+      Lesson 5 wraps the loop in a class - SimpleAgent - that binds the model and
+      tools once and remembers every run.

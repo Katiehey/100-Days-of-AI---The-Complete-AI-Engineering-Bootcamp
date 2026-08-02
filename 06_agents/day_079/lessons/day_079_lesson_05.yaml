@@ -1,0 +1,94 @@
+day: "079"
+lesson: 5
+title: "SimpleAgent - Putting It Together"
+slides:
+  - type: title
+    heading: "SimpleAgent"
+    subheading: "One class: bind tools + model, run tasks, remember runs"
+    narration: >
+      The module functions already form a complete agent. SimpleAgent is the
+      convenience layer: bind the tools and the model once at construction, then
+      call run as many times as you like. It also keeps a history of runs and
+      lets you add new tools at runtime - the first step toward an open-ended
+      assistant.
+
+  - type: code
+    label: "SimpleAgent"
+    heading: "SimpleAgent - Bind Once, Run Often"
+    code: |
+      class SimpleAgent:
+          def __init__(self, tools=None, llm_fn=None, max_iterations=10):
+              self.tools = dict(DEFAULT_TOOLS if tools is None else tools)
+              self._llm_fn = llm_fn
+              self.max_iterations = max_iterations
+              self._history = []
+
+          def add_tool(self, name, description, fn, parameters=None):
+              self.tools[name] = {"description": description,
+                                  "parameters": parameters or {}, "fn": fn}
+              return self
+
+          def run(self, task):
+              result = run_agent(task, tools=self.tools, llm_fn=self._llm_fn,
+                                 max_iterations=self.max_iterations)
+              self._history.append({"task": task, "result": result})
+              return result
+
+          def history(self):
+              return list(self._history)
+
+          def clear_history(self):
+              self._history.clear()
+    narration: >
+      The constructor copies DEFAULT_TOOLS with dict, then stores the model, the
+      iteration cap, and an empty history. run delegates straight to run_agent
+      with the bound tools and model, then records the run. history returns a
+      copy so a caller can not mutate the log by accident, and clear_history
+      empties it in place. Same class pattern as all of Section 5: bind at
+      construction, delegate in methods.
+
+  - type: concept
+    label: "The copy matters"
+    heading: "Copy the Registry, Don't Share It"
+    body: >
+      dict(DEFAULT_TOOLS) gives each agent its own tools.
+    bullets:
+      - "Without the copy, self.tools IS the global DEFAULT_TOOLS"
+      - "add_tool would then leak into every other agent and future default"
+      - "dict(...) makes a shallow copy - a fresh registry per agent"
+      - "Same class as Section 5: bind at construction, delegate in methods"
+      - "history() returns a copy; clear_history() empties in place"
+    narration: >
+      One subtle bug worth naming: if you write self.tools equals
+      DEFAULT_TOOLS, every agent shares the same dictionary, so a tool added to
+      one appears in all of them. Wrapping it in dict gives each agent its own
+      copy. It is the same reason history returns list of the history rather than
+      the live list - shared mutable state is where surprising bugs live.
+
+  - type: exercise
+    heading: "Exercise 5: SimpleAgent"
+    prompt: >
+      Implement SimpleAgent: __init__ copies DEFAULT_TOOLS and stores llm_fn,
+      max_iterations, and an empty history; add_tool registers a tool and returns
+      self; run delegates to run_agent and records the run; history returns a
+      copy; clear_history empties in place.
+    hint: >
+      self.tools = dict(DEFAULT_TOOLS if tools is None else tools). run calls
+      run_agent with the bound tools/llm_fn. history() returns list(self._history).
+    narration: >
+      This completes your minimal agent - a class you can hand a model and a set
+      of tools and ask to solve tasks.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 79 Complete"
+    bullets:
+      - "SimpleAgent binds tools + llm_fn once, runs tasks, remembers runs"
+      - "dict(DEFAULT_TOOLS ...) - copy so add_tool doesn't mutate the global"
+      - "run delegates to run_agent and appends to _history"
+      - "history() returns a copy; clear_history() empties in place"
+      - "Agent = LLM + loop + tools + max_iterations - you built it from scratch"
+    narration: >
+      You built an agent from nothing: a safe tool, a forgiving parser, an
+      injectable model, a bounded loop, and a class to hold it. Day 80 keeps this
+      skeleton and adds ReAct - making the model reason out loud, Thought then
+      Action then Observation, before every step.

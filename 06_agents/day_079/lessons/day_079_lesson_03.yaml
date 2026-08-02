@@ -1,0 +1,94 @@
+day: "079"
+lesson: 3
+title: "Executing Tools"
+slides:
+  - type: title
+    heading: "Executing Tools"
+    subheading: "Run the action - and make the model an injection point"
+    narration: >
+      Now the agent acts. execute_tool takes the action the parser produced and
+      runs the matching tool. call_llm asks the model for the next action. Both
+      are written so they can be swapped for mocks - that injection is what lets
+      the entire agent run in tests with no Ollama, no network, and no cost.
+
+  - type: code
+    label: "execute_tool"
+    heading: "execute_tool - Errors Become Text"
+    code: |
+      def execute_tool(action, tools):
+          name = action.get("tool")
+          if name not in tools:
+              return "Error: unknown tool " + repr(name)
+          try:
+              return str(tools[name]["fn"](action.get("args", {})))
+          except Exception as exc:
+              return "Error running " + str(name) + ": " + str(exc)
+    narration: >
+      execute_tool looks up the tool by name and calls its function with the
+      args dict. Two things can go wrong: the model names a tool that does not
+      exist, or the tool itself errors - say the calculator gets a bad
+      expression. Both are caught and returned as a string. That is deliberate:
+      the agent sees the error text on its next turn and can correct course,
+      which is impossible if the tool throws and kills the loop.
+
+  - type: code
+    label: "call_llm"
+    heading: "call_llm - The Injection Point"
+    code: |
+      def call_llm(messages, llm_fn=None):
+          if llm_fn is not None:
+              return llm_fn(messages)
+          import ollama
+          resp = ollama.chat(model="llama3.2", messages=messages)
+          return resp["message"]["content"]
+    narration: >
+      call_llm is one if-statement. If an llm_fn is supplied, call it and return.
+      Otherwise talk to Ollama. The signature is the section-wide contract:
+      llm_fn takes the messages list and returns the content string. Because the
+      whole agent reaches the model only through this function, injecting a mock
+      llm_fn makes the entire loop testable offline - exactly how the gate runs.
+
+  - type: concept
+    label: "Injection for agents"
+    heading: "Mock the Model, Mock the Tools"
+    body: >
+      Two injection points make an agent fully testable.
+    bullets:
+      - "llm_fn(messages) -> str replaces the model"
+      - "The tool registry itself is injectable - pass mock tools"
+      - "A scripted llm_fn drives the loop: tool call, then finish"
+      - "Tests assert on the path taken, not on model quality"
+      - "Zero cost, deterministic, no network - runs anywhere"
+    narration: >
+      This is the pattern that makes agents testable. The model is behind
+      llm_fn; the tools are the registry you pass in. Give the agent a scripted
+      llm_fn that returns a tool call and then a finish, and you can assert that
+      the loop ran the tool, recorded the result, and stopped - all without a
+      real model. Determinism turns an unpredictable LLM system into something
+      you can unit-test.
+
+  - type: exercise
+    heading: "Exercise 3: Executing Tools"
+    prompt: >
+      Implement execute_tool(action, tools): unknown tool -> error string; else
+      call the tool fn in try/except and return the result as a string, never
+      raising. Implement call_llm(messages, llm_fn=None): use llm_fn if given,
+      else ollama.chat with llama3.2.
+    hint: >
+      execute_tool: check name in tools; str(tools[name]['fn'](args)) in
+      try/except. call_llm: if llm_fn is not None return llm_fn(messages).
+    narration: >
+      This exercise gives the agent its ability to act and its testable seam -
+      the model behind a single injectable function.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "execute_tool runs the tool fn; unknown tool + errors -> text, never raises"
+      - "call_llm(messages, llm_fn=None): llm_fn injection or ollama.chat llama3.2"
+      - "llm_fn(messages) -> str is the section-wide model contract"
+      - "Two injection points: the model (llm_fn) and the tools (registry)"
+      - "A scripted llm_fn makes the whole loop deterministic and offline"
+    narration: >
+      Lesson 4 assembles these pieces into the loop itself - run_agent, with the
+      max_iterations safeguard that keeps an agent from running forever.

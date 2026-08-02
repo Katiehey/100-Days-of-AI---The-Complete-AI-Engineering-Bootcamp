@@ -1,0 +1,117 @@
+day: "079"
+lesson: 2
+title: "Parsing LLM Output"
+slides:
+  - type: title
+    heading: "Parsing LLM Output"
+    subheading: "Turn messy text into an action - and never crash"
+    narration: >
+      The model's reply is just text. Before the loop can act on it, you have to
+      turn that text into a structured action: which tool, which arguments, or a
+      final answer. Small local models like llama3.2 do not always return clean
+      JSON, so the parser must be forgiving - and it must never raise, or one bad
+      reply takes down the whole agent.
+
+  - type: concept
+    label: "Why parsing is hard"
+    heading: "LLMs Don't Return Clean JSON"
+    body: >
+      Real replies are messy in predictable ways.
+    bullets:
+      - "Wrapped in markdown fences: ```json ... ```"
+      - "A sentence of preamble before the JSON"
+      - "Single quotes, trailing commas, or extra prose after"
+      - "Sometimes just a plain-English answer with no JSON at all"
+      - "The parser has to survive all of these"
+    narration: >
+      Large hosted models can be pinned to strict JSON, but a small local model
+      will add a friendly sentence, or fence the JSON, or occasionally just
+      answer in plain English. Rather than fight this with an ever-growing pile
+      of regexes, use a robust trick: find the first opening brace and the last
+      closing brace, and parse whatever is between them. Fences and prose fall
+      away automatically.
+
+  - type: code
+    label: "safe_parse_json"
+    heading: "Slice the Braces, Then Parse"
+    code: |
+      import json
+
+      def safe_parse_json(text):
+          start, end = text.find("{"), text.rfind("}")
+          if start == -1 or end == -1 or end < start:
+              return None
+          try:
+              data = json.loads(text[start:end + 1])
+          except (json.JSONDecodeError, ValueError):
+              return None
+          return data if isinstance(data, dict) else None
+    narration: >
+      find returns the index of the first opening brace; rfind the last closing
+      brace. The slice between them is the JSON object, whatever surrounds it.
+      json.loads runs inside a try, so a malformed slice returns None instead of
+      raising. And we confirm the result is a dict, because the loop expects a
+      dict. One short function, no regex, and it degrades cleanly to None.
+
+  - type: code
+    label: "parse_action"
+    heading: "parse_action - Never Raises"
+    code: |
+      def parse_action(text):
+          data = safe_parse_json(text)
+          if not isinstance(data, dict):
+              return {"type": "finish", "answer": text.strip()}
+          tool = data.get("tool")
+          if tool and tool != "finish":
+              return {"type": "tool", "tool": tool, "args": data.get("args", {})}
+          return {"type": "finish", "answer": data.get("answer", text.strip())}
+    narration: >
+      parse_action turns the parsed dict into one of two shapes: a tool action
+      or a finish action. If there is no JSON at all, it treats the whole reply
+      as a final answer - so even a plain-English response ends the loop
+      gracefully. This is the fallback rule for the whole section: a parser for
+      agent output must always return something the loop can act on, never throw.
+
+  - type: concept
+    label: "Fail-safe design"
+    heading: "Fallbacks Keep the Loop Alive"
+    body: >
+      A parser that raises turns a bad reply into a dead agent.
+    bullets:
+      - "No JSON -> treat the whole text as the final answer"
+      - "Unknown shape -> finish, don't guess a tool"
+      - "The loop always gets a valid action dict back"
+      - "Errors become data the agent can see, not exceptions"
+      - "Same principle drives execute_tool in Lesson 3"
+    narration: >
+      The theme is fail-safe design. Every place the agent meets uncertain input
+      - the model's reply here, a tool's result next lesson - you convert
+      problems into data rather than exceptions. A finish fallback means the
+      worst case is a slightly wrong answer, not a crash. That resilience is what
+      lets an agent run unattended.
+
+  - type: exercise
+    heading: "Exercise 2: Parsing LLM Output"
+    prompt: >
+      Implement safe_parse_json (slice first brace to last brace, json.loads in
+      a try, return dict or None) and parse_action (tool action when there is a
+      non-finish tool key, otherwise a finish action with the answer or raw
+      text). parse_action must never raise.
+    hint: >
+      text.find('{'), text.rfind('}'); json.loads(text[start:end+1]) in
+      try/except. parse_action: safe_parse_json first; branch on data.get('tool').
+    narration: >
+      This exercise makes the agent robust to real model output - the difference
+      between a demo and something that survives contact with llama3.2.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "LLM replies are messy: fences, preamble, plain prose"
+      - "safe_parse_json: slice first '{' to last '}', json.loads in try -> dict|None"
+      - "parse_action returns {'type':'tool'|'finish', ...} and NEVER raises"
+      - "No JSON -> finish with the raw text as the answer"
+      - "Fail-safe: turn uncertain input into data, not exceptions"
+    narration: >
+      Lesson 3 runs the action the parser produced - executing tools and calling
+      the model, both as injection points so the agent can run offline.
