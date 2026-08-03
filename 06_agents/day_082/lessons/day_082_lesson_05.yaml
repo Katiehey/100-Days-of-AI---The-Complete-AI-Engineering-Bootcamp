@@ -1,0 +1,110 @@
+day: "082"
+lesson: 5
+title: "MemoryAgent - The Assistant That Remembers You"
+slides:
+  - type: title
+    heading: "MemoryAgent"
+    subheading: "Extract, recall, answer, remember - every turn"
+    narration: >
+      Now we wire it all together. MemoryAgent binds a working memory, a long-term
+      store, and a model, and on every turn it does the full loop: extract durable
+      facts from the message, recall everything into the prompt, answer, and record
+      the exchange. Same class shape as SimpleAgent, ReactAgent, and ToolAgent - only
+      the engine inside is memory.
+
+  - type: code
+    label: "MemoryAgent"
+    heading: "The Turn Loop"
+    code: |
+      class MemoryAgent:
+          def __init__(self, longterm=None, llm_fn=None, max_turns=10):
+              self.longterm = longterm if longterm is not None else LongTermMemory()
+              self.working = WorkingMemory(max_turns=max_turns)
+              self._llm_fn = llm_fn
+
+          def chat(self, message):
+              for key, value in extract_memories(message, llm_fn=self._llm_fn).items():
+                  self.longterm.remember(key, value)
+              prompt = build_memory_prompt(message, self.working, self.longterm)
+              reply = call_llm(prompt, llm_fn=self._llm_fn)
+              self.working.add("user", message)
+              self.working.add("assistant", reply)
+              return reply
+
+          def end_session(self):
+              self.working.clear()
+    narration: >
+      chat is the whole day in one method. First it extracts durable facts and remembers
+      each one, so the store is up to date before we answer. Then build_memory_prompt
+      recalls the profile and recent turns into a prompt, and call_llm answers. Finally
+      it records both the user message and the reply into working memory for the next
+      turn. Notice chat calls the model twice - once to judge what to remember, once to
+      answer with memory in context - two focused prompts rather than one that tries to
+      do both.
+
+  - type: concept
+    label: "Session boundary"
+    heading: "End the Session, Keep the Knowledge"
+    body: >
+      A session boundary clears one memory, not the other.
+    bullets:
+      - "end_session(): clear working memory only"
+      - "Long-term memory persists - it's in SQLite"
+      - "Next session starts fresh but still knows you"
+      - "A new agent on the same LongTermMemory remembers you"
+      - "That split is the whole point of two memories"
+    narration: >
+      end_session is where the two memories part ways. It clears working memory, so the
+      next conversation does not carry over the last one's turns - but it leaves
+      long-term memory untouched, because those facts are in SQLite. Start a brand new
+      agent pointed at the same long-term store and it already knows your name and your
+      preferences, even though it has never seen this conversation. Fresh context,
+      remembered knowledge - that split is exactly why an agent needs two kinds of
+      memory.
+
+  - type: concept
+    label: "Four agents, one shape"
+    heading: "The Section's Class Pattern, Again"
+    body: >
+      Every Section 6 agent wears the same skeleton.
+    bullets:
+      - "Day 79 SimpleAgent: bare action loop"
+      - "Day 80 ReactAgent: reasoning loop with a trace"
+      - "Day 81 ToolAgent: one-shot routing over many tools"
+      - "Day 82 MemoryAgent: extract -> recall -> answer -> record"
+      - "All: bind at construction, delegate, keep state"
+    narration: >
+      This is the fourth agent in four days with the same class shape: bind the
+      collaborators at construction, delegate the real work to module functions, and
+      keep some state. What changed today is the state - two memories instead of a
+      history list - and the engine, which now stores and recalls around every model
+      call. Keeping the shape constant means each new agent is easy to pick up; you
+      spend your attention on the new idea, not the scaffolding.
+
+  - type: exercise
+    heading: "Exercise 5: MemoryAgent"
+    prompt: >
+      Implement MemoryAgent(longterm=None, llm_fn=None, max_turns=10): __init__ builds
+      the two memories; chat extracts + remembers facts, build_memory_prompt, call_llm,
+      records user + assistant turns, returns the reply; remember/recall/profile expose
+      long-term memory; end_session clears working memory only.
+    hint: >
+      chat: for k,v in extract_memories(message, llm_fn=self._llm_fn).items():
+      self.longterm.remember(k,v). prompt = build_memory_prompt(...); reply =
+      call_llm(prompt, llm_fn=self._llm_fn); add both turns; return reply.
+    narration: >
+      This completes the assistant that remembers you - hand it a persistent
+      LongTermMemory and it carries your profile across sessions.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 82 Complete"
+    bullets:
+      - "MemoryAgent = extract -> recall -> answer -> record, every turn"
+      - "chat calls the model twice: judge what to store, then answer"
+      - "end_session clears working memory; long-term persists in SQLite"
+      - "A new agent on the same store still remembers you"
+      - "Same class shape as SimpleAgent / ReactAgent / ToolAgent"
+    narration: >
+      Your agent now has memory - short-term for coherence, long-term for continuity.
+      Day 83 gives it foresight: planning and decomposition, breaking a big goal into
+      an ordered set of subtasks.

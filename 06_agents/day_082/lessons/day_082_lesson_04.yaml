@@ -1,0 +1,102 @@
+day: "082"
+lesson: 4
+title: "Recall - Injecting Memory into the Prompt"
+slides:
+  - type: title
+    heading: "Recall"
+    subheading: "Memory only helps if the model sees it"
+    narration: >
+      Storing facts is only half the loop. A memory the model never sees changes
+      nothing. Recall is the other half: putting the right memories back into the
+      prompt, in the right place, so they actually shape the answer. This lesson
+      builds build_memory_prompt, which assembles long-term profile, recent turns, and
+      the new message into one prompt.
+
+  - type: concept
+    label: "Recall"
+    heading: "Three Layers of Context"
+    body: >
+      A memory-aware prompt has a clear structure.
+    bullets:
+      - "System: the long-term profile - what we durably know"
+      - "Then: working-memory turns - the recent conversation"
+      - "Last: the new user message"
+      - "Order matters: standing context first, live turn last"
+      - "Empty profile still builds a valid prompt"
+    narration: >
+      A memory-aware prompt has three layers. The system message carries the long-term
+      profile - the durable facts that should color every reply. Then come the recent
+      turns from working memory, giving the model the flow of the current
+      conversation. Finally the new message. The order is deliberate: standing context
+      up top, the live turn at the bottom, right where the model expects the thing it
+      must respond to.
+
+  - type: code
+    label: "build_memory_prompt"
+    heading: "Assemble the Layers"
+    code: |
+      def build_memory_prompt(message, working, longterm):
+          facts = longterm.all()
+          profile = "\n".join("- " + f["key"] + ": " + f["value"] for f in facts)
+          system = "\n".join([
+              "You are a helpful assistant with memory of the user.",
+              "",
+              "What you remember about the user:",
+              profile if profile else "(nothing yet)",
+          ])
+          messages = [{"role": "system", "content": system}]
+          messages.extend(working.turns())
+          messages.append({"role": "user", "content": str(message)})
+          return messages
+    narration: >
+      build_memory_prompt pulls the whole profile with longterm.all and renders it as
+      a bullet list inside the system message. If there is nothing yet, it says so -
+      an empty profile still produces a valid prompt, it just has no facts to lean on.
+      Then it extends the message list with the working-memory turns and appends the
+      new user message. One function, three layers, and the model now sees everything
+      the agent remembers.
+
+  - type: concept
+    label: "Store and recall"
+    heading: "The Full Memory Loop"
+    body: >
+      Memory is a two-way street.
+    bullets:
+      - "Store: extract durable facts -> remember (Lesson 3)"
+      - "Recall: all() -> inject into the prompt (this lesson)"
+      - "Working memory supplies the recent turns"
+      - "Long-term memory supplies the standing profile"
+      - "Both directions must work for memory to help"
+    narration: >
+      Step back and see the whole loop. On the way in, extraction decides what is
+      durable and remember stores it. On the way out, recall reads the profile back
+      and injects it into the prompt. Working memory feeds the recent turns; long-term
+      memory feeds the standing profile. Both directions have to work: store without
+      recall is a diary no one reads, and recall without store has nothing to show.
+      The next lesson wires both into a single agent.
+
+  - type: exercise
+    heading: "Exercise 4: Recall - Injecting Memory"
+    prompt: >
+      Implement build_memory_prompt(message, working, longterm): render longterm.all()
+      as '- key: value' lines (or '(nothing yet)') inside a system message; then
+      working.turns(); then the new {'role':'user','content':message} last. Return the
+      message list.
+    hint: >
+      profile = "\n".join of '- key: value' over longterm.all(). messages = [system];
+      messages.extend(working.turns()); messages.append(the user message). Return
+      messages.
+    narration: >
+      This is recall - the step that actually puts memory in front of the model.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "Recall = inject stored memory back into the prompt"
+      - "System = long-term profile; then recent turns; then new message"
+      - "longterm.all() renders the standing profile"
+      - "Empty profile still builds a valid prompt ('nothing yet')"
+      - "Store + recall together make memory actually useful"
+    narration: >
+      Lesson 5 wires storage and recall into one MemoryAgent - the assistant that
+      remembers you.

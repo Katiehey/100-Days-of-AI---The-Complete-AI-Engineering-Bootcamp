@@ -1,0 +1,110 @@
+day: "082"
+lesson: 2
+title: "Long-Term Memory with SQLite"
+slides:
+  - type: title
+    heading: "Long-Term Memory"
+    subheading: "Durable facts that survive a restart, in SQLite"
+    narration: >
+      Working memory vanishes when the session ends. For an agent to remember you -
+      not just this conversation, but you, across days - it needs storage that
+      persists. This lesson builds LongTermMemory: a durable key-value store backed
+      by SQLite, the zero-setup database that ships with Python.
+
+  - type: concept
+    label: "Why persist"
+    heading: "Memory That Outlives the Process"
+    body: >
+      Long-term memory is a small database of facts.
+    bullets:
+      - "Keyed by a stable name: name, location, favourite_language"
+      - "SQLite: a real database in a single file, stdlib, no server"
+      - "':memory:' for a private in-process db; a file path to persist"
+      - "remember / recall / search / all / forget - a tiny CRUD"
+      - "A new object on the same file sees the old facts"
+    narration: >
+      Long-term memory is just a small table of key-value facts, but backed by a real
+      database so it survives the process ending. SQLite is perfect here: it is part
+      of the standard library, needs no server, and stores everything in one file.
+      Point it at ":memory:" and you get a fast private database for testing; point it
+      at a file path and the facts are still there the next time you open it. That
+      file is what makes the memory long-term.
+
+  - type: code
+    label: "remember / recall"
+    heading: "Upsert and Fetch"
+    code: |
+      import sqlite3
+
+      class LongTermMemory:
+          def __init__(self, db_path=":memory:"):
+              self._conn = sqlite3.connect(db_path)
+              self._conn.execute("CREATE TABLE IF NOT EXISTS memories "
+                                 "(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+              self._conn.commit()
+
+          def remember(self, key, value):
+              self._conn.execute("INSERT OR REPLACE INTO memories(key, value) "
+                                 "VALUES(?, ?)", (str(key), str(value)))
+              self._conn.commit()
+              return self
+
+          def recall(self, key):
+              row = self._conn.execute("SELECT value FROM memories WHERE key = ?",
+                                       (str(key),)).fetchone()
+              return row[0] if row else None
+    narration: >
+      The table has two columns - key as the primary key, and value. remember uses
+      INSERT OR REPLACE: on a new key it inserts, on an existing key it overwrites.
+      That is exactly what you want for memory - when a fact changes you update it in
+      place, you do not pile up duplicates. recall runs a parameterised SELECT and
+      returns the value or None. Notice the question-mark placeholders: never format
+      SQL with string concatenation, always pass parameters, so a value can never be
+      read as SQL.
+
+  - type: concept
+    label: "Search and forget"
+    heading: "The Rest of the Store"
+    body: >
+      A few more methods round out the memory.
+    bullets:
+      - "search(term): facts whose key or value contains term"
+      - "all(): every fact, ordered - the whole profile"
+      - "forget(key): delete a fact that's wrong or stale"
+      - "__len__: how many facts are stored"
+      - "close(): release the database connection"
+    narration: >
+      Beyond remember and recall you want to browse and prune. search scans keys and
+      values for a term, case-insensitively - a simple way to find relevant facts.
+      all returns the whole profile, ordered, which is what the next lesson feeds into
+      the prompt. forget deletes a fact that has gone stale or was wrong, because a
+      memory you cannot correct becomes a liability. These five methods - remember,
+      recall, search, all, forget - are the entire long-term store.
+
+  - type: exercise
+    heading: "Exercise 2: Long-Term Memory (SQLite)"
+    prompt: >
+      Build LongTermMemory(db_path=":memory:") over a SQLite memories(key PRIMARY KEY,
+      value) table: remember (INSERT OR REPLACE, returns self), recall (value or None),
+      search (key or value contains term, case-insensitive), all (ordered
+      [{key,value}]), forget, __len__, close. A new object on the same file path sees
+      the stored facts.
+    hint: >
+      sqlite3.connect(db_path); CREATE TABLE IF NOT EXISTS. Use ? placeholders, never
+      string formatting. remember: INSERT OR REPLACE. recall: fetchone(), return
+      row[0] if row else None.
+    narration: >
+      This is the durable half of the agent's memory - the facts that make it remember
+      you next time.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "LongTermMemory persists facts in SQLite (stdlib, one file)"
+      - "':memory:' for tests; a file path to survive restarts"
+      - "INSERT OR REPLACE = upsert on a PRIMARY KEY column"
+      - "Always use ? placeholders - never format SQL strings"
+      - "remember / recall / search / all / forget - a tiny CRUD"
+    narration: >
+      Lesson 3 asks the harder question: given a message, which facts are even worth
+      remembering? That's LLM-driven extraction.

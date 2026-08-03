@@ -1,0 +1,94 @@
+day: "082"
+lesson: 3
+title: "Deciding What to Remember"
+slides:
+  - type: title
+    heading: "What Is Worth Remembering?"
+    subheading: "The model extracts durable facts from a message"
+    narration: >
+      You have a place to store memories now - but you cannot store everything. Most
+      of what a user says is passing chatter that is not worth keeping. Deciding what
+      is durable is a judgement call, and it is exactly the kind of judgement a
+      language model is good at. This lesson uses the model itself to extract the
+      facts worth remembering.
+
+  - type: concept
+    label: "Extraction"
+    heading: "Memory as a Filter"
+    body: >
+      Extraction separates the durable from the disposable.
+    bullets:
+      - "Not everything said is worth storing"
+      - "Durable: name, location, preferences, goals"
+      - "Disposable: 'what time is it', 'thanks', small talk"
+      - "Ask the model for a JSON object of key -> value facts"
+      - "Empty object when there is nothing worth keeping"
+    narration: >
+      Extraction is a filter. If you saved every message the store would fill with
+      noise and the useful facts would drown. So you ask the model a focused question:
+      from this message, what durable facts about the user are worth remembering?
+      Return them as a small JSON object mapping short keys to values - and return an
+      empty object when there is nothing worth keeping, which is most of the time. The
+      model is doing the judging; your code just stores what comes back.
+
+  - type: code
+    label: "extract_memories"
+    heading: "Extract, Parse, Never Crash"
+    code: |
+      def extract_memories(message, llm_fn=None):
+          response = call_llm(build_extraction_prompt(message), llm_fn=llm_fn)
+          data = safe_parse_json(response) or {}
+          return {str(k): str(v) for k, v in data.items()}
+    narration: >
+      extract_memories builds the extraction prompt, calls the model, and parses the
+      reply with the tolerant safe_parse_json from Day 79. The key defensive move is
+      "or empty dict": if the model wraps its JSON in prose, or returns no JSON at all,
+      safe_parse_json gives back None and we fall to an empty dict. A failed
+      extraction simply stores nothing - it never raises and kills the turn. Then we
+      coerce keys and values to strings so they drop straight into the SQLite store.
+
+  - type: concept
+    label: "Extract then store"
+    heading: "Two Steps: Judge, Then Persist"
+    body: >
+      Extraction decides; the store keeps.
+    bullets:
+      - "extract_memories: the model judges what's durable"
+      - "remember: LongTermMemory persists each fact"
+      - "Same-key facts overwrite - the profile stays current"
+      - "Extraction can be wrong - forget() is the correction"
+      - "The agent (Lesson 5) chains extract -> remember every turn"
+    narration: >
+      Keep the two responsibilities separate. Extraction is the model's judgement
+      about what matters; storing is your database's job. Every turn, the agent will
+      extract facts and remember each one - and because remember upserts by key, a
+      changed fact overwrites the old value and the profile stays current. Extraction
+      is not perfect; the model will sometimes store something it should not. That is
+      why forget exists - memory you can correct is memory you can trust.
+
+  - type: exercise
+    heading: "Exercise 3: Deciding What to Remember"
+    prompt: >
+      Implement build_extraction_prompt(message) - a system message asking for ONLY a
+      JSON object of snake_case key -> value durable facts (or {}), plus the user
+      message - and extract_memories(message, llm_fn=None) which calls the model,
+      safe_parse_json (or {}), and returns {str(k): str(v)}. Never raises.
+    hint: >
+      build_extraction_prompt returns [system, user] messages. extract_memories:
+      data = safe_parse_json(response) or {}; return a str-keyed, str-valued dict
+      comprehension over data.items().
+    narration: >
+      This is the judgement step - the model deciding, per message, what is worth
+      remembering.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "You can't store everything - extraction is the filter"
+      - "The model returns durable facts as a JSON object"
+      - "extract_memories parses with safe_parse_json - never raises"
+      - "Bad or missing JSON -> {} -> store nothing"
+      - "Extract (judge) then remember (persist) are separate steps"
+    narration: >
+      Lesson 4 does the reverse direction: recall - putting the stored memory back in
+      front of the model at the right place in the prompt.

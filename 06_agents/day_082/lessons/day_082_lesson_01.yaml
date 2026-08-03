@@ -1,0 +1,99 @@
+day: "082"
+lesson: 1
+title: "Two Kinds of Memory"
+slides:
+  - type: title
+    heading: "Agent Memory"
+    subheading: "Short-term working memory and long-term persistence"
+    narration: >
+      Every agent so far - the action loop, the reasoning loop, the tool router -
+      starts each task from a blank slate. Today we fix that with memory. There are
+      two kinds, and the distinction runs through the whole day: short-term working
+      memory that lives inside one conversation, and long-term memory that persists
+      across sessions. This first lesson builds the short-term half.
+
+  - type: concept
+    label: "Two memories"
+    heading: "Working Memory vs Long-Term Memory"
+    body: >
+      Agents need both, for different jobs.
+    bullets:
+      - "Working memory: the recent turns of THIS conversation"
+      - "Bounded and disposable - cleared when the session ends"
+      - "Long-term memory: durable facts about the user"
+      - "Persisted to storage - survives a restart"
+      - "Together: coherent now, and remembers you next time"
+    narration: >
+      Think of it like human memory. Working memory holds what was just said, so you
+      stay coherent across a few turns - but it is small, and you let it go when the
+      conversation is over. Long-term memory is different: the durable facts, your
+      name, your preferences, your goals, written down so they are still there
+      tomorrow. An agent needs both. Today's first class is working memory; the next
+      lesson builds the long-term store.
+
+  - type: code
+    label: "WorkingMemory"
+    heading: "A Bounded Log of Recent Turns"
+    code: |
+      class WorkingMemory:
+          def __init__(self, max_turns=10):
+              self.max_turns = max_turns
+              self._turns = []
+
+          def add(self, role, content):
+              self._turns.append({"role": role, "content": str(content)})
+              if len(self._turns) > self.max_turns:
+                  self._turns = self._turns[-self.max_turns:]
+              return self
+    narration: >
+      WorkingMemory is a list of role-and-content turns with one rule: keep only the
+      last max_turns. Every turn you add eventually goes back into the prompt, so if
+      you never cap it the context grows without limit - slower, costlier, and
+      eventually past the model's window. Slicing to the last max_turns is the
+      simplest sliding window: it keeps recent context while staying bounded. add
+      returns self so you can chain.
+
+  - type: concept
+    label: "Session boundary"
+    heading: "Working Memory Is Disposable"
+    body: >
+      Clearing working memory is a feature, not a loss.
+    bullets:
+      - "turns() returns a COPY - callers can't mutate the log"
+      - "render() formats the turns for a prompt"
+      - "clear() empties it - the session boundary"
+      - "Nothing here survives a restart - that's long-term's job"
+      - "Short-term forgets on purpose; long-term remembers on purpose"
+    narration: >
+      Working memory is meant to be thrown away. When a conversation ends you call
+      clear, and the scratchpad is empty for the next one. That is deliberate - you
+      do not want last week's chit-chat bleeding into today. Anything that should
+      outlast the session is not working memory's job; it belongs in the long-term
+      store. Notice turns returns a copy, the same defensive habit from every history
+      method this course - callers read it, they do not mutate the live log.
+
+  - type: exercise
+    heading: "Exercise 1: Short-Term Working Memory"
+    prompt: >
+      Build WorkingMemory(max_turns=10): add(role, content) appends a {role, content}
+      turn, keeps only the last max_turns, returns self; turns() returns a copy;
+      render() formats one 'role: content' line per turn; clear() empties it; __len__
+      counts the turns.
+    hint: >
+      Store a list of dicts. In add, after appending, slice to self._turns[-max_turns:]
+      if it's too long. turns() returns list(self._turns) - a copy.
+    narration: >
+      This builds the short-term scratchpad the agent keeps for the current
+      conversation.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Two memories: short-term working + long-term persistent"
+      - "WorkingMemory = a bounded log of recent turns"
+      - "Bounded to max_turns so the prompt never grows forever"
+      - "turns() returns a copy; clear() is the session boundary"
+      - "Working memory forgets on purpose - long-term is next"
+    narration: >
+      Lesson 2 builds the other half: long-term memory that persists across sessions
+      in SQLite.
