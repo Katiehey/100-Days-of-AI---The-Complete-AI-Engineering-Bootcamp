@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–85 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Days 79–85 complete (SimpleAgent / ReAct / ToolAgent / MemoryAgent / PlannerAgent / MultiAgent / MCPAgent). Days 86–100 pending (next: Day 86 — Retrieval Agents — agentic RAG).
+**Authoring status:** Days 1–86 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Days 79–86 complete (SimpleAgent / ReAct / ToolAgent / MemoryAgent / PlannerAgent / MultiAgent / MCPAgent / RetrievalAgent). Days 87–100 pending (next: Day 87 — Guardrails & Safety).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
