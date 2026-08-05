@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–83 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Day 79 (SimpleAgent), Day 80 (ReAct — react_agent.py), Day 81 (Tool-Using Agents — tool_agent.py), Day 82 (Agent Memory — memory_agent.py: WorkingMemory + LongTermMemory (SQLite)), and Day 83 (Planning & Decomposition — planner_agent.py: Task dataclass, topo_sort/Kahn's, run_plan, PlannerAgent) complete. Days 84–100 pending (next: Day 84 — Multi-Agent Systems — multi_agent.py).
+**Authoring status:** Days 1–84 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–5 complete. Section 6 (AI Agents, Days 79–88) in progress: Days 79–83 complete (SimpleAgent / ReAct / ToolAgent / MemoryAgent / PlannerAgent), and Day 84 (Multi-Agent Systems — multi_agent.py: ResearcherAgent + WriterAgent + Handoff + run_duo + Orchestrator) complete. Days 85–100 pending (next: Day 85 — Model Context Protocol — mcp_agent.py).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
