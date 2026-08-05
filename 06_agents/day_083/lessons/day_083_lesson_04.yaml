@@ -1,0 +1,86 @@
+day: "083"
+lesson: 4
+title: "run_plan - End to End"
+slides:
+  - type: title
+    heading: "run_plan"
+    subheading: "Plan, sort, execute - one call"
+    narration: >
+      The three pieces are ready: a prompt to decompose the goal, a sort to resolve
+      dependencies, and a step executor that feeds results forward. run_plan chains
+      them together: one function that takes a goal and returns the completed tasks,
+      all results, and the final answer - with a max_tasks guard so a runaway plan
+      cannot hang the gate.
+
+  - type: code
+    label: "run_plan"
+    heading: "The Full Orchestrator"
+    code: |
+      def run_plan(goal, executor_fn=None, llm_fn=None, max_tasks=20):
+          plan_text = call_llm(build_plan_prompt(goal), llm_fn=llm_fn)
+          tasks = parse_plan(plan_text)
+          if not tasks:
+              return {"tasks": [], "results": {}, "answer": "No plan generated."}
+          ordered = topo_sort(tasks[:max_tasks])
+          results = {}
+          for task in ordered:
+              result = execute_task(task, results,
+                                    executor_fn=executor_fn, llm_fn=llm_fn)
+              task.result = result
+              task.status = "done"
+              results[task.id] = result
+          answer = ordered[-1].result if ordered else "No tasks executed."
+          return {"tasks": ordered, "results": results, "answer": answer}
+    narration: >
+      run_plan is short because the hard work lives in the pieces it calls. One
+      model call generates the plan; parse_plan tolerates any mess; topo_sort
+      resolves the order; the loop feeds results forward; the final answer is the
+      last task's result. The cap at max_tasks happens before sorting - so a model
+      that hallucinates a hundred tasks can't cause a hundred LLM calls. Empty plan
+      has a clear fallback. Every failure mode returns data rather than raising.
+
+  - type: concept
+    label: "max_tasks"
+    heading: "The max_tasks Safety Guard"
+    body: >
+      Cap the plan length before execution.
+    bullets:
+      - "A misbehaving model can return arbitrarily long task lists"
+      - "Each task triggers an LLM call or executor call"
+      - "Cap at max_tasks (default 20) before sorting"
+      - "Sorting 5 tasks is trivial; sorting 1000 tasks wastes time"
+      - "Same principle as max_iterations on the agent loops"
+    narration: >
+      The max_tasks cap is the planning equivalent of max_iterations on the agent
+      loop. A language model can return a plan with thirty tasks when five would do,
+      or a hundred tasks when it misunderstands the goal. Each task triggers an
+      executor or LLM call. Capping before sorting and before execution bounds both
+      the sort cost and the execution cost. Twenty is a sensible default for most
+      goals - more than that and the plan is probably not well-decomposed.
+
+  - type: exercise
+    heading: "Exercise 4: run_plan"
+    prompt: >
+      Implement run_plan(goal, executor_fn=None, llm_fn=None, max_tasks=20):
+      build_plan_prompt -> call_llm -> parse_plan -> cap at max_tasks -> topo_sort ->
+      execute loop (execute_task, update task.result/status, results[id]). Return
+      {tasks, results, answer}. If no tasks, return a safe fallback.
+    hint: >
+      tasks = parse_plan(plan_text); if not tasks: return the empty-plan dict.
+      ordered = topo_sort(tasks[:max_tasks]); results = {}. For each task in ordered:
+      result = execute_task(...); task.result = result; task.status = 'done';
+      results[task.id] = result. answer = ordered[-1].result.
+    narration: >
+      This is the complete plan runner - a goal goes in, a finished plan comes out.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "run_plan = plan -> sort -> execute loop, one function"
+      - "max_tasks caps before sorting so a long list cannot hang execution"
+      - "Empty plan -> safe fallback dict (no crash)"
+      - "Returns {tasks, results, answer} - same shape every time"
+      - "answer = the last task's result in execution order"
+    narration: >
+      Lesson 5 wraps run_plan in PlannerAgent and separates plan from execute so you
+      can inspect the task list before committing to it.

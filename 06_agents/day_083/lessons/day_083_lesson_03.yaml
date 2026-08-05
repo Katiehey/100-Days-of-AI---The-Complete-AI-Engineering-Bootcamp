@@ -1,0 +1,102 @@
+day: "083"
+lesson: 3
+title: "Executing Tasks Step by Step"
+slides:
+  - type: title
+    heading: "Executing the Plan"
+    subheading: "Run each task and pass its result to the next"
+    narration: >
+      The plan is sorted. Now execute it. This lesson builds two functions: one that
+      packages prior results into the prompt for the current task, and one that runs
+      a task - using an injected executor or the LLM - and captures any exception as
+      a result string rather than a crash.
+
+  - type: concept
+    label: "Context injection"
+    heading: "Results Propagate Forward"
+    body: >
+      Each task needs the outputs of its dependencies.
+    bullets:
+      - "results dict: {task_id: result_string} grows as tasks complete"
+      - "build_execution_context: render prior results for depends_on ids"
+      - "Task gets: prior results + its own title and description"
+      - "Same injection principle as Day 82 working memory in the prompt"
+      - "Only the relevant deps are injected - not every task's result"
+    narration: >
+      As each task completes, its result goes into a running dict keyed by task id.
+      When the next task starts, build_execution_context looks at its depends_on list
+      and injects just those results - the facts from the earlier steps that this task
+      actually needs. This is the same idea as Day 82's recall: putting the right
+      context in front of the model at the right time. Only injecting the relevant
+      deps keeps the prompt small and focused rather than pasting in every prior
+      result.
+
+  - type: code
+    label: "execute_task"
+    heading: "Two Modes: executor_fn or LLM"
+    code: |
+      def execute_task(task, results, executor_fn=None, llm_fn=None):
+          try:
+              if executor_fn is not None:
+                  return str(executor_fn(task))
+              context = build_execution_context(task, results)
+              messages = [{"role": "system", "content": context},
+                          {"role": "user", "content": "Execute this task now."}]
+              return call_llm(messages, llm_fn=llm_fn)
+          except Exception as exc:
+              return "Error: " + str(exc)
+    narration: >
+      execute_task has two modes. If executor_fn is provided, call it - this is the
+      gate mode, where a deterministic mock replaces all model calls. Otherwise build
+      the execution prompt with prior context and call the LLM. Either way, the whole
+      thing is wrapped in try-except: if a tool throws or the model returns something
+      unparseable, the result is an Error string rather than an exception that stops
+      the whole plan. The plan runner sees that string, records it, and continues.
+
+  - type: concept
+    label: "Fail as data"
+    heading: "A Failed Task is Data, Not a Crash"
+    body: >
+      An error in one task should not stop the whole plan.
+    bullets:
+      - "execute_task: exceptions -> 'Error: ...' result string"
+      - "task.status is still marked 'done' (it ran; it just failed)"
+      - "The next task sees the error string as its dep's result"
+      - "The plan records what went wrong without stopping"
+      - "This is the same principle as Day 79's execute_tool"
+    narration: >
+      When a task fails, the plan has a choice: stop, or record the failure and
+      continue. Stopping is the safe choice when tasks are strictly sequential and
+      one failure makes all later steps meaningless. But in many plans a failed step
+      is still information - the next task can see the error string and respond to it.
+      Returning the error as a result keeps the plan moving and gives you a complete
+      record of what worked and what did not. Day 87 will add proper guardrails for
+      deciding when to stop and when to continue.
+
+  - type: exercise
+    heading: "Exercise 3: Executing One Task"
+    prompt: >
+      Implement build_execution_context(task, results): render prior results for
+      each dep in task.depends_on (if present in results), then state the task title
+      and description. Implement execute_task(task, results, executor_fn=None,
+      llm_fn=None): use executor_fn if provided, else call_llm with the context;
+      wrap everything in try/except and return 'Error: ...' on failure.
+    hint: >
+      build_execution_context: lines = [...]; for dep in task.depends_on: if dep in
+      results: append "dep: result". execute_task: try: if executor_fn is not None:
+      return str(executor_fn(task)); else build context + call_llm. except Exception
+      as exc: return 'Error: ' + str(exc).
+    narration: >
+      These two functions are the workhorse of plan execution - context in, result
+      out, never crashes.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "results dict grows as tasks complete: {id: result_string}"
+      - "build_execution_context injects relevant deps into the task prompt"
+      - "execute_task: executor_fn for the gate, LLM fallback for production"
+      - "try/except: a failed task returns 'Error: ...' not an exception"
+      - "Failed tasks are recorded, not dropped - the plan continues"
+    narration: >
+      Lesson 4 chains these pieces into run_plan - the end-to-end orchestrator.

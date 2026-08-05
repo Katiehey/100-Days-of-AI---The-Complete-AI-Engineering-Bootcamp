@@ -1,0 +1,113 @@
+day: "083"
+lesson: 2
+title: "Dependency Ordering with Topological Sort"
+slides:
+  - type: title
+    heading: "Topological Sort"
+    subheading: "Execute tasks in dependency order"
+    narration: >
+      The LLM may return tasks in any order. Executing them naively risks running
+      Write summary before Gather facts exists. Topological sort is the classic
+      algorithm that fixes this: given a directed acyclic graph of dependencies,
+      it finds an order where every dependency comes before the task that needs it.
+      This lesson builds topo_sort using Kahn's BFS algorithm.
+
+  - type: concept
+    label: "The problem"
+    heading: "Dependencies Define the Order"
+    body: >
+      A plan is a directed graph; topological sort finds a valid traversal.
+    bullets:
+      - "t1 -> t2 -> t3: t2 needs t1's result; t3 needs t2's result"
+      - "Diamond: t1 -> t2, t1 -> t3, t2+t3 -> t4 (fan-out then fan-in)"
+      - "Cycle: t1 depends on t2, t2 depends on t1 (impossible to satisfy)"
+      - "Topo sort: any valid ordering where deps always come first"
+      - "Multiple valid orderings may exist (t2 and t3 can swap in the diamond)"
+    narration: >
+      A plan is a directed acyclic graph - each task is a node, each dependency is
+      a directed edge. Topological sort walks this graph and returns a linear order
+      where for every edge from A to B, A comes before B in the output. For a linear
+      chain t1 to t2 to t3, there is one valid order. For a diamond with two parallel
+      branches, either branch can go first - topological sort finds one of the valid
+      orderings. Cycles are impossible to satisfy, and the next slide covers how to
+      handle them gracefully.
+
+  - type: code
+    label: "Kahn's algorithm"
+    heading: "Kahn's Algorithm - BFS on the DAG"
+    code: |
+      def topo_sort(tasks):
+          by_id = {t.id: t for t in tasks}
+          in_deg = {t.id: 0 for t in tasks}
+          for t in tasks:
+              for dep in t.depends_on:
+                  if dep in in_deg:
+                      in_deg[t.id] += 1
+          queue = [t.id for t in tasks if in_deg[t.id] == 0]
+          order = []
+          while queue:
+              tid = queue.pop(0)
+              order.append(by_id[tid])
+              for t in tasks:
+                  if tid in t.depends_on:
+                      in_deg[t.id] -= 1
+                      if in_deg[t.id] == 0:
+                          queue.append(t.id)
+          done_ids = {t.id for t in order}
+          for t in tasks:
+              if t.id not in done_ids:
+                  order.append(t)
+          return order
+    narration: >
+      Kahn's algorithm counts incoming edges - how many unresolved dependencies each
+      task has. Tasks with zero incoming edges have nothing to wait for; they go into
+      the starting queue. Each time a task is emitted, it decrement the count for
+      every task that depended on it. When a task's count hits zero, all its deps
+      have been emitted and it joins the queue. The cycle guard at the end appends
+      any tasks that never made it to zero - their counts never drained because the
+      cycle kept them permanently blocked.
+
+  - type: concept
+    label: "Cycle guard"
+    heading: "Cycles: Append, Don't Raise"
+    body: >
+      A cycle is a plan error - but not a crash.
+    bullets:
+      - "t1 depends on t2, t2 depends on t1 - in_deg never drains"
+      - "Neither joins the queue; neither is emitted"
+      - "Cycle guard: append remaining tasks at the end"
+      - "Result: the non-cyclic portion still executes correctly"
+      - "The cyclic tasks run last in original order - better than being dropped"
+    narration: >
+      A cycle in the dependency graph is a planning error - two tasks that each need
+      the other to go first. Kahn's algorithm detects this naturally: the cyclic tasks
+      never reach zero incoming edges, so they never join the queue, so they are never
+      emitted. Raising on a cycle would stop the whole plan. Instead, appending the
+      remaining tasks at the end lets the non-cyclic portion execute correctly, and
+      the cycle victims at least run in some order. Execution that gets 90 percent of
+      the plan right is better than execution that stops at the first cycle.
+
+  - type: exercise
+    heading: "Exercise 2: Topological Sort"
+    prompt: >
+      Implement topo_sort(tasks) using Kahn's algorithm: build an in-degree dict,
+      seed a queue with zero-in-degree tasks, emit and drain in BFS order, then
+      append any remaining tasks (cycle guard). Returns list[Task]; never raises.
+    hint: >
+      in_deg = {t.id: 0}; for each task, for each dep in depends_on: if dep in in_deg:
+      in_deg[t.id] += 1. queue = [t.id for t in tasks if in_deg[t.id] == 0].
+      After BFS: append tasks whose id is not in done_ids.
+    narration: >
+      This is the scheduler that makes the plan executable rather than just a list.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "A plan is a DAG; topo sort finds a valid execution order"
+      - "Kahn's algorithm: count incoming edges, BFS from zero-in-degree tasks"
+      - "Cycle guard: append cyclic tasks at the end, never raise"
+      - "Result: dependencies always execute before the tasks that need them"
+      - "Multiple valid orderings exist for parallel branches - any is fine"
+    narration: >
+      Lesson 3 executes the sorted tasks one at a time, feeding prior results
+      forward into each step.

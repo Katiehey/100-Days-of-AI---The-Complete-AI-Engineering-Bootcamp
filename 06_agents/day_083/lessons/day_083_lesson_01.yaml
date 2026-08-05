@@ -1,0 +1,110 @@
+day: "083"
+lesson: 1
+title: "Decomposing a Goal into Tasks"
+slides:
+  - type: title
+    heading: "Planning & Decomposition"
+    subheading: "Break a complex goal into an ordered list of subtasks"
+    narration: >
+      Days 79 through 82 gave an agent tools, reasoning, and memory. But every one
+      of those agents tackled one task at a time. Today's new skill is decomposition:
+      given a complex goal, break it into an ordered list of subtasks, resolve their
+      dependencies, and execute them step by step. This is how a planner agent turns
+      an ambitious goal into something an agent can actually execute.
+
+  - type: concept
+    label: "Why decompose"
+    heading: "One Goal, Many Steps"
+    body: >
+      Complex goals need to be broken down before they can be executed.
+    bullets:
+      - "Direct execution: the model tries everything at once, gets confused"
+      - "Decomposition: ordered list of concrete, doable subtasks"
+      - "Each subtask feeds the next - results propagate forward"
+      - "Dependencies make the order explicit (not guessed)"
+      - "A plan is a program; the planner is the compiler"
+    narration: >
+      When you hand a complex goal directly to a language model in one shot, it tends
+      to try to do everything at once - and gets tangled. Decomposition breaks that
+      goal into concrete, doable subtasks, each small enough to tackle individually.
+      The results of one step feed forward into the next, so Write summary knows what
+      Gather facts found. Dependencies make the order explicit and checkable: the plan
+      is a little program, and the planner is the compiler that turns a goal into
+      something executable.
+
+  - type: code
+    label: "Task dataclass"
+    heading: "Representing One Step"
+    code: |
+      from dataclasses import dataclass, field
+
+      @dataclass
+      class Task:
+          id: str
+          title: str
+          description: str
+          depends_on: list = field(default_factory=list)
+          status: str = "pending"   # pending | done | failed
+          result: str = ""
+    narration: >
+      A Task is five fields. The id is what other tasks reference in their
+      depends_on list - it is the dependency graph's node label. The title and
+      description say what to do in human terms. depends_on is the list of ids that
+      must finish first - it is the edges of the dependency graph. status and result
+      are updated as execution proceeds. This small dataclass is the shared currency
+      of the whole day: planning returns a list of Tasks, sorting reorders them,
+      execution fills in result and status.
+
+  - type: code
+    label: "parse_plan"
+    heading: "Tolerant Parsing - Never Crashes"
+    code: |
+      def parse_plan(text):
+          items = safe_parse_list(text) or []
+          tasks = []
+          for i, item in enumerate(items):
+              if not isinstance(item, dict):
+                  continue
+              tasks.append(Task(
+                  id=str(item.get("id", "t" + str(i + 1))),
+                  title=str(item.get("title", "Task " + str(i + 1))),
+                  description=str(item.get("description", "")),
+                  depends_on=[str(d) for d in item.get("depends_on", [])
+                               if isinstance(d, str)],
+              ))
+          return tasks
+    narration: >
+      parse_plan is the same tolerant pattern as every Day 79 to 82 parser: find
+      the JSON, parse it, and handle every failure case as data rather than raising.
+      safe_parse_list finds the first square bracket to the last and parses - it
+      handles fences and prose. For each item, missing fields get safe defaults rather
+      than throwing a KeyError. The result is that parse_plan never raises - it
+      returns an empty list on garbage, or a list of Tasks with whatever it could
+      extract.
+
+  - type: exercise
+    heading: "Exercise 1: Task Representation and Parsing"
+    prompt: >
+      Build the Task dataclass (id, title, description, depends_on=[], status='pending',
+      result=''); safe_parse_list (find '[' to ']', parse, return list or None, never
+      raises); build_plan_prompt (system asks for a JSON array); and parse_plan (safe
+      parse, fill missing fields with defaults, never raises).
+    hint: >
+      Task: use @dataclass with field(default_factory=list) for depends_on.
+      safe_parse_list: same pattern as safe_parse_json but brackets. parse_plan:
+      items = safe_parse_list(text) or []; for each dict item, Task(...get with
+      defaults...).
+    narration: >
+      This builds the building blocks that every later function depends on.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Decomposition breaks a goal into concrete, ordered subtasks"
+      - "Task dataclass: id, title, description, depends_on, status, result"
+      - "depends_on makes the dependency graph explicit"
+      - "parse_plan: safe_parse_list -> Task per item, defaults for missing fields"
+      - "Tolerant parsing never raises - empty or partial plans are still valid"
+    narration: >
+      Lesson 2 solves the ordering problem: given a task list with dependencies,
+      find the right execution order with topological sort.

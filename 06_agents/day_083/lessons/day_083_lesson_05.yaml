@@ -1,0 +1,105 @@
+day: "083"
+lesson: 5
+title: "PlannerAgent - The Planning Assistant"
+slides:
+  - type: title
+    heading: "PlannerAgent"
+    subheading: "Plan, inspect, then execute"
+    narration: >
+      The final piece is PlannerAgent. It wraps run_plan in the same class shape as
+      SimpleAgent, ReactAgent, ToolAgent, and MemoryAgent - bind the dependencies at
+      construction, delegate the work, keep a history. The key addition is the split
+      between plan and execute: you can generate the task list, review it, and only
+      then run it - an early form of human oversight that Day 87 will formalize as a
+      guardrail.
+
+  - type: code
+    label: "PlannerAgent"
+    heading: "Plan Separately from Execute"
+    code: |
+      class PlannerAgent:
+          def __init__(self, executor_fn=None, llm_fn=None, max_tasks=20):
+              self._executor_fn = executor_fn
+              self._llm_fn = llm_fn
+              self.max_tasks = max_tasks
+              self._history = []
+
+          def plan(self, goal):
+              plan_text = call_llm(build_plan_prompt(goal), llm_fn=self._llm_fn)
+              return topo_sort(parse_plan(plan_text)[:self.max_tasks])
+
+          def execute(self, tasks):
+              ordered = topo_sort(tasks[:self.max_tasks])
+              results = {}
+              for task in ordered:
+                  result = execute_task(task, results,
+                                        executor_fn=self._executor_fn,
+                                        llm_fn=self._llm_fn)
+                  task.result = result; task.status = "done"
+                  results[task.id] = result
+              return results
+
+          def run(self, goal):
+              tasks = self.plan(goal)
+              results = self.execute(tasks)
+              answer = tasks[-1].result if tasks else "No tasks."
+              record = {"goal": goal, "tasks": tasks,
+                        "results": results, "answer": answer}
+              self._history.append(record)
+              return record
+    narration: >
+      PlannerAgent has three public methods beyond history and clear_history. plan
+      returns the sorted task list without running any of them - you can print it,
+      edit it, or pass it to a different executor. execute takes any task list and
+      runs it - not just plans that plan generated. run does both and records the
+      outcome. This split is deliberate: a plan you can inspect before execution is
+      a plan you can trust, and trust is the foundation of Day 87's guardrails.
+
+  - type: concept
+    label: "Five agents, one shape"
+    heading: "The Section's Class Pattern, Again"
+    body: >
+      Five agents, five days, one skeleton.
+    bullets:
+      - "Day 79 SimpleAgent: action loop"
+      - "Day 80 ReactAgent: reasoning loop with trace"
+      - "Day 81 ToolAgent: one-shot routing"
+      - "Day 82 MemoryAgent: extract / recall / remember"
+      - "Day 83 PlannerAgent: decompose / sort / execute"
+      - "All: bind at construction, delegate, keep history copy"
+    narration: >
+      Five agents in five days, and the shape has stayed the same: bind at
+      construction, delegate the hard work to module functions, keep a history, and
+      return a copy of it. What changes is the engine. SimpleAgent had a bare loop.
+      ReactAgent added reasoning and a trace. ToolAgent routed to one of many tools.
+      MemoryAgent learned to store and recall. PlannerAgent decomposes a goal into
+      steps and executes them in order. Each day adds a new capability while keeping
+      the handle familiar.
+
+  - type: exercise
+    heading: "Exercise 5: PlannerAgent"
+    prompt: >
+      Implement PlannerAgent(executor_fn=None, llm_fn=None, max_tasks=20):
+      plan(goal) -> sorted task list without executing; execute(tasks) -> {id:result}
+      dict running tasks in order; run(goal) -> plan+execute, record in history,
+      return {goal,tasks,results,answer}; history() copy; clear_history() in-place.
+    hint: >
+      plan: topo_sort(parse_plan(call_llm(build_plan_prompt(goal), llm_fn=self._llm_fn))[:max_tasks]).
+      execute: same as run_plan's loop but takes tasks directly. run: tasks=plan(goal);
+      results=execute(tasks); answer=tasks[-1].result if tasks else 'No tasks.'.
+    narration: >
+      This completes the planning assistant - give it a goal and it returns a finished
+      plan.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 83 Complete"
+    bullets:
+      - "PlannerAgent: plan / execute / run — separate concerns"
+      - "plan() returns the task list without running it (inspect first)"
+      - "execute() takes any task list - not just plans that plan() made"
+      - "run() = plan + execute + record history"
+      - "Five Section 6 agents, all the same class shape"
+    narration: >
+      Your agent can now break any goal into steps and execute them in dependency
+      order. Day 84 gives the next level: multiple agents collaborating - a
+      researcher and a writer working in sequence, each a specialist in its role.
