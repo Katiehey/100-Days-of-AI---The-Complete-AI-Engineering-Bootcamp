@@ -1,0 +1,81 @@
+day: "085"
+lesson: 3
+title: "MCPClient — Connecting to a Server"
+slides:
+  - type: title
+    heading: "MCPClient"
+    subheading: "The consumer side of the MCP protocol"
+    narration: >
+      The server defines and hosts tools. The client is how an agent reaches
+      them. In real MCP, the client opens a transport connection to a server
+      subprocess or HTTP endpoint. In today's module, the client holds a direct
+      reference to an MCPServer — same interface, no subprocess needed. And for
+      gate testing, you can inject a mock function instead of any server at all.
+
+  - type: concept
+    label: "What a client does"
+    heading: "Discovery and Invocation from the Agent's Side"
+    body: >
+      The client is a thin adapter between the agent and the server.
+    bullets:
+      - "client.list_tools(): discover what tools are available"
+      - "client.call_tool(name, args): invoke one tool"
+      - "The agent never talks to the server directly — always through the client"
+      - "This indirection is what makes MCP composable"
+    narration: >
+      Why have a client layer at all? Because it means the agent doesn't need to
+      know whether it's talking to an in-process server, a subprocess over stdio,
+      or a remote server over SSE. The agent just calls list_tools and call_tool.
+      Swap the client backend and the agent works unchanged.
+
+  - type: code
+    label: "MCPClient usage"
+    heading: "Connecting a Client to a Server"
+    body: >
+      Pass the server at construction time; the client handles the rest.
+    code: |
+      # With a real (in-process) server
+      server = MCPServer("demo")
+
+      @server.tool("reverse", "Reverse words.", {"text": "str"})
+      def reverse(text):
+          return " ".join(reversed(str(text).split()))
+
+      client = MCPClient(server=server)
+
+      # Discovery
+      tools = client.list_tools()
+      print(tools[0].name)          # "reverse"
+
+      # Invocation
+      result = client.call_tool("reverse", {"text": "one two three"})
+      print(result)                 # "three two one"
+    narration: >
+      The client delegates list_tools and call_tool directly to the server. In
+      real MCP, those calls would be serialized into JSON-RPC messages and sent
+      over the transport. The agent code doesn't change regardless.
+
+  - type: concept
+    label: "Dependency injection"
+    heading: "Swapping the Server for a Mock"
+    body: >
+      Pass tool_call_fn instead of server for gate testing.
+    bullets:
+      - "MCPClient(tool_call_fn=fn): fn(name, args) -> str replaces server.call_tool"
+      - "list_tools() returns [] when no server is configured"
+      - "Gate tests: inject mock, never depend on a live server or Ollama"
+      - "Production: swap to a real MCPServer (or a remote one) with no code changes"
+    narration: >
+      The gate for today's exercises runs with a mock tool_call_fn injected. This
+      keeps the test fast and deterministic. When you run the project notebook for
+      real, you swap in an MCPServer with actual tool implementations and Ollama
+      as the LLM. The MCPAgent code stays identical either way.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MCPClient sits between the agent and the server"
+      - "list_tools() and call_tool() mirror the server interface"
+      - "In-process: pass server= at construction"
+      - "For testing: pass tool_call_fn= instead"
+      - "Agent code is identical regardless of which backend the client uses"

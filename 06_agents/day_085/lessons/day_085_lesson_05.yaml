@@ -1,0 +1,86 @@
+day: "085"
+lesson: 5
+title: "MCPAgent — The Full Picture"
+slides:
+  - type: title
+    heading: "MCPAgent"
+    subheading: "Discover, select, call, record"
+    narration: >
+      The previous four lessons built the stack bottom-up: tool definition,
+      server, client, selection. MCPAgent sits at the top and wires everything
+      together. Each call to ask() runs the full MCP workflow in four steps,
+      records the interaction, and returns a dict the caller can act on.
+
+  - type: concept
+    label: "Workflow"
+    heading: "What ask() Does"
+    body: >
+      Four steps happen every time the agent receives a query.
+    bullets:
+      - "1. Discover: client.list_tools() -- what tools exist right now?"
+      - "2. Select: select_mcp_tool -> {tool, args}"
+      - "3. Call: client.call_tool(tool, args) -> result string"
+      - "4. Record: append {query, tool, args, result} to history"
+    narration: >
+      Discovery happens on every ask() call, not just at startup. This means if
+      the MCP server adds or removes tools between calls, the agent will pick them
+      up automatically. For an in-process server this doesn't matter much, but in
+      real MCP -- where a remote server might update its tool list -- this live
+      discovery is a genuine advantage.
+
+  - type: code
+    label: "MCPAgent usage"
+    heading: "Building and Running an MCPAgent"
+    body: >
+      Three objects, three lines of setup, one call to ask().
+    code: |
+      server = MCPServer("assistant")
+
+      @server.tool("word_count", "Count words.", {"text": "str"})
+      def word_count(text): return str(len(str(text).split()))
+
+      @server.tool("uppercase", "Uppercase text.", {"text": "str"})
+      def uppercase(text): return str(text).upper()
+
+      client = MCPAgent(MCPClient(server=server))
+      # -- wait, MCPAgent takes a client, not a server:
+      agent = MCPAgent(MCPClient(server=server), llm_fn=my_llm)
+
+      r = agent.ask("how many words in hello world")
+      print(r["tool"])    # "word_count"
+      print(r["result"])  # "2"
+
+      for entry in agent.history():
+          print(entry["query"], "->", entry["tool"])
+    narration: >
+      The three-layer stack -- server, client, agent -- gives you flexibility at
+      each layer. Swap the server for a remote MCP server without changing the
+      agent. Swap the llm_fn for a different model without changing the client.
+      The layers are independently replaceable.
+
+  - type: concept
+    label: "Composability"
+    heading: "Same Shape as Every Other Agent in Section 6"
+    body: >
+      MCPAgent matches the class shape used throughout this section.
+    bullets:
+      - ".tools()         -- what can this agent do?"
+      - ".ask(query)      -- route and execute one query"
+      - ".history()       -- what has it done so far?"
+      - ".clear_history() -- start a new session"
+      - "Consistent API: swap agents without rewriting the caller"
+    narration: >
+      All six agent classes in Section 6 -- SimpleAgent, ReactAgent, ToolAgent,
+      MemoryAgent, PlannerAgent, and now MCPAgent -- share this four-method shape.
+      That consistency is intentional. Once you know how to use one, you know how
+      to use all of them. And when you build a system that wires multiple agents
+      together, like Day 84's Orchestrator, you can treat them interchangeably.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MCPAgent: client + llm_fn -> full MCP workflow per ask()"
+      - "ask() discovers tools live on every call"
+      - "Returns {query, tool, args, result} dict"
+      - "history() and clear_history() for session management"
+      - "Same four-method shape as all prior Section 6 agents"

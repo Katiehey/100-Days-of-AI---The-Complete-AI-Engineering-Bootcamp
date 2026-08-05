@@ -1,0 +1,84 @@
+day: "085"
+lesson: 2
+title: "MCPToolDef and Servers"
+slides:
+  - type: title
+    heading: "MCPToolDef and MCPServer"
+    subheading: "Defining and hosting tools in MCP"
+    narration: >
+      Before an agent can call a tool, the tool must be described in a way the
+      LLM can understand. MCPToolDef captures that description. MCPServer hosts
+      a collection of MCPToolDef objects alongside the functions they describe,
+      and exposes two operations: list the tools and call one of them.
+
+  - type: concept
+    label: "MCPToolDef"
+    heading: "The Tool Schema"
+    body: >
+      Every MCP tool has three pieces of information.
+    bullets:
+      - "name: the identifier the LLM uses to request the tool"
+      - "description: what the tool does (appears in the LLM prompt)"
+      - "input_schema: dict of param_name -> description"
+      - "In real MCP: input_schema is a full JSON Schema object"
+      - "Here: simpler flat dict, same concept"
+    narration: >
+      The name and description are what the LLM sees in the router prompt. The
+      input_schema tells both the LLM and the calling code what arguments to
+      provide. In production MCP servers, input_schema is a full JSON Schema
+      object with types, required fields, and constraints. Our simplified version
+      uses a flat dict of param names to description strings.
+
+  - type: code
+    label: "MCPServer usage"
+    heading: "Registering Tools with @server.tool"
+    body: >
+      The decorator pattern keeps tool definition close to the implementation.
+    code: |
+      server = MCPServer("my_server")
+
+      @server.tool("word_count", "Count words in text.", {"text": "input text"})
+      def word_count(text):
+          return str(len(str(text).split()))
+
+      @server.tool("uppercase", "Convert text to uppercase.", {"text": "input text"})
+      def uppercase(text):
+          return str(text).upper()
+
+      # Discovery
+      tools = server.list_tools()   # [MCPToolDef("word_count", ...), MCPToolDef("uppercase", ...)]
+
+      # Invocation
+      result = server.call_tool("word_count", {"text": "hello world"})  # "2"
+    narration: >
+      The decorator is a two-level closure. The outer call takes the tool's
+      metadata and returns a decorator. The decorator takes the function, stores
+      both the metadata and the function under the tool name, and returns the
+      original function unchanged. So the function still works normally after
+      registration — you can call word_count directly just as before.
+
+  - type: concept
+    label: "Discovery and invocation"
+    heading: "list_tools and call_tool"
+    body: >
+      Two operations, two directions of the protocol.
+    bullets:
+      - "list_tools(): client calls this at startup to discover what the server offers"
+      - "call_tool(name, args): client calls this to invoke a specific tool"
+      - "args is a dict; the server unpacks it as **args when calling the function"
+      - "Never raises: unknown tool or runtime error -> error string returned"
+      - "Error strings let the agent decide how to handle failures"
+    narration: >
+      Keeping call_tool from raising is important for agent reliability. If a
+      tool crashes, the agent receives an error string it can include in its
+      reasoning, rather than an exception that would abort the entire agent loop.
+      This is the same defensive pattern used in Day 79's execute_tool.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MCPToolDef: name, description, input_schema — the tool contract"
+      - "MCPServer: hosts tools via @server.tool decorator"
+      - "list_tools(): discovery — what does this server offer?"
+      - "call_tool(name, args): invocation — run this tool with these args"
+      - "Never raises: errors are returned as strings"

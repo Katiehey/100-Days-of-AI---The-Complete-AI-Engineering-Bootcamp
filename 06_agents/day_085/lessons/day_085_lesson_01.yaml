@@ -1,0 +1,72 @@
+day: "085"
+lesson: 1
+title: "What Is MCP?"
+slides:
+  - type: title
+    heading: "Model Context Protocol"
+    subheading: "The universal connector for AI tool access"
+    narration: >
+      Day 81 gave an agent a ToolRegistry with a fixed list of tools baked into
+      the code. That works for one project, but if you want to reuse those tools
+      in a different framework, or let someone else's agent call them, you have
+      to rewrite the integration. MCP solves this problem with a standard
+      protocol: any MCP client can talk to any MCP server, regardless of what
+      language or framework each was written in.
+
+  - type: concept
+    label: "The problem"
+    heading: "Every Framework Invents Its Own Tool Format"
+    body: >
+      Before MCP, every AI framework had its own tool-calling convention.
+    bullets:
+      - "OpenAI function calling: JSON schema in the API request"
+      - "LangChain tools: Python classes with a run() method"
+      - "LlamaIndex tools: FunctionTool wrappers"
+      - "Result: a tool built for one framework must be rewritten for another"
+      - "MCP fixes this: one server definition, any client can call it"
+    narration: >
+      If you built a database query tool for LangChain and then wanted to use it
+      in a custom agent, you had to port it. MCP eliminates that work by defining
+      a standard wire format that all agents and all tool servers can speak.
+
+  - type: concept
+    label: "MCP architecture"
+    heading: "Server, Client, Transport"
+    body: >
+      MCP separates tool definition from tool consumption.
+    bullets:
+      - "MCP Server: a process that hosts tools and exposes them over a protocol"
+      - "MCP Client: connects to a server, discovers tools, calls them"
+      - "Transport: how client and server communicate"
+      - "  stdio: server is a subprocess, communication over stdin/stdout"
+      - "  SSE: server is an HTTP endpoint, communication via Server-Sent Events"
+      - "Today: in-process server (same concept, no subprocess)"
+    narration: >
+      The server and client are deliberately separate. A server written in Python
+      can be called by a client written in TypeScript. A server hosted remotely
+      can serve many clients. The transport layer handles the connection; the
+      protocol layer handles what gets sent.
+
+  - type: concept
+    label: "Three primitives"
+    heading: "Tools, Resources, Prompts"
+    body: >
+      MCP defines three things a server can expose.
+    bullets:
+      - "Tools: callable functions with a name, description, and parameter schema"
+      - "Resources: data blobs (files, DB rows) an agent can read as context"
+      - "Prompts: reusable prompt templates with named parameters"
+      - "Today focuses on tools - the most commonly used primitive"
+    narration: >
+      Today's module implements the tools primitive in full. Resources and prompts
+      follow the same server-client pattern but return data or prompt text instead
+      of function results. Once you understand tools, the others follow naturally.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MCP solves the tool integration fragmentation problem"
+      - "Server hosts tools; client discovers and calls them"
+      - "Transport connects them (stdio, SSE, or in-process for learning)"
+      - "Three primitives: tools, resources, prompts"
+      - "Today: full in-process implementation of the tools primitive"

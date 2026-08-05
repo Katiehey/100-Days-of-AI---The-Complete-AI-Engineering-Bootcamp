@@ -1,0 +1,85 @@
+day: "085"
+lesson: 4
+title: "Tool Selection with MCP"
+slides:
+  - type: title
+    heading: "Tool Selection with MCP"
+    subheading: "The LLM as a router over MCP-discovered tools"
+    narration: >
+      The agent knows what tools exist because the client called list_tools. Now
+      it needs to pick the right one for the current query. build_mcp_selection_prompt
+      turns the tool list into a router prompt. select_mcp_tool calls the LLM,
+      parses the JSON response, validates the result, and falls back gracefully.
+
+  - type: concept
+    label: "The selection loop"
+    heading: "From Tool List to Chosen Tool"
+    body: >
+      Four steps every time the agent receives a query.
+    bullets:
+      - "1. client.list_tools() -> [MCPToolDef, ...]"
+      - "2. tool_schema_text(tools) -> compact menu string"
+      - "3. LLM reads menu + query -> JSON {tool, args}"
+      - "4. Validate: name in known tools? If not -> 'none'"
+    narration: >
+      This is the same routing pattern as Day 81's select_tool, but the tool list
+      now comes from a live client discovery call instead of a static registry.
+      That means if the server adds a new tool at runtime, the agent will find it
+      the next time it calls list_tools — no code change required.
+
+  - type: code
+    label: "select_mcp_tool"
+    heading: "Routing a Query to the Right Tool"
+    body: >
+      The function handles the full selection cycle, including fallbacks.
+    code: |
+      import json
+      from dataclasses import dataclass, field
+
+      @dataclass
+      class MCPToolDef:
+          name: str
+          description: str
+          input_schema: dict = field(default_factory=dict)
+
+      def _mock_llm(messages):
+          return json.dumps({"tool": "word_count", "args": {"text": "hello world"}})
+
+      # Assume client already has word_count tool registered
+      sel = select_mcp_tool("how many words?", client, llm_fn=_mock_llm)
+      print(sel)
+      # {"tool": "word_count", "args": {"text": "hello world"}}
+
+      result = client.call_tool(sel["tool"], sel["args"])
+      print(result)   # "2"
+    narration: >
+      Notice the mock LLM is injected via llm_fn. The real Ollama call happens
+      only when llm_fn is None, so the gate never touches the network or a live
+      model. The validation step after parsing ensures that if the LLM hallucinates
+      a tool name, the agent gets "none" back instead of a KeyError.
+
+  - type: concept
+    label: "Validation and fallback"
+    heading: "Defensive Parsing"
+    body: >
+      Everything that can go wrong is handled without raising.
+    bullets:
+      - "No tools: return {'tool': 'none', 'args': {}} immediately"
+      - "LLM returns non-JSON: safe_parse_json returns None -> default to 'none'"
+      - "LLM picks unknown tool: coerce name to 'none'"
+      - "LLM returns non-dict args: replace with {}"
+      - "None of these paths raise an exception"
+    narration: >
+      In a long agent loop, a single exception from the router aborts the whole
+      session. The fallback chain in select_mcp_tool prevents that. The agent gets
+      a predictable no-tool-found result it can handle — surface to the user,
+      retry, or choose a different approach.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "tool_schema_text converts MCPToolDef list to a prompt menu"
+      - "build_mcp_selection_prompt wraps the menu in a router system message"
+      - "select_mcp_tool: discover -> prompt -> LLM -> parse -> validate -> return"
+      - "Unknown tool name is always coerced to 'none'"
+      - "Same defensive pattern as Day 81, but tool list is live-discovered"
