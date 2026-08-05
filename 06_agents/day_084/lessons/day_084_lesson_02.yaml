@@ -1,0 +1,115 @@
+day: "084"
+lesson: 2
+title: "The Writer Agent"
+slides:
+  - type: title
+    heading: "The Writer Agent"
+    subheading: "Turn findings into a document"
+    narration: >
+      The researcher returns a string of facts. The writer takes that string and
+      produces something readable. This lesson builds WriterAgent - the second
+      specialist - and introduces style as a construction-time parameter. Like the
+      researcher, the writer has one job: write. It does not research, plan, or
+      review.
+
+  - type: code
+    label: "WriterAgent"
+    heading: "Style Set at Construction"
+    code: |
+      def build_writer_prompt(findings, style="concise", instructions=None):
+          system_parts = [
+              "You are a writing specialist. Turn the provided findings into",
+              "a polished, well-structured document.",
+              "Style: " + str(style) + ".",
+          ]
+          if instructions:
+              system_parts.append("Additional instructions: " + str(instructions))
+          system = "\n".join(system_parts)
+          return [{"role": "system", "content": system},
+                  {"role": "user", "content": "Findings:\n" + str(findings)}]
+
+      class WriterAgent:
+          def __init__(self, llm_fn=None, style="concise"):
+              self._llm_fn = llm_fn
+              self.style = style
+              self._history = []
+
+          def write(self, findings, instructions=None):
+              messages = build_writer_prompt(findings, style=self.style,
+                                             instructions=instructions)
+              document = call_llm(messages, llm_fn=self._llm_fn)
+              self._history.append({"findings": findings, "document": document})
+              return document
+    narration: >
+      WriterAgent follows the same shape as ResearcherAgent - one constructor
+      parameter for the model, a history list, and one main method. The difference
+      is style: it is set at construction time, not per call. A formal-writing agent
+      stays formal across all its tasks; a concise one stays concise. If you want
+      a different style, you create a different writer. This keeps each agent's
+      behavior predictable and stable across the pipeline.
+
+  - type: concept
+    label: "Separation of concerns"
+    heading: "Separation Is What Makes Each Agent Better"
+    body: >
+      Separate system prompts = separate quality.
+    bullets:
+      - "Researcher prompt: optimised for fact-gathering"
+      - "Writer prompt: optimised for document structure and flow"
+      - "Each system prompt is short enough to be precise"
+      - "A combined prompt is a compromise - both jobs suffer"
+      - "Two small, focused calls beat one large, confused one"
+    narration: >
+      This is the practical payoff of specialisation. When you write the researcher's
+      system prompt, you can say 'be factual and concise' without worrying about
+      document flow. When you write the writer's, you can say 'be well-structured'
+      without worrying about which facts to include. A combined prompt that tries to
+      do both ends up giving vague instructions that produce mediocre results on
+      both fronts. Two short, focused prompts produce better work than one long,
+      confused one.
+
+  - type: concept
+    label: "Mock branching"
+    heading: "The Mock Branches on the System Message"
+    body: >
+      Both agents share the same llm_fn in tests.
+    bullets:
+      - "_mock_multi(findings, document)"
+      - "If 'research specialist' in system -> return findings"
+      - "Otherwise -> return document"
+      - "Both agents use the same injected llm_fn"
+      - "The system message is the only distinguishing signal"
+    narration: >
+      In the gate both agents receive the same injected llm_fn. The mock resolves
+      which response to return by looking for 'research' in the system message: if
+      it's there, return the findings string; otherwise return the document. This
+      is the multi-agent version of the same mock branching pattern from Day 82's
+      extract/answer split. One mock, two behaviors, cleanly separated by context.
+
+  - type: exercise
+    heading: "Exercise 2: The Writer Agent"
+    prompt: >
+      Build build_writer_prompt(findings, style='concise', instructions=None) - system
+      includes style (and instructions if provided), user is the findings string. Then
+      WriterAgent(llm_fn=None, style='concise'): write(findings, instructions=None)
+      calls call_llm, records {findings, document}; history() copy; clear_history()
+      in place.
+    hint: >
+      build_writer_prompt: system_parts as a list; if instructions: append to list.
+      WriterAgent.write: messages = build_writer_prompt(findings, style=self.style,
+      instructions=instructions); document = call_llm(messages, llm_fn=self._llm_fn).
+    narration: >
+      This builds the second specialist - the one that turns raw findings into a
+      readable document.
+
+  - type: summary
+    heading: "Lesson 2 Summary"
+    bullets:
+      - "WriterAgent: build_writer_prompt + write(findings) -> str"
+      - "Style set at construction: each writer is consistent across tasks"
+      - "Separate system prompts = each agent can be precisely instructed"
+      - "Same class shape as ResearcherAgent: one method, history copy"
+      - "Mock: branch on 'research specialist' in system to tell the two apart"
+    narration: >
+      Lesson 3 connects the two agents with explicit Handoffs - the audit trail that
+      records who passed what to whom.

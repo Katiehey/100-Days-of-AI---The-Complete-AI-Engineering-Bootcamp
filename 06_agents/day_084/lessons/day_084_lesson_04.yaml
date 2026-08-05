@@ -1,0 +1,82 @@
+day: "084"
+lesson: 4
+title: "run_duo - The Pipeline"
+slides:
+  - type: title
+    heading: "run_duo"
+    subheading: "Chain researcher and writer with explicit handoffs"
+    narration: >
+      The two specialists are ready. The Handoff dataclass is ready. run_duo connects
+      them: researcher produces findings, a Handoff carries those findings to the
+      writer, the writer produces a document, a second Handoff records the output.
+      One function in, one result dict out with the full trail attached.
+
+  - type: code
+    label: "run_duo"
+    heading: "The Two-Agent Pipeline"
+    code: |
+      def run_duo(task, researcher, writer):
+          findings = researcher.research(task)
+          h1 = Handoff("researcher", "writer", findings,
+                       metadata={"task": str(task)})
+          document = writer.write(findings)
+          h2 = Handoff("writer", "user", document,
+                       metadata={"task": str(task)})
+          return {"findings": findings, "document": document,
+                  "handoffs": [h1, h2]}
+    narration: >
+      run_duo is short because the hard work lives in the specialists it calls.
+      Four lines: research, record the handoff, write, record the handoff. The
+      return dict carries everything: the intermediate findings (useful for
+      debugging), the final document (the deliverable), and the two Handoffs (the
+      audit trail). Notice run_duo takes the agents as arguments - it is a free
+      function, not a method. That means you can pass any researcher and any writer,
+      including mocks, without changing the pipeline logic.
+
+  - type: concept
+    label: "Free function"
+    heading: "Free Function vs Method"
+    body: >
+      run_duo takes agents as arguments - it doesn't own them.
+    bullets:
+      - "run_duo(task, researcher, writer) - agents are passed in"
+      - "Swap researcher for a mock, a web scraper, or a RAG agent - same call"
+      - "The Orchestrator owns the agents and calls run_duo"
+      - "Callers that want control skip the Orchestrator and call run_duo directly"
+      - "Separation of ownership from pipeline logic"
+    narration: >
+      The distinction between a free function and a class method matters here. run_duo
+      doesn't own the agents - it receives them as arguments. That means you can
+      test the pipeline with two mocks without touching the Orchestrator. It also
+      means you can extend it: pass a researcher that queries a vector database, or
+      a writer with a custom style, and the pipeline function doesn't change. The
+      Orchestrator (next lesson) owns the agents for convenience; run_duo exists for
+      composability.
+
+  - type: exercise
+    heading: "Exercise 4: run_duo"
+    prompt: >
+      Implement run_duo(task, researcher, writer): call researcher.research(task),
+      create Handoff('researcher','writer', findings, metadata={'task':task}), call
+      writer.write(findings), create Handoff('writer','user', document, ...). Return
+      {'findings', 'document', 'handoffs': [h1, h2]}.
+    hint: >
+      findings = researcher.research(task); h1 = Handoff('researcher','writer',
+      findings, metadata={'task':str(task)}); document = writer.write(findings);
+      h2 = Handoff('writer','user', document, metadata={'task':str(task)}).
+      Return the three-key dict.
+    narration: >
+      This is the pipeline function - researcher feeds writer, two Handoffs record
+      the transfers.
+
+  - type: summary
+    heading: "Lesson 4 Summary"
+    bullets:
+      - "run_duo chains researcher -> writer with a Handoff at each step"
+      - "Returns {findings, document, handoffs} - complete trail included"
+      - "Free function: takes agents as arguments, doesn't own them"
+      - "Swap either agent without changing the pipeline"
+      - "Orchestrator owns the agents and calls run_duo"
+    narration: >
+      Lesson 5 wraps run_duo in an Orchestrator - the coordinator that owns both
+      agents, tracks every run, and accumulates the handoff trail.

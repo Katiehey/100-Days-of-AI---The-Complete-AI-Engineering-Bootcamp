@@ -1,0 +1,109 @@
+day: "084"
+lesson: 1
+title: "Specialist Agents and Roles"
+slides:
+  - type: title
+    heading: "Multi-Agent Systems"
+    subheading: "Specialist agents that collaborate"
+    narration: >
+      Days 79 to 83 gave one agent tools, reasoning, memory, and planning. Today
+      we add collaboration: two agents working together, each doing one job well.
+      The first specialist is the researcher. This lesson builds it and explains why
+      splitting a complex task into specialist roles produces better results than
+      asking one agent to do everything.
+
+  - type: concept
+    label: "Why specialize"
+    heading: "One Agent, One Job"
+    body: >
+      A specialist agent does one thing well and hands off the rest.
+    bullets:
+      - "Generalist: research AND write AND review - prompt gets confused"
+      - "Specialist: one system prompt, one focused task"
+      - "ResearcherAgent: gather facts, return findings"
+      - "WriterAgent: take findings, produce a document"
+      - "Each is predictable, replaceable, and reusable"
+    narration: >
+      When you ask one agent to research a topic, write it up, check for errors, and
+      format it nicely, the system prompt becomes a contradiction - researcher logic
+      fights writer logic. Specialist agents fix this by giving each agent one job
+      and one clear system prompt. The ResearcherAgent gathers facts and nothing else.
+      The WriterAgent takes those facts and produces a document. Each is small enough
+      to understand and test independently, and replaceable without breaking the
+      other.
+
+  - type: code
+    label: "ResearcherAgent"
+    heading: "A Specialist That Gathers Facts"
+    code: |
+      def build_researcher_prompt(query):
+          system = "\n".join([
+              "You are a research specialist. Your job is to gather relevant",
+              "facts and key information about the topic given to you.",
+              "Return a structured list of the most important findings.",
+          ])
+          return [{"role": "system", "content": system},
+                  {"role": "user", "content": "Research topic: " + str(query)}]
+
+      class ResearcherAgent:
+          def __init__(self, llm_fn=None):
+              self._llm_fn = llm_fn
+              self._history = []
+
+          def research(self, query):
+              findings = call_llm(build_researcher_prompt(query), llm_fn=self._llm_fn)
+              self._history.append({"query": query, "findings": findings})
+              return findings
+    narration: >
+      ResearcherAgent is three things: a system prompt that orients it as a research
+      specialist, a research method that calls the model and records the exchange,
+      and a history list. The clean interface is research of query returns a string.
+      That is all the next agent needs - a string of findings, with no knowledge of
+      who produced it or how. The single-responsibility boundary is enforced by what
+      the agent exposes: one method, one return type.
+
+  - type: concept
+    label: "Interface matters"
+    heading: "The Interface Is the Contract"
+    body: >
+      research(query) -> str is all the next agent needs.
+    bullets:
+      - "One method: research(query)"
+      - "One return type: str"
+      - "No knowledge of the downstream agent required"
+      - "Swap for a mock, a web scraper, or a database - same interface"
+      - "The mock branches on 'research' in the system message"
+    narration: >
+      The most important design decision is the interface. research takes a query
+      and returns a string. That is the whole contract. The writer does not care
+      whether the researcher used llama3.2 or searched the web or read a database
+      - it just receives a string. The mock follows the same contract: if 'research'
+      appears in the system message, return the mock findings. Keeping the interface
+      simple is what makes specialist agents composable.
+
+  - type: exercise
+    heading: "Exercise 1: The Researcher Agent"
+    prompt: >
+      Build build_researcher_prompt(query) - a system message orienting the agent as
+      a research specialist, user message 'Research topic: query'. Then
+      ResearcherAgent(llm_fn=None): research(query) calls call_llm and records
+      {query, findings} in history; history() returns a copy; clear_history()
+      empties in place.
+    hint: >
+      build_researcher_prompt returns [system, user] messages. research():
+      messages = build_researcher_prompt(query); findings = call_llm(messages,
+      llm_fn=self._llm_fn); self._history.append({...}); return findings.
+    narration: >
+      This builds the first specialist - the one that gathers the raw material.
+
+  - type: summary
+    heading: "Lesson 1 Summary"
+    bullets:
+      - "Specialists do one job and hand off the rest"
+      - "ResearcherAgent: build_researcher_prompt + research(query) -> str"
+      - "One focused system prompt, one return type"
+      - "Interface is the contract: str in, str out"
+      - "Swap the implementation for any source - same interface"
+    narration: >
+      Lesson 2 builds the second specialist: a WriterAgent that turns findings into
+      a polished document.

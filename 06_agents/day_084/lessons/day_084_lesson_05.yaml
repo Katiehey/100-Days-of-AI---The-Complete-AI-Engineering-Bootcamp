@@ -1,0 +1,93 @@
+day: "084"
+lesson: 5
+title: "Orchestrator - Multi-Agent Coordination"
+slides:
+  - type: title
+    heading: "Orchestrator"
+    subheading: "Own the agents, run the pipeline, keep the trail"
+    narration: >
+      run_duo is the mechanism. The Orchestrator is the manager. It owns the
+      ResearcherAgent and WriterAgent, provides a single run method, and accumulates
+      every Handoff across every run. The caller sees one object with one method - the
+      multi-agent complexity is hidden inside.
+
+  - type: code
+    label: "Orchestrator"
+    heading: "One Object, Complete History"
+    code: |
+      class Orchestrator:
+          def __init__(self, llm_fn=None, style="concise"):
+              self.researcher = ResearcherAgent(llm_fn=llm_fn)
+              self.writer = WriterAgent(llm_fn=llm_fn, style=style)
+              self._runs = []
+
+          def run(self, task):
+              result = run_duo(task, self.researcher, self.writer)
+              self._runs.append({"task": task, **result})
+              return result
+
+          def handoffs(self):
+              all_h = []
+              for r in self._runs:
+                  all_h.extend(r.get("handoffs", []))
+              return all_h
+    narration: >
+      Orchestrator follows the pattern of every Section 6 agent: bind at construction,
+      delegate the work, keep state. __init__ creates the two specialists with the
+      same llm_fn - so one model powers both. run delegates to run_duo and appends
+      the result to _runs. handoffs flattens every Handoff from every run into a
+      single list - so after three tasks you can see all six handoffs in one call.
+      The caller never touches the individual agents unless they want to.
+
+  - type: concept
+    label: "Six agents"
+    heading: "The Section's Class Pattern, Complete"
+    body: >
+      Six Section 6 agents, one class skeleton.
+    bullets:
+      - "Day 79 SimpleAgent: action loop"
+      - "Day 80 ReactAgent: reasoning loop"
+      - "Day 81 ToolAgent: routing"
+      - "Day 82 MemoryAgent: store + recall"
+      - "Day 83 PlannerAgent: decompose + sort + execute"
+      - "Day 84 Orchestrator: coordinate specialists"
+      - "All: bind at construction, delegate, keep state"
+    narration: >
+      Six days, six agents, one skeleton: bind the dependencies at construction,
+      delegate the hard work to module functions, keep a history, return a copy. What
+      changes is the engine. Today the engine is collaboration - two specialists
+      handshaking through explicit Handoffs. The Orchestrator hides that complexity
+      behind a single run method, so from the outside it looks like every other
+      agent in this section.
+
+  - type: exercise
+    heading: "Exercise 5: Orchestrator"
+    prompt: >
+      Implement Orchestrator(llm_fn=None, style='concise'): __init__ creates researcher
+      and writer with the shared llm_fn; run(task) calls run_duo, appends
+      {'task',...result} to _runs, returns result; handoffs() flattens all Handoffs
+      from _runs; history() copy; clear_history() clears _runs AND both agents'
+      histories.
+    hint: >
+      __init__: self.researcher = ResearcherAgent(llm_fn=llm_fn);
+      self.writer = WriterAgent(llm_fn=llm_fn, style=style); self._runs = [].
+      run: result = run_duo(task, self.researcher, self.writer);
+      self._runs.append({'task':task, **result}). handoffs: flatten r['handoffs'].
+      clear_history: self._runs.clear() + each agent's clear_history().
+    narration: >
+      This completes the multi-agent system - a researcher and writer collaborating
+      under one coordinator.
+
+  - type: summary
+    heading: "Lesson 5 Summary - Day 84 Complete"
+    bullets:
+      - "Orchestrator owns both agents, calls run_duo, accumulates handoffs"
+      - "handoffs() flattens all Handoffs across all runs"
+      - "clear_history() clears runs AND per-agent histories - one owner"
+      - "Six Section 6 agents, same class shape throughout"
+      - "Day 85: Model Context Protocol - connecting agents to external tools"
+    narration: >
+      Your researcher and writer now collaborate through an Orchestrator, with every
+      data transfer recorded as an explicit Handoff. Day 85 introduces the Model
+      Context Protocol - a standard for connecting agents to external tools and data
+      sources.

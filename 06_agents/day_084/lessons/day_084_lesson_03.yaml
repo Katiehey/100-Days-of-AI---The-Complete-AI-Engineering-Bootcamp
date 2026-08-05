@@ -1,0 +1,86 @@
+day: "084"
+lesson: 3
+title: "Handoffs - Explicit Data Passing"
+slides:
+  - type: title
+    heading: "Handoffs"
+    subheading: "An audit trail for data between agents"
+    narration: >
+      The researcher passes findings to the writer via a plain function call - but
+      that leaves no trace of what was sent. A Handoff makes that transfer an
+      explicit, auditable record: who sent what to whom, and with what metadata. This
+      lesson builds the Handoff dataclass and a summarizer that renders the full
+      handoff chain at a glance.
+
+  - type: concept
+    label: "Why explicit"
+    heading: "Invisible Data Flow Is a Debug Nightmare"
+    body: >
+      Explicit handoffs make the data flow auditable.
+    bullets:
+      - "Implicit: researcher(...) -> writer(findings) - no trace"
+      - "Explicit: Handoff(from_agent, to_agent, content, metadata)"
+      - "When something goes wrong, you know exactly what each agent received"
+      - "Metadata: the task, the style, the timestamp - any context"
+      - "summarize_handoffs: the whole chain in one print call"
+    narration: >
+      When a multi-agent pipeline produces a bad document, the first question is:
+      what did the researcher actually pass to the writer? Without explicit handoffs,
+      you have to add logging, re-run, and hope. With a Handoff object for every
+      transfer, the answer is one attribute read away. This is the same idea as Day
+      80's trace on the ReAct agent, applied to the data flow between agents: make
+      the invisible flow visible, and debugging becomes straightforward.
+
+  - type: code
+    label: "Handoff"
+    heading: "The Handoff Dataclass"
+    code: |
+      from dataclasses import dataclass, field
+
+      @dataclass
+      class Handoff:
+          from_agent: str
+          to_agent: str
+          content: str
+          metadata: dict = field(default_factory=dict)
+
+      def summarize_handoffs(handoffs):
+          lines = []
+          for h in handoffs:
+              preview = h.content[:80].replace("\n", " ")
+              lines.append(h.from_agent + " -> " + h.to_agent + ": " + preview)
+          return "\n".join(lines)
+    narration: >
+      Handoff reuses the dataclass pattern from Day 83's Task. Four fields: who sent,
+      who receives, what was sent, and an optional metadata dict for any extra context
+      like the task name or a timestamp. summarize_handoffs renders the chain as one
+      line per handoff - sender, receiver, and the first 80 characters of the content.
+      You can add a print call to any orchestrator and immediately see the full data
+      flow.
+
+  - type: exercise
+    heading: "Exercise 3: Handoffs"
+    prompt: >
+      Build the Handoff dataclass (from_agent, to_agent, content: str; metadata: dict
+      defaulting to {}). Implement summarize_handoffs(handoffs): one 'from -> to:
+      preview' line per handoff (first 80 chars of content, newlines replaced with
+      spaces); return '' for an empty list.
+    hint: >
+      @dataclass with field(default_factory=dict) for metadata. summarize_handoffs:
+      lines = []; for h in handoffs: preview = h.content[:80].replace('\n',' ');
+      lines.append(h.from_agent+' -> '+h.to_agent+': '+preview); return
+      '\n'.join(lines).
+    narration: >
+      This builds the audit trail that makes a multi-agent pipeline debuggable.
+
+  - type: summary
+    heading: "Lesson 3 Summary"
+    bullets:
+      - "Handoff: from_agent, to_agent, content, metadata={}"
+      - "Makes every data transfer between agents auditable"
+      - "summarize_handoffs: the full chain in one print"
+      - "metadata carries task, style, timestamp, or any context"
+      - "Same dataclass pattern as Day 83's Task"
+    narration: >
+      Lesson 4 uses the Handoff to build run_duo - the function that chains the two
+      agents into a pipeline.
