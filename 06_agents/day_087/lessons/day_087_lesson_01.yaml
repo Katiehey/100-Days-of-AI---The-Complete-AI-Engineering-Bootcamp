@@ -1,0 +1,76 @@
+day: "087"
+lesson: 1
+title: "Why Agents Need Guardrails"
+slides:
+  - type: title
+    heading: "Guardrails and Safety"
+    subheading: "Keeping agents controllable"
+    narration: >
+      Days 79 through 86 built increasingly capable agents. Capability without
+      control is a risk. This day adds four guardrail layers that keep agents
+      predictable, auditable, and safe to deploy. The layers are independent and
+      composable: you can use any combination depending on the risk profile of
+      your application.
+
+  - type: concept
+    label: "What can go wrong"
+    heading: "Failure Modes of Unguarded Agents"
+    body: >
+      Agents fail in predictable ways. Guardrails address each mode.
+    bullets:
+      - "Prompt injection: user crafts input to override system instructions"
+      - "Runaway loops: agent calls tools indefinitely, costing money or time"
+      - "Data leaks: agent outputs sensitive information from its context"
+      - "Unintended actions: agent takes irreversible steps without confirmation"
+      - "Budget overruns: too many LLM calls or tool uses in one session"
+    narration: >
+      Prompt injection is when a user includes text like 'ignore all previous
+      instructions'. Runaway loops happen when the agent's stop condition is
+      never triggered. Data leaks occur when the agent retrieves sensitive
+      context and echoes it to the user. Unintended actions are harder: the agent
+      does the right thing in the wrong context.
+
+  - type: concept
+    label: "Four layers"
+    heading: "Defence in Depth"
+    body: >
+      Each layer catches different failure modes.
+    bullets:
+      - "Input Guard: block bad queries before they reach the agent"
+      - "Budget Tracker: cap the number of calls; prevents runaway cost"
+      - "Approval Gate: pause for human confirmation on sensitive actions"
+      - "Output Guard: block sensitive or malformed responses before delivery"
+      - "Pipeline order: input -> budget -> gate -> agent -> output"
+    narration: >
+      Defence in depth means no single layer has to catch everything. The input
+      guard catches prompt injection and malformed requests early. The budget
+      tracker prevents the agent from running indefinitely. The approval gate
+      is the last check before the agent acts. The output guard is the final
+      filter before the user sees anything.
+
+  - type: concept
+    label: "Controllability"
+    heading: "Guardrails Make Agents Trustworthy"
+    body: >
+      Guardrails are not restrictions — they are engineering discipline.
+    bullets:
+      - "A circuit breaker lets power flow normally; trips only on fault"
+      - "A rate limiter lets API calls through; blocks only on abuse"
+      - "An approval gate lets the agent act; asks only for dangerous actions"
+      - "Guards make agents auditable: every blocked call is in history"
+      - "Injection: swap approve_fn or banned list without rewriting the agent"
+    narration: >
+      Engineers put circuit breakers in electrical systems not because they
+      expect constant faults, but because faults happen and need to be contained.
+      Guardrails in agents serve the same role. An agent without guardrails is
+      not more powerful — it is less trustworthy. Adding guardrails is what
+      makes an agent safe to deploy in a real application.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Agents fail in predictable ways: injection, loops, leaks, unintended actions"
+      - "Four guardrail layers: input, budget, gate, output"
+      - "Defence in depth: no single layer has to catch everything"
+      - "Guardrails are injectable: test with mocks, deploy with real logic"
+      - "Blocked calls are recorded: full audit trail in history"

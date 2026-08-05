@@ -1,0 +1,84 @@
+day: "087"
+lesson: 5
+title: "SafeAgent — The Full Picture"
+slides:
+  - type: title
+    heading: "SafeAgent"
+    subheading: "All four layers in one composable pipeline"
+    narration: >
+      safe_ask chains all four guardrail layers into a single function: validate
+      input, check budget, seek approval, run agent, validate output. SafeAgent
+      wraps safe_ask in the standard agent class shape: history, clear_history,
+      and reset_budget for multi-session use.
+
+  - type: concept
+    label: "safe_ask pipeline"
+    heading: "Five Stages, One Function"
+    body: >
+      safe_ask runs the pipeline and always returns a record dict.
+    bullets:
+      - "1. input_guard.check(query): block bad inputs early"
+      - "2. budget.ok() -> budget.record(): cap total operations"
+      - "3. gate.check(query): confirm before running"
+      - "4. agent_fn(query, llm_fn): run the actual agent"
+      - "5. output_guard.check(answer): filter what comes out"
+    narration: >
+      Each stage is optional: pass None and it is skipped. This composability
+      means you can start with no guardrails and add them incrementally as you
+      discover the risks of your specific application. The record dict always
+      has the same shape regardless of which stage blocked or passed through.
+
+  - type: code
+    label: "SafeAgent example"
+    heading: "Building a Safe Assistant"
+    body: >
+      Configure once, use everywhere.
+    code: |
+      def my_agent(query, llm_fn=None):
+          if llm_fn:
+              return llm_fn([{"role": "user", "content": query}])
+          import ollama
+          return ollama.chat(model="llama3.2",
+                             messages=[{"role": "user", "content": query}])["message"]["content"]
+
+      agent = SafeAgent(
+          agent_fn     = my_agent,
+          input_guard  = Guard(max_length=500, banned=["ignore all previous"]),
+          output_guard = Guard(banned=["password", "secret"]),
+          budget       = BudgetTracker(max_calls=20),
+          gate         = ApprovalGate(approve_fn=lambda a: True),   # auto for testing
+      )
+
+      r = agent.ask("Summarise the key AI trends in 2025")
+      print(r["answer"] if not r["blocked"] else "Blocked: " + r["reason"])
+    narration: >
+      Notice that all four guardrails are configured at construction time, not at
+      each call site. This is intentional: the guardrail policy belongs in the
+      application setup, not scattered across every ask() call. SafeAgent is the
+      single place where the policy is expressed.
+
+  - type: concept
+    label: "History and audit"
+    heading: "Every Call Is Recorded"
+    body: >
+      Both blocked and passing calls appear in history.
+    bullets:
+      - "history() returns all records including blocked ones"
+      - "Each record: {query, answer, blocked, reason}"
+      - "Blocked records have answer=None or '[blocked]'"
+      - "This is an audit log: who asked what, what was blocked and why"
+      - "clear_history() + reset_budget() together start a clean session"
+    narration: >
+      In a production application you would ship the history to a logging system
+      rather than keeping it in memory. The schema of the record dict is designed
+      to be log-friendly. The blocked flag lets you build dashboards showing what
+      fraction of queries are being intercepted and by which layer.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "safe_ask: stateless pipeline — input -> budget -> gate -> agent -> output"
+      - "All layers optional: compose only what you need"
+      - "SafeAgent: wraps safe_ask with history + reset_budget"
+      - "Blocked and passing calls both in history (full audit trail)"
+      - "Same four-method class shape as all Section 6 agents"

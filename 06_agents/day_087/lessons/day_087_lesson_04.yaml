@@ -1,0 +1,85 @@
+day: "087"
+lesson: 4
+title: "BudgetTracker — Enforcing Limits"
+slides:
+  - type: title
+    heading: "BudgetTracker"
+    subheading: "Cap how many operations run per session"
+    narration: >
+      Runaway agent loops burn money. A BudgetTracker prevents this by counting
+      operations and blocking once the limit is reached. The workflow is always
+      the same: check ok() before running, record() after a successful check,
+      reset() to start a new session. The count property shows where you are.
+
+  - type: concept
+    label: "The workflow"
+    heading: "Check, Record, Reset"
+    body: >
+      Three methods, one pattern.
+    bullets:
+      - "ok() -> (bool, str): True while under budget, False when exceeded"
+      - "record(): increment the counter after a successful ok() check"
+      - "reset(): set counter to zero for a new session"
+      - "count: property — current recorded call count"
+      - "max_calls=None: no limit (useful for development)"
+    narration: >
+      The check-before-record pattern means ok() always reflects the state
+      before the current call. If max_calls is 3, the first three calls pass
+      (counts 0, 1, 2 when checked) and the fourth is blocked (count 3 >= 3).
+      reset() allows reuse across sessions without creating a new object.
+
+  - type: code
+    label: "BudgetTracker usage"
+    heading: "Session Budget in Action"
+    body: >
+      Five-call session budget with reset.
+    code: |
+      budget = BudgetTracker(max_calls=5)
+
+      for i in range(7):
+          ok, reason = budget.ok()
+          if not ok:
+              print(f"Call {i+1}: BLOCKED — {reason}")
+              break
+          budget.record()
+          print(f"Call {i+1}: OK (count={budget.count})")
+
+      # Call 1: OK (count=1)
+      # Call 2: OK (count=2)
+      # ...
+      # Call 5: OK (count=5)
+      # Call 6: BLOCKED — budget exceeded (5/5 calls)
+
+      budget.reset()
+      print("Budget reset, count:", budget.count)  # 0
+    narration: >
+      The budget tracks across all calls to the same agent instance during a
+      session. If your application serves multiple users, you would create one
+      BudgetTracker per user session, not one global tracker. The reset() method
+      handles the session boundary.
+
+  - type: concept
+    label: "What to budget"
+    heading: "Choosing What to Count"
+    body: >
+      BudgetTracker counts what you tell it to count.
+    bullets:
+      - "LLM calls: each call to the model costs tokens and latency"
+      - "Tool calls: expensive external API calls should be capped"
+      - "Agent iterations: prevents infinite reasoning loops"
+      - "Combine budgets: one for LLM calls, one for tool calls"
+      - "Per-session vs per-request: reset() controls the scope"
+    narration: >
+      Today's BudgetTracker counts a single operation type. In Day 88's capstone
+      you will see how to wire multiple budget trackers for different operation
+      types. A common pattern is to cap LLM calls at 20 per session and external
+      API calls at 5 — different limits for different cost profiles.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "BudgetTracker: max_calls cap with ok()/record()/reset()/count"
+      - "Workflow: ok() -> run -> record() -> repeat"
+      - "reset() at session boundary for multi-session applications"
+      - "max_calls=None: no limit (development mode)"
+      - "Count what matters: LLM calls, tool calls, or iterations"

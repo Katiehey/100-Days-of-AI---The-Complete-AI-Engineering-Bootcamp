@@ -1,0 +1,85 @@
+day: "087"
+lesson: 2
+title: "Input and Output Guards"
+slides:
+  - type: title
+    heading: "Input and Output Guards"
+    subheading: "validate_text and Guard"
+    narration: >
+      The first and last layers of the guardrail pipeline are both text
+      validators. validate_text is the core function: check max length and a
+      list of banned patterns. Guard is a reusable class that wraps validate_text
+      with a persistent config. Use one Guard at the input boundary to filter
+      what goes in, and another at the output boundary to filter what comes out.
+
+  - type: concept
+    label: "validate_text"
+    heading: "Two Checks, One Function"
+    body: >
+      validate_text returns (ok: bool, reason: str). Never raises.
+    bullets:
+      - "max_length: block if len(text) > max_length"
+      - "banned: block if any banned pattern appears in text (case-insensitive)"
+      - "First failed check returns immediately with a description"
+      - "Both checks pass -> (True, '')"
+      - "Use for any text boundary: user input, LLM output, tool arguments"
+    narration: >
+      The reason string is designed to be readable to an engineer reading logs,
+      not shown to the user. It includes the specific value that triggered the
+      block, so debugging is easy. The function never raises, so it can safely
+      wrap any text without needing a try/except at the call site.
+
+  - type: code
+    label: "Guard usage"
+    heading: "Reusable Validator"
+    body: >
+      One Guard instance, many check() calls.
+    code: |
+      # Input boundary: filter what the user sends
+      input_guard = Guard(
+          max_length=500,
+          banned=["ignore all previous", "jailbreak"],
+      )
+      ok, reason = input_guard.check(user_query)
+      if not ok:
+          print("Blocked:", reason)
+
+      # Output boundary: filter what the agent returns
+      output_guard = Guard(
+          max_length=2000,
+          banned=["password", "api_key", "secret"],
+      )
+      ok, reason = output_guard.check(agent_answer)
+      if not ok:
+          answer = "[blocked]"
+    narration: >
+      The Guard class lets you configure the rules once and reuse them. In a web
+      app you might create one input guard and one output guard at startup and
+      share them across all requests. The banned list for output typically focuses
+      on sensitive data patterns rather than prompt injection patterns.
+
+  - type: concept
+    label: "What to ban"
+    heading: "Choosing Banned Patterns"
+    body: >
+      The banned list is application-specific.
+    bullets:
+      - "Input: 'ignore all previous', 'you are now', 'jailbreak', 'DAN'"
+      - "Output: 'password', 'api_key', 'secret', 'bearer', 'token'"
+      - "Domain-specific: PII patterns for regulated industries"
+      - "Keep lists short and specific: false positives frustrate users"
+      - "Test with adversarial inputs: always try to break your own guards"
+    narration: >
+      A short, precise banned list is better than a long, vague one. If your
+      banned list blocks legitimate queries, users will find workarounds and
+      the guardrail loses its value. Focus on patterns that indicate clear
+      misuse or clear data leakage, not every possible edge case.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "validate_text: max_length + banned patterns -> (ok, reason)"
+      - "Guard: reusable config wrapping validate_text"
+      - "Use one Guard at input boundary, one at output boundary"
+      - "Case-insensitive matching; first failure returns immediately"
+      - "Never raises: safe to use at any boundary"

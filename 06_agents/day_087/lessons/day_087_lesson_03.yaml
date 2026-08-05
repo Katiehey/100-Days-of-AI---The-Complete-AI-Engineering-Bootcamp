@@ -1,0 +1,86 @@
+day: "087"
+lesson: 3
+title: "ApprovalGate — Human-in-the-Loop"
+slides:
+  - type: title
+    heading: "ApprovalGate"
+    subheading: "Pause for human confirmation"
+    narration: >
+      Some agent actions are too consequential to run without a human confirming
+      first. Deleting records, sending emails, deploying code, making financial
+      transactions. The ApprovalGate is a checkpoint: before the agent acts, ask
+      whether this specific action is approved. The approve_fn is injectable, so
+      tests can use a lambda and production can use a real UI or CLI prompt.
+
+  - type: concept
+    label: "What the gate does"
+    heading: "Injectable Human Confirmation"
+    body: >
+      ApprovalGate wraps any approval logic behind a consistent interface.
+    bullets:
+      - "approve_fn(action: str) -> bool"
+      - "Returns True: action proceeds"
+      - "Returns False: action is blocked with reason 'rejected by approval gate'"
+      - "Raises: caught and treated as rejection (defensive)"
+      - "Default approve_fn: auto-approve (safe for testing)"
+    narration: >
+      The action string passed to approve_fn is a description of what the agent
+      is about to do. In a CLI application this might print to the terminal and
+      read input. In a web application it might send a notification and wait for
+      a webhook response. In tests it is a lambda that always returns True.
+      The gate doesn't care about the implementation — it just calls approve_fn.
+
+  - type: code
+    label: "ApprovalGate usage"
+    heading: "Three Different approve_fn Patterns"
+    body: >
+      The same gate interface serves testing, CLI, and production.
+    code: |
+      # Testing: auto-approve
+      gate = ApprovalGate(approve_fn=lambda action: True)
+
+      # CLI: prompt the user
+      def cli_approve(action):
+          print(f"Agent wants to: {action}")
+          return input("Approve? (y/n): ").strip().lower() == "y"
+      gate = ApprovalGate(approve_fn=cli_approve)
+
+      # Conditional: only approve safe actions
+      SAFE_PREFIXES = ("read", "list", "show", "count")
+      def conditional_approve(action):
+          return any(action.lower().startswith(p) for p in SAFE_PREFIXES)
+      gate = ApprovalGate(approve_fn=conditional_approve)
+
+      # Use in the pipeline:
+      approved, reason = gate.check("delete all temporary files")
+    narration: >
+      The conditional pattern is powerful: auto-approve read-only actions and
+      require manual approval for write or delete actions. This lets the agent
+      move fast on safe operations while pausing on anything destructive.
+
+  - type: concept
+    label: "When to gate"
+    heading: "Gating Strategy"
+    body: >
+      Gate based on consequence, not frequency.
+    bullets:
+      - "Gate: write, delete, send, deploy, pay — hard to undo"
+      - "Don't gate: read, list, calculate, format — safe and reversible"
+      - "Over-gating frustrates users; under-gating risks accidents"
+      - "Log every gate decision: what was asked, what was decided, when"
+      - "Gate at the query level today; Day 88 gates at the tool call level"
+    narration: >
+      The approval gate in today's module operates at the query level: the whole
+      query is approved or rejected before the agent runs. A more granular
+      approach gates individual tool calls within an agent loop. Day 88's
+      capstone agent demonstrates that pattern. For most applications, query-level
+      gating is sufficient and simpler to reason about.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "ApprovalGate: injectable approve_fn(action) -> bool"
+      - "Default: auto-approve (gate-testing safe)"
+      - "Exceptions in approve_fn -> rejection (defensive)"
+      - "CLI, web, conditional patterns all use the same interface"
+      - "Gate consequential actions; skip reversible ones"
