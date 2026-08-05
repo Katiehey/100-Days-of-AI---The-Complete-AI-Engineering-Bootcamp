@@ -1,0 +1,85 @@
+day: "086"
+lesson: 4
+title: "The Agent Decision Layer"
+slides:
+  - type: title
+    heading: "The Agent Decision Layer"
+    subheading: "build_agent_step_prompt and parse_agent_action"
+    narration: >
+      At each step of the agentic loop the agent sees the question plus whatever
+      context it has accumulated so far, and it must decide: is this enough to
+      answer, or should I search for more? build_agent_step_prompt constructs that
+      decision prompt. parse_agent_action parses the LLM's JSON response into one
+      of two actions: retrieve or answer.
+
+  - type: concept
+    label: "Two actions"
+    heading: "Retrieve or Answer"
+    body: >
+      The agent chooses between exactly two actions each step.
+    bullets:
+      - 'Retrieve: {"action": "retrieve", "query": "search query"}'
+      - 'Answer:   {"action": "answer",   "text":  "final answer"}'
+      - "The query can differ from the original question — that is the key power"
+      - "The agent reformulates: 'Python history' -> 'Guido van Rossum creator'"
+      - "Answer terminates the loop; retrieve continues it"
+    narration: >
+      The query in the retrieve action is what distinguishes agentic RAG from the
+      pipeline version. The agent might start by searching for 'Python history',
+      read that Python was created by Guido van Rossum, then issue a second
+      retrieval for 'Guido van Rossum biography' to get more detail. The pipeline
+      version can only use the original question as the search query.
+
+  - type: code
+    label: "Decision prompt + parsing"
+    heading: "Building and Parsing the Step"
+    body: >
+      Prompt construction and JSON parsing work together.
+    code: |
+      import json
+
+      # Step 1: build the decision prompt
+      context = "No context retrieved yet."
+      prompt = build_agent_step_prompt("Who created Python?", context)
+      # system message explains both actions, user message = question + context
+
+      # Step 2: LLM responds (mocked here)
+      response = json.dumps({"action": "retrieve", "query": "Python creator history"})
+
+      # Step 3: parse the action
+      act = parse_agent_action(response)
+      print(act)
+      # {"action": "retrieve", "query": "Python creator history"}
+    narration: >
+      The parsing step is defensive: if the LLM returns bad JSON, safe_parse_json
+      returns None and parse_agent_action defaults to a retrieve action with an
+      empty query. The agent will then search the retriever with an empty string
+      and get some results back. This is worse than a good query, but it keeps the
+      loop running rather than crashing the session.
+
+  - type: concept
+    label: "Fallback to retrieve"
+    heading: "Why Retrieve is the Safe Default"
+    body: >
+      On parse failure, retrieving is safer than answering incorrectly.
+    bullets:
+      - "Parse fails -> default to retrieve (continue gathering info)"
+      - "Bad query -> retriever returns low-relevance docs (not an error)"
+      - "LLM eventually returns a proper 'answer' action"
+      - "max_iterations prevents an infinite loop on persistent failures"
+      - "Never raises: the agent loop is always in control"
+    narration: >
+      Choosing retrieve as the fallback action over answer is a deliberate design.
+      If we defaulted to answering on a parse failure, the agent might return an
+      empty string or a hallucinated answer with no documents. By falling back to
+      retrieve, we give the agent another chance to gather information before it
+      commits to an answer.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Two actions: retrieve (with query) and answer (with text)"
+      - "build_agent_step_prompt: question + accumulated context -> decision prompt"
+      - "parse_agent_action: JSON -> action dict, fallback to retrieve on failure"
+      - "The retrieval query can differ from the original question"
+      - "Defensive fallback: retrieve is always the safe default"

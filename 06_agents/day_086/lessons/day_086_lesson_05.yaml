@@ -1,0 +1,84 @@
+day: "086"
+lesson: 5
+title: "RetrievalAgent — The Full Loop"
+slides:
+  - type: title
+    heading: "RetrievalAgent"
+    subheading: "Iterative retrieval with a max_iterations cap"
+    narration: >
+      RetrievalAgent runs the full agentic loop: build a decision prompt, call the
+      LLM, parse the action, retrieve or answer, repeat. It accumulates documents
+      across iterations so each step sees more context than the last. The
+      max_iterations cap prevents infinite loops. After the cap, it falls back to
+      a final LLM call with all accumulated documents.
+
+  - type: concept
+    label: "The loop"
+    heading: "Step-by-Step Execution"
+    body: >
+      Each iteration of the agent loop follows the same pattern.
+    bullets:
+      - "1. context = format_docs(all_docs) or 'No documents retrieved yet.'"
+      - "2. prompt = build_agent_step_prompt(question, context)"
+      - "3. response = call_llm(prompt)"
+      - "4. act = parse_agent_action(response)"
+      - "5a. If answer: record, return"
+      - "5b. If retrieve: search, extend all_docs, record step, continue"
+    narration: >
+      The key design choice is passing all accumulated docs on every step. The
+      agent sees a growing context as it retrieves more documents. This means it
+      can decide 'I now have enough' after the second retrieval without having to
+      see the same documents twice. The step list in the result is the audit trail.
+
+  - type: code
+    label: "RetrievalAgent usage"
+    heading: "Running the Agent"
+    body: >
+      Build a retriever, add docs, create the agent, ask a question.
+    code: |
+      retriever = SimpleRetriever()
+      retriever.add_all([
+          Document("Python was created by Guido van Rossum.", {"source": "history"}),
+          Document("Guido van Rossum started Python in 1989.", {"source": "timeline"}),
+      ])
+
+      script = [
+          {"action": "retrieve", "query": "Python creator"},
+          {"action": "answer",   "text":  "Python was created by Guido van Rossum."},
+      ]
+      agent = RetrievalAgent(retriever, llm_fn=_mock_retrieval_llm(script))
+
+      r = agent.ask("Who created Python?")
+      print(r["answer"])    # "Python was created by Guido van Rossum."
+      print(r["steps"])     # [{step:1, action:retrieve, ...}, {step:2, action:answer, ...}]
+    narration: >
+      The mock LLM script replays actions in order. In production, Ollama would
+      decide the action based on the actual context. The scripted mock lets the
+      gate test the loop mechanics without a live model.
+
+  - type: concept
+    label: "max_iterations fallback"
+    heading: "Handling the Edge Case"
+    body: >
+      After max_iterations without an answer, the agent generates one anyway.
+    bullets:
+      - "Loop runs up to max_iterations times"
+      - "If the LLM never returns 'answer', the loop exhausts"
+      - "Fallback: build_retrieval_prompt(question, all_docs) -> call_llm"
+      - "This uses whatever docs were accumulated as context"
+      - "Better than silence — the agent always returns something"
+    narration: >
+      The max_iterations fallback is the final safety net. It's analogous to
+      SimpleAgent's max_iterations cap from Day 79 and PlannerAgent's max_tasks
+      from Day 83. Every agentic loop in Section 6 has this cap because local
+      models can loop unexpectedly. The fallback uses all accumulated documents,
+      so the quality isn't too different from a successful exit.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "RetrievalAgent: iterative loop, accumulates docs across steps"
+      - "Each step: build prompt -> call LLM -> parse action -> retrieve or answer"
+      - "max_iterations cap with graceful fallback to final generation"
+      - "Returns {question, docs, answer, steps} — full audit trail"
+      - "Same four-method shape as all Section 6 agents"

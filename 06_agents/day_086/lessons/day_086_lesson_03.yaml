@@ -1,0 +1,82 @@
+day: "086"
+lesson: 3
+title: "From Docs to Answer"
+slides:
+  - type: title
+    heading: "From Docs to Answer"
+    subheading: "format_docs, build_retrieval_prompt, retrieve_and_answer"
+    narration: >
+      Once the retriever hands back a list of documents, the RAG layer has two
+      jobs: format the documents into a context block the LLM can read, and build
+      a prompt that instructs the LLM to answer from those documents. The
+      retrieve_and_answer function combines both into a single-turn convenience
+      function that works as a pipeline RAG baseline.
+
+  - type: concept
+    label: "format_docs"
+    heading: "Numbered Context Block"
+    body: >
+      Each document gets a number and a source label for citation.
+    bullets:
+      - "[1] (wiki) Python is a high-level programming language."
+      - "[2] (history) Python was created by Guido van Rossum in 1991."
+      - "Numbers let the LLM cite facts: 'Python was created in 1991 [2]'"
+      - "Source from metadata['source']; falls back to 'doc1', 'doc2', etc."
+      - "Empty list returns 'No documents found.' (agent handles this safely)"
+    narration: >
+      The numbered format is a citation protocol. By putting numbers in the
+      context block, you can prompt the LLM to cite sources, making it easier
+      for users to verify claims. If the metadata doesn't have a source key, the
+      fallback 'doc1', 'doc2' labels keep the format consistent.
+
+  - type: code
+    label: "retrieve_and_answer"
+    heading: "Single-Turn RAG Baseline"
+    body: >
+      Three lines: retrieve, build prompt, call LLM.
+    code: |
+      retriever = SimpleRetriever()
+      retriever.add_all([
+          Document("Python was created in 1991.", {"source": "history"}),
+          Document("Python uses indentation.", {"source": "syntax"}),
+      ])
+
+      result = retrieve_and_answer(
+          "When was Python created?",
+          retriever,
+          top_k=2,
+          llm_fn=my_llm,
+      )
+      print(result["answer"])   # "Python was created in 1991 [1]."
+      print(len(result["docs"]))  # 2
+    narration: >
+      retrieve_and_answer is the fixed-pipeline version. It always retrieves top-k
+      docs for the original question and calls the LLM once. This is exactly what
+      Day 13 did, but wrapped into a reusable function. RetrievalAgent in the next
+      lessons will replace this single step with an iterative decision loop.
+
+  - type: concept
+    label: "When to use each"
+    heading: "Pipeline vs Agent"
+    body: >
+      Choose based on your question complexity.
+    bullets:
+      - "retrieve_and_answer: simple questions, fast, predictable"
+      - "RetrievalAgent: multi-hop questions, sub-queries, uncertain retrieval"
+      - "A single retrieve often works; use agentic when you see retrieval failures"
+      - "RetrievalAgent is slower (multiple LLM calls per question)"
+      - "Both functions accept the same retriever and llm_fn"
+    narration: >
+      In production you might use retrieve_and_answer as the fast path and fall
+      back to RetrievalAgent when confidence is low. Or you might always use the
+      agent for research-heavy tasks. The choice is a tradeoff between latency,
+      cost, and answer quality.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "format_docs: documents -> numbered context block for prompts"
+      - "build_retrieval_prompt: wraps context into a full RAG prompt"
+      - "retrieve_and_answer: single-turn RAG (pipeline baseline)"
+      - "Returns {question, docs, answer} dict"
+      - "RetrievalAgent extends this with iteration"

@@ -1,0 +1,76 @@
+day: "086"
+lesson: 1
+title: "Agentic RAG vs Pipeline RAG"
+slides:
+  - type: title
+    heading: "Retrieval Agents"
+    subheading: "From fixed pipelines to agent-directed retrieval"
+    narration: >
+      Day 13 introduced RAG as a fixed pipeline: retrieve some documents, then
+      generate an answer. That works well when the retrieval step always finds
+      the right context. But what if the first query misses? What if the answer
+      requires combining information from multiple searches? Agentic RAG lets the
+      agent decide when to retrieve, what to search for, and when it has gathered
+      enough information to answer.
+
+  - type: concept
+    label: "Pipeline RAG"
+    heading: "Day 13: Always Retrieve, Then Always Generate"
+    body: >
+      Fixed pipeline: the retrieval step runs exactly once, then generation runs.
+    bullets:
+      - "Retrieve: embed question, fetch top-k docs from vector store"
+      - "Generate: build RAG prompt, call LLM with docs as context"
+      - "Problem: retrieval query is always the original question"
+      - "Problem: if first retrieval misses, the answer is wrong"
+      - "Problem: complex questions often need multiple sub-queries"
+    narration: >
+      Pipeline RAG is simple and fast. It works well for direct questions where
+      the first retrieval almost always returns the right docs. But a question
+      like 'what are the tradeoffs between approach A and approach B, and which
+      did project X choose' needs at least two retrieval steps: one for approach
+      A, one for approach B, and one for project X. A fixed pipeline can't do that.
+
+  - type: concept
+    label: "Agentic RAG"
+    heading: "Agent-Directed Retrieval"
+    body: >
+      The agent decides when and what to retrieve.
+    bullets:
+      - "Agent sees: question + accumulated context so far"
+      - "Agent decides: retrieve more (with a custom query) or answer now"
+      - "Loop: retrieve -> inspect -> retrieve again? -> answer"
+      - "The agent can reformulate the query between steps"
+      - "The agent stops when it decides it has enough information"
+    narration: >
+      Agentic RAG gives the agent control of the retrieval process. It can issue
+      a first query, inspect the results, notice a gap, issue a second query with
+      a different phrasing, and only then answer. The quality ceiling is higher
+      because the agent can recover from a weak first retrieval step.
+
+  - type: concept
+    label: "Today's stack"
+    heading: "What We Build"
+    body: >
+      A minimal agentic RAG stack in pure Python.
+    bullets:
+      - "Document: content string + metadata dict"
+      - "SimpleRetriever: word-overlap (Jaccard) search, no ML libraries"
+      - "format_docs + build_retrieval_prompt: context formatting"
+      - "retrieve_and_answer: single-turn baseline (pipeline version)"
+      - "build_agent_step_prompt + parse_agent_action: decision layer"
+      - "RetrievalAgent: full agentic loop with max_iterations cap"
+    narration: >
+      We use word-overlap similarity rather than embeddings so the exercises run
+      without any ML libraries. The agentic pattern is identical whether you swap
+      in a ChromaDB vector store or a BM25 index. The retriever is injected, so
+      you can replace SimpleRetriever with any search backend without touching
+      the agent code.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Pipeline RAG: fixed retrieve-then-generate; one shot"
+      - "Agentic RAG: agent controls retrieval; can iterate"
+      - "Agent benefits: reformulated queries, multi-step search, self-stopping"
+      - "Today: SimpleRetriever + RetrievalAgent, no ML deps"

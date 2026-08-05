@@ -1,0 +1,78 @@
+day: "086"
+lesson: 2
+title: "Document and SimpleRetriever"
+slides:
+  - type: title
+    heading: "Document and SimpleRetriever"
+    subheading: "The document store layer"
+    narration: >
+      Before an agent can retrieve anything, it needs a place to store documents
+      and a way to rank them by relevance. Document is a simple dataclass.
+      SimpleRetriever stores them in a list and ranks by word-overlap similarity.
+      No embeddings, no vector indices, no external services required.
+
+  - type: concept
+    label: "Document"
+    heading: "Content Plus Metadata"
+    body: >
+      Every document has a text body and an optional metadata dict.
+    bullets:
+      - "content: the text to be searched and returned as context"
+      - "metadata: dict of arbitrary key/value pairs"
+      - "Common metadata: source (filename/URL), date, author, chunk_id"
+      - "format_docs uses metadata['source'] for citation display"
+      - "Same pattern as Day 12's ChromaDB document structure"
+    narration: >
+      Keeping metadata separate from content is a RAG design principle. The
+      content goes into the prompt as context; the metadata goes into the citation
+      so the user knows where the information came from. In production you might
+      store a URL, a page number, a database row ID, or a timestamp.
+
+  - type: code
+    label: "SimpleRetriever"
+    heading: "Word-Overlap Search"
+    body: >
+      Jaccard similarity between query words and document words.
+    code: |
+      retriever = SimpleRetriever()
+      retriever.add(Document("Python is a programming language.", {"source": "intro"}))
+      retriever.add(Document("Java is statically typed.", {"source": "java_intro"}))
+      retriever.add(Document("Python uses indentation.", {"source": "syntax"}))
+
+      results = retriever.search("Python", top_k=2)
+      for doc in results:
+          print(doc.metadata["source"], ":", doc.content[:40])
+      # intro : Python is a programming language.
+      # syntax : Python uses indentation.
+    narration: >
+      The Jaccard score is the size of the word intersection divided by the size
+      of the word union. A query of 'Python programming' against 'Python is a
+      programming language' gets 2 shared words out of 6 unique words, so 0.33.
+      Against 'The sky is blue' the intersection is empty, score is 0. The top-k
+      documents with the highest scores are returned.
+
+  - type: concept
+    label: "Limitations"
+    heading: "Word Overlap vs Embeddings"
+    body: >
+      SimpleRetriever is good enough for learning; production needs embeddings.
+    bullets:
+      - "Word overlap misses synonyms: 'car' won't match 'automobile'"
+      - "Embedding models capture semantic similarity: 'car' ~= 'automobile'"
+      - "Day 11 covered embeddings; Day 12 covered ChromaDB"
+      - "Swap SimpleRetriever for a ChromaDB retriever to get semantic search"
+      - "RetrievalAgent accepts any object with a .search(query, top_k) method"
+    narration: >
+      The retriever is injected into RetrievalAgent, so you can swap
+      SimpleRetriever for a ChromaDB collection, an Elasticsearch client, or any
+      object that implements search. The agent code stays identical. Today we use
+      SimpleRetriever to keep exercises dependency-free.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Document: content + metadata dict — the atomic unit of RAG"
+      - "SimpleRetriever: add/add_all/search/len — pure Python"
+      - "Jaccard similarity: word intersection / word union"
+      - "search() returns top-k docs sorted by relevance"
+      - "Retriever is injectable — swap for any backend"
