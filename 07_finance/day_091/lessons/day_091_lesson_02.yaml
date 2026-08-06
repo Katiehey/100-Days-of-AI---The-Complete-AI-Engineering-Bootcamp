@@ -1,0 +1,106 @@
+day: "091"
+lesson: 2
+title: "Returns and Equity Curves"
+slides:
+  - type: title
+    heading: "Returns and Equity Curves"
+    subheading: "From price to compounded growth"
+    narration: >
+      Every backtest starts with the same two transforms: daily returns from
+      prices, and an equity curve from daily returns. This lesson digs into
+      both — what they measure, where the edge cases are, and why compounding
+      matters more than most people realise.
+
+  - type: concept
+    label: "Percentage returns"
+    heading: "Daily Percentage Returns"
+    body: >
+      r_t = (Close_t - Close_{t-1}) / Close_{t-1}
+    bullets:
+      - "pandas: df['Close'].pct_change() — identical formula, handles NaN at t=0"
+      - "Positive return: price went up; negative: price went down"
+      - "Typically small numbers: 0.01 = 1%, -0.02 = -2%"
+      - "Log returns: log(Close_t / Close_{t-1}) — better for long horizons"
+      - "We use simple returns (pct_change) — standard for daily strategy P&L"
+    narration: >
+      Percentage returns are symmetric in ratio terms but not in dollar terms.
+      A 50% gain followed by a 50% loss brings you to 75% of where you started,
+      not back to even. This asymmetry is why drawdown recovery takes longer
+      than the drawdown itself: falling 50% requires a 100% gain to recover.
+      Log returns avoid this asymmetry but are harder to interpret day-to-day.
+      For strategy P&L accounting at daily granularity, simple returns are the
+      standard.
+
+  - type: concept
+    label: "Equity curve"
+    heading: "The Equity Curve: Compounding Returns"
+    body: >
+      equity_t = initial × ∏(1 + r_i) for i = 1 … t
+    bullets:
+      - "pandas: (1 + returns.fillna(0)).cumprod() * initial"
+      - "Starts at initial (typically 1.0 — 'track growth of $1')"
+      - "equity > initial: strategy is profitable at that point"
+      - "equity < initial: strategy is in drawdown"
+      - "Shape tells you more than the final value alone"
+    narration: >
+      The equity curve is the single most informative chart in quantitative
+      trading. You can immediately see: when did the strategy make money, when
+      did it lose, how deep were the drawdowns, and how long did it take to
+      recover. A strategy that ends at 1.20 (20% gain) but dipped to 0.60
+      along the way is very different from one that steadily climbed to 1.20
+      with no drawdown deeper than 5%. Same final number, completely different
+      risk profile.
+
+  - type: code
+    label: "Returns and equity"
+    heading: "Computing Returns and Equity in Practice"
+    body: >
+      Two lines that power every backtest.
+    code: |
+      market_returns = df["Close"].pct_change()    # NaN at position 0
+
+      # Strategy: positions shifted by 1 to prevent look-ahead
+      positions        = signals.shift(1).fillna(0)
+      strategy_returns = positions * market_returns  # 0 on day 0 (NaN*0=NaN)
+
+      # Equity curve: fillna(0) converts day-0 NaN → zero-return day
+      equity = (1 + strategy_returns.fillna(0)).cumprod()
+
+      # Total return
+      total_return = float(equity.iloc[-1] - 1.0)
+    narration: >
+      Notice that `positions * market_returns` at day 0 gives NaN times zero,
+      which is NaN. The fillna in compute_equity then converts that NaN to 0,
+      so the equity starts at exactly 1.0. This is the correct behavior: on
+      day 0 there is no previous position to carry forward, so you earn nothing.
+      The first actual trade happens on day 1 when the shifted signal from day 0
+      enters the position.
+
+  - type: exercise
+    heading: "Exercise 1 — compute_returns and compute_equity"
+    prompt: >
+      If not already done, implement compute_returns and compute_equity. After
+      passing the checks, examine the equity curve for the synthetic data:
+      print equity.min(), equity.max(), equity.iloc[-1].
+    hint: >
+      compute_equity check 4: the curve starts at 1.0 because fillna(0) makes
+      the first return 0, and (1+0) = 1.0.
+    narration: >
+      Two one-liners. After implementing them, look at the equity curve for
+      the always-long synthetic strategy. The sine-wave prices produce a
+      sinusoidal equity curve — it rises, falls, and roughly returns to where
+      it started after 252 trading days. This is the expected behavior for a
+      perfect sine wave.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Daily returns: pct_change on Close — first value NaN"
+      - "Strategy returns: positions * market_returns (after shift(1))"
+      - "Equity curve: (1+returns.fillna(0)).cumprod() — starts at 1.0"
+      - "equity[-1] - 1.0 = total return"
+      - "Next: measuring risk — drawdown and Sharpe ratio"
+    narration: >
+      Returns and equity give you the profit picture. Drawdown and Sharpe
+      give you the risk picture. Both are required to evaluate a strategy.
+      Next lesson: max_drawdown.

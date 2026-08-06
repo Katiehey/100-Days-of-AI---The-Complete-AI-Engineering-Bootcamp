@@ -1,0 +1,96 @@
+day: "091"
+lesson: 4
+title: "Sharpe Ratio"
+slides:
+  - type: title
+    heading: "Sharpe Ratio"
+    subheading: "Return per unit of risk — the gold standard metric"
+    narration: >
+      The Sharpe ratio, developed by William Sharpe in 1966, is the most
+      widely cited performance metric in finance. It answers: how much return
+      did the strategy generate per unit of volatility? A strategy that earns
+      10% with 5% annual volatility has the same Sharpe as one that earns 20%
+      with 10% volatility. Both are better than one that earns 15% with 15%
+      volatility. The Sharpe ratio lets you compare strategies with different
+      return and risk levels on a common scale.
+
+  - type: concept
+    label: "Sharpe formula"
+    heading: "The Sharpe Formula"
+    body: >
+      Sharpe = (mean_daily_return / std_daily_return) × √252
+    bullets:
+      - "Numerator: average daily return (the reward)"
+      - "Denominator: daily standard deviation (the risk)"
+      - "√252: annualise — there are ~252 trading days per year"
+      - "Risk-free rate: set to 0 for simplicity (standard in crypto/alternatives)"
+      - "Sharpe > 1: acceptable; > 2: excellent; > 3: exceptional"
+    narration: >
+      The square root of 252 is approximately 15.87. Multiplying by this
+      factor converts daily Sharpe to annual Sharpe, assuming returns are
+      independent and identically distributed — a simplification, but the
+      industry standard. The risk-free rate is the return you could earn with
+      no risk (e.g., short-term government bonds). Setting it to 0 is
+      conservative: it makes strategies look slightly worse than they are,
+      which is the right direction for filtering.
+
+  - type: code
+    label: "Sharpe implementation"
+    heading: "Sharpe Ratio in Four Lines"
+    body: >
+      Guard against zero standard deviation before dividing.
+    code: |
+      def sharpe_ratio(returns, periods_per_year=252):
+          clean = returns.dropna()
+          if len(clean) == 0 or clean.std() == 0:
+              return 0.0
+          return float(clean.mean() / clean.std() * (periods_per_year ** 0.5))
+
+      # Zero std happens when:
+      #   — all returns are identical (constant positive return)
+      #   — returns are all zero (flat, no trading)
+      # Convention: return 0.0 in both cases (undefined → no signal)
+
+      # Interpretation:
+      # Sharpe = 0:   earns nothing risk-adjusted
+      # Sharpe = 1:   earns 1 std of return per year of risk
+      # Sharpe = 2:   top-quartile hedge fund
+    narration: >
+      The guard for zero standard deviation is important in two cases. If
+      positions are always zero, strategy returns are always zero, and std is
+      zero. If positions are always 1 and prices are perfectly constant, same
+      result. In both cases, returning 0.0 is the correct convention — there
+      is no risk-adjusted signal. In practice, real price data almost never
+      has zero standard deviation, so the guard is a safety net, not a common
+      path.
+
+  - type: exercise
+    heading: "Exercise 3 — Implement sharpe_ratio"
+    prompt: >
+      Implement sharpe_ratio(returns, periods_per_year=252). Drop NaN first.
+      Return 0.0 if empty or std is zero. Otherwise return
+      mean / std * sqrt(periods_per_year).
+    hint: >
+      Check 5 tests that lower-volatility returns give a higher Sharpe.
+      Both series have the same mean return; only the variance differs.
+      If your Sharpe values are equal, check that you are using std (ddof=1)
+      not var.
+    narration: >
+      Four lines including the guard. After implementing, run sharpe_ratio
+      on the always-long synthetic strategy. The sine-wave data produces
+      a Sharpe close to zero because the strategy ends roughly where it
+      started — the mean daily return over a full sine cycle is near zero.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Sharpe = (mean / std) × √periods — risk-adjusted return"
+      - "Drop NaN before computing — the first return is always NaN"
+      - "Zero std → return 0.0 (undefined; no signal)"
+      - "Sharpe > 1 is acceptable; > 2 is excellent"
+      - "Next: run_backtest — the full engine combining all metrics"
+    narration: >
+      Sharpe is complete. You now have all four primitives: compute_returns,
+      compute_equity, max_drawdown, and sharpe_ratio. The final step is
+      run_backtest, which assembles them into a single function that takes
+      any signal Series and returns the full metric suite.

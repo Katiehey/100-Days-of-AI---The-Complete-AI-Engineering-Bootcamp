@@ -1,0 +1,111 @@
+day: "091"
+lesson: 5
+title: "run_backtest — The Full Engine"
+slides:
+  - type: title
+    heading: "run_backtest"
+    subheading: "One call to evaluate any strategy"
+    narration: >
+      The final lesson assembles everything. run_backtest is a single function
+      that takes an OHLCV DataFrame and a signal Series, applies the one-day
+      lag, computes all five metrics, and returns a dict with both scalars and
+      the equity curve. Every subsequent day in Section 7 calls this function
+      to evaluate strategies. Writing a new strategy becomes: generate signals,
+      call run_backtest, read the metrics.
+
+  - type: concept
+    label: "run_backtest internals"
+    heading: "What run_backtest Does, Step by Step"
+    body: >
+      Signal → Positions → Strategy Returns → Metrics.
+    bullets:
+      - "market_returns = compute_returns(df)  — buy-and-hold baseline"
+      - "positions = signals.shift(1).fillna(0)  — look-ahead prevention"
+      - "strategy_returns = positions * market_returns  — daily P&L"
+      - "equity = compute_equity(strategy_returns)"
+      - "metrics: total_return, annualized_return, sharpe_ratio, max_drawdown"
+      - "counters: win_rate, n_trades"
+    narration: >
+      The step that matters most is the shift. By applying signals.shift(1)
+      before multiplying by returns, you ensure that the signal observed at
+      the end of day t is applied to the return of day t+1. This is the
+      correct causal structure: you see the signal today, you trade tomorrow.
+      Without the shift, the strategy uses today's indicator to trade at
+      today's close — impossible in practice and the source of most backtest
+      inflation.
+
+  - type: code
+    label: "run_backtest"
+    heading: "The Full Implementation"
+    body: >
+      Twelve lines; the shift on line 3 is the most important.
+    code: |
+      def run_backtest(df, signals):
+          market_returns   = compute_returns(df)
+          positions        = signals.shift(1).fillna(0)   # ← look-ahead fix
+          strategy_returns = positions * market_returns
+
+          equity   = compute_equity(strategy_returns)
+          clean    = strategy_returns.dropna()
+          n_days   = len(clean)
+          win_rate = float((clean > 0).sum() / max(n_days, 1))
+          n_trades = int((positions.diff().fillna(0) != 0).sum())
+
+          total_ret = float(equity.iloc[-1] - 1.0)
+          base      = 1.0 + total_ret
+          ann_ret   = float(base ** (252.0 / max(n_days, 1)) - 1) if base > 0 else -1.0
+
+          return {
+              "total_return":      total_ret,
+              "annualized_return": ann_ret,
+              "sharpe_ratio":      sharpe_ratio(strategy_returns),
+              "max_drawdown":      max_drawdown(equity),
+              "win_rate":          win_rate,
+              "n_trades":          n_trades,
+              "equity":            equity,
+              "strategy_returns":  strategy_returns,
+              "market_returns":    market_returns,
+          }
+    narration: >
+      n_trades counts every time the position changes: entering long, exiting,
+      entering short, reversing. For an always-long strategy, positions go
+      from 0 to 1 on day 1 and stay at 1 — one trade. For a strategy that
+      alternates between long and flat every day, n_trades would be close to
+      252. High n_trades does not mean bad — it depends on how much each trade
+      earns. But high n_trades with low Sharpe means you are churning for
+      nothing.
+
+  - type: exercise
+    heading: "Exercise 4 — Implement run_backtest"
+    prompt: >
+      Implement run_backtest(df, signals) following the steps in the TODO.
+      The look-ahead test (check 4) verifies that signals.shift(1) is applied:
+      strategy_returns[0] must be NaN or 0 even when signals[0] = 1.
+    hint: >
+      For n_trades: positions.diff().fillna(0) != 0 counts position changes.
+      The first element of diff is NaN → fillna(0) makes it zero (no trade
+      on day 0 since positions start at 0). For check 5: flat signal (all
+      zeros) → n_trades = 0; always-long → positions go 0→1 on day 1 →
+      n_trades = 1.
+    narration: >
+      Twelve lines. After implementing, run Exercise 5 which connects the
+      full pipeline: add_indicators from Day 90, an RSI signal function, and
+      run_backtest. That full pipeline — data + indicators + signal +
+      backtest — is the template for Days 92 through 96.
+
+  - type: summary
+    heading: "Day 91 Complete"
+    bullets:
+      - "compute_returns: df['Close'].pct_change()"
+      - "compute_equity: (1+returns.fillna(0)).cumprod() * initial"
+      - "max_drawdown: (equity - equity.cummax()) / equity.cummax()"
+      - "sharpe_ratio: mean/std × √252, dropping NaN"
+      - "run_backtest: positions=signals.shift(1); returns metrics + equity"
+      - "Look-ahead bias prevented by shift(1) — the most important line"
+    narration: >
+      The backtester is complete. You now have the three-layer foundation of
+      Section 7: market data (Day 89), indicators (Day 90), and a backtest
+      engine (Day 91). Tomorrow, Day 92, you build actual trading strategies:
+      SMA crossover, RSI mean-reversion, and a combined signal — all tested
+      through this engine. The quality of your backtester determines the
+      quality of every strategy you evaluate.

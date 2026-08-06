@@ -1,0 +1,90 @@
+day: "091"
+lesson: 3
+title: "Drawdown"
+slides:
+  - type: title
+    heading: "Maximum Drawdown"
+    subheading: "The worst peak-to-trough decline"
+    narration: >
+      Drawdown is the metric every allocator asks for: if I had invested at
+      the worst possible moment, how much would I have lost before recovery?
+      Maximum drawdown is the answer. It is a measure of pain — how deep the
+      hole gets — and of recovery difficulty. A 50% drawdown requires a 100%
+      gain to recover. Understanding drawdown changes how you evaluate a
+      strategy.
+
+  - type: concept
+    label: "Drawdown formula"
+    heading: "Computing Drawdown, Step by Step"
+    body: >
+      DD_t = (Equity_t − Peak_t) / Peak_t    where Peak_t = max(Equity_0 … Equity_t)
+    bullets:
+      - "peak = equity.cummax()  — running maximum up to each point in time"
+      - "drawdown = (equity - peak) / peak  — fractional distance below peak"
+      - "max_drawdown = drawdown.min()  — the most negative value (worst trough)"
+      - "Result is always ≤ 0: negative means loss, 0 means never below peak"
+      - "-0.30 means the strategy fell 30% from its prior high at worst"
+    narration: >
+      The cummax function is the key insight: at every point in time, the
+      peak is the highest value the equity curve has ever reached up to that
+      point. When the equity falls below the peak, the drawdown is negative.
+      When it reaches a new all-time high, the drawdown is zero. The minimum
+      of this drawdown series across the entire history is the maximum drawdown.
+      Note that we call it maximum drawdown even though the value is negative —
+      maximum refers to the magnitude (the worst drop), not the sign.
+
+  - type: code
+    label: "max_drawdown"
+    heading: "Three Lines of pandas"
+    body: >
+      cummax is the key function.
+    code: |
+      def max_drawdown(equity):
+          peak     = equity.cummax()
+          drawdown = (equity - peak) / peak
+          return float(drawdown.min())
+
+      # Example: equity goes 1.0 → 1.5 → 2.0 → 1.0
+      # peak:     1.0    1.5    2.0    2.0
+      # dd:       0.0    0.0    0.0   -0.5
+      # max_dd = -0.5  (fell 50% from the peak of 2.0)
+
+      # Recovery: to go from 2.0 back to 2.0 from 1.0 requires +100%
+      # This is the drawdown recovery asymmetry
+    narration: >
+      In the example: the peak at position 3 is still 2.0 (the all-time high
+      from position 2). The current equity is 1.0. The drawdown is
+      (1.0 - 2.0) / 2.0 = -0.5. To recover from -0.5, the strategy needs to
+      earn 100% from the trough — a much bigger gain than the loss. This
+      asymmetry is fundamental to risk management: avoiding large drawdowns is
+      more important than chasing large returns.
+
+  - type: exercise
+    heading: "Exercise 2 — Implement max_drawdown"
+    prompt: >
+      Implement max_drawdown(equity) using cummax, then (equity-peak)/peak,
+      then float(dd.min()). Check 4 uses a known equity curve 1→2→1 and
+      expects max_drawdown = -0.5 exactly.
+    hint: >
+      Check 3 (monotonically rising) expects abs(dd) < 1e-9. If you get a
+      small negative number like -1e-16, that is floating-point noise and
+      should pass the assertion. Check 5 uses a curve with two drawdowns
+      of different depths — verify that your function returns the deeper one.
+    narration: >
+      Three lines. After implementing, test it on the synthetic backtest:
+      compute_equity on the always-long strategy, then max_drawdown. With the
+      sine-wave data, expect a drawdown of roughly -30% (since prices swing
+      30% above and below 100).
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "peak = equity.cummax() — running maximum"
+      - "drawdown = (equity - peak) / peak — fractional decline from peak"
+      - "max_drawdown = drawdown.min() — worst trough, always ≤ 0"
+      - "A -0.5 drawdown needs a +100% gain to recover"
+      - "Next: Sharpe ratio — risk-adjusted return"
+    narration: >
+      Drawdown tells you about the downside risk. Sharpe ratio tells you
+      about the return per unit of risk. Together they give you a complete
+      picture. Next lesson: Sharpe ratio.

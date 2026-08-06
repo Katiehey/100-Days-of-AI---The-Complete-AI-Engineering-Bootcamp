@@ -1,0 +1,105 @@
+day: "091"
+lesson: 1
+title: "What Is Backtesting?"
+slides:
+  - type: title
+    heading: "Backtesting Fundamentals"
+    subheading: "Simulate a trading strategy on historical data"
+    narration: >
+      Day 91. You have market data from Day 89 and technical indicators from Day
+      90. Today you learn backtesting: the process of testing a trading strategy
+      on historical price data to estimate how it would have performed. This is
+      the core loop of quantitative trading. By the end of today you will have a
+      working backtester that takes any signal Series and returns a full set of
+      performance metrics — total return, Sharpe ratio, drawdown, win rate, and
+      the number of trades. Every strategy in Days 92 through 96 runs through
+      this engine.
+
+  - type: concept
+    label: "What backtesting is"
+    heading: "Backtesting: Simulated Trading on Historical Data"
+    body: >
+      A backtest replays history using strategy rules — before you risk real money.
+    bullets:
+      - "Generate signals from indicators (1=long, 0=flat, -1=short)"
+      - "Apply signals to historical prices to compute daily P&L"
+      - "Aggregate P&L into an equity curve and risk metrics"
+      - "Judge the strategy by its risk-adjusted return, not raw return"
+      - "Backtest is a necessary condition, not a sufficient one"
+    narration: >
+      Backtesting answers the question: if I had followed this rule over the
+      past year, what would my returns have been? The answer is never a
+      guarantee about the future — markets change, and a rule that worked in
+      2020 may fail in 2024. But a strategy that cannot survive a historical
+      backtest is almost certainly not worth live trading. Today's backtester
+      is the evaluation tool for every strategy you build in this section.
+
+  - type: concept
+    label: "Look-ahead bias"
+    heading: "Look-Ahead Bias: The Cardinal Sin of Backtesting"
+    body: >
+      Your signal at day t can only use information available at the end of day t.
+    bullets:
+      - "Forbidden: using tomorrow's close to generate today's signal"
+      - "Common mistake: not shifting signals before computing returns"
+      - "Fix: positions = signals.shift(1) — enter trade on day t+1"
+      - "Effect of cheating: backtest shows stellar returns; live trading loses money"
+      - "shift(1) is one line; forgetting it corrupts the entire analysis"
+    narration: >
+      Look-ahead bias is why backtests often look better than live trading.
+      When you generate a signal using today's indicator and apply it to
+      today's return, you are assuming you can trade at today's closing price
+      after seeing today's indicator — impossible in reality. Shifting the
+      signal by one day says: I see the indicator at market close, I place the
+      order for tomorrow's open. This is the correct causal structure. Every
+      function in today's backtester enforces this with signals.shift(1).
+
+  - type: concept
+    label: "Backtest workflow"
+    heading: "The Five-Step Backtest Loop"
+    body: >
+      Fetch → Enrich → Signal → Backtest → Evaluate.
+    bullets:
+      - "Step 1: fetch OHLCV data (market_data.py, Day 89)"
+      - "Step 2: add indicators (indicators.py, Day 90)"
+      - "Step 3: generate signals — rules over indicator values"
+      - "Step 4: run_backtest(df, signals) → metrics dict"
+      - "Step 5: compare metrics against a benchmark (buy-and-hold)"
+    narration: >
+      This five-step loop is what you will run dozens of times across Days
+      91 through 96. Each iteration tests a different signal rule or
+      parameter. The benchmark is always buy-and-hold: if your strategy
+      cannot beat the market with less risk over the backtest period, there
+      is no reason to run it. The Sharpe ratio captures this: it measures
+      return per unit of risk, so a strategy that doubles the return but
+      triples the volatility looks worse than buy-and-hold.
+
+  - type: exercise
+    heading: "Exercise 1 — compute_returns and compute_equity"
+    prompt: >
+      Implement compute_returns(df) using df["Close"].pct_change().
+      Implement compute_equity(returns, initial=1.0) using
+      (1 + returns.fillna(0)).cumprod() * initial.
+    hint: >
+      Both are one-liners. The fillna(0) in compute_equity converts the
+      first NaN return into a zero-return day so the equity curve starts at
+      exactly initial.
+    narration: >
+      Two one-liners. The entire complexity of this exercise is understanding
+      what the output looks like: pct_change gives you the daily gains and
+      losses; cumprod turns them into a dollar value. After you pass the
+      checks, look at the equity curve for the synthetic data — it should
+      oscillate up and down following the sine-wave price pattern.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Backtesting: simulate strategy on history before risking real money"
+      - "Look-ahead bias: signals must be shifted by 1 before computing returns"
+      - "Five-step loop: fetch → enrich → signal → backtest → evaluate"
+      - "compute_returns: pct_change on Close prices"
+      - "compute_equity: (1+returns.fillna(0)).cumprod() * initial"
+    narration: >
+      The first two building blocks are in place. Next: risk metrics —
+      drawdown and Sharpe ratio. These are what distinguish a good strategy
+      from a lucky one.
