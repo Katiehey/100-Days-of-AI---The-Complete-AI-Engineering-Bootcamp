@@ -1,0 +1,110 @@
+day: "090"
+lesson: 3
+title: "Relative Strength Index — RSI"
+slides:
+  - type: title
+    heading: "RSI — Relative Strength Index"
+    subheading: "Measuring momentum: how fast is price moving?"
+    narration: >
+      RSI is a momentum oscillator — it oscillates between 0 and 100 rather
+      than trending with the price. Developed by J. Welles Wilder in 1978, it
+      is still one of the most widely used indicators in systematic trading.
+      RSI answers: over the last 14 days, have gains dominated losses, or have
+      losses dominated gains?
+
+  - type: concept
+    label: "RSI formula"
+    heading: "The RSI Formula, Step by Step"
+    body: >
+      RSI = 100 - 100 / (1 + RS)  where RS = avg_gain / avg_loss
+    bullets:
+      - "delta = series.diff()  — daily change, NaN at position 0"
+      - "gain  = delta.clip(lower=0)  — keep only positive changes"
+      - "loss  = -delta.clip(upper=0)  — keep only negative changes"
+      - "avg_gain = gain.rolling(14).mean()"
+      - "avg_loss = loss.rolling(14).mean()"
+      - "RS = avg_gain / avg_loss"
+    narration: >
+      The clip function is the key step. clip(lower=0) keeps any positive
+      number and replaces any negative number with zero — so gain is the daily
+      gains with losses zeroed out. clip(upper=0) does the reverse. The
+      negative sign converts negative losses to positive numbers before the
+      rolling average. This is simpler than it sounds: you are just computing
+      the average size of up days and the average size of down days over the
+      last 14 periods.
+
+  - type: concept
+    label: "Interpreting RSI"
+    heading: "What RSI Values Tell You"
+    body: >
+      RSI oscillates between 0 and 100.
+    bullets:
+      - "RSI > 70: overbought — price has risen fast, reversal possible"
+      - "RSI < 30: oversold — price has fallen fast, bounce possible"
+      - "RSI = 50: neutral — gains and losses roughly equal"
+      - "RSI trending up: momentum is strengthening"
+      - "RSI divergence: price makes new high but RSI doesn't — warning sign"
+    narration: >
+      The 70 and 30 thresholds are not magic numbers — they are conventions.
+      In a strong uptrend, RSI can stay above 70 for weeks. In a bear market,
+      it can stay below 30 for weeks. RSI is most useful when combined with a
+      trend indicator: look for oversold RSI in an uptrend as a buy signal,
+      or overbought RSI in a downtrend as a sell signal. Using RSI alone is a
+      common beginner mistake.
+
+  - type: code
+    label: "RSI implementation"
+    heading: "RSI in Six Lines"
+    body: >
+      Each line corresponds to one step of the formula.
+    code: |
+      def rsi(series, window=14):
+          delta = series.diff()
+          gain  = delta.clip(lower=0).rolling(window=window).mean()
+          loss  = (-delta.clip(upper=0)).rolling(window=window).mean()
+          rs    = gain / loss
+          return 100 - (100 / (1 + rs))
+
+      # For a monotonically rising series:
+      # loss = 0 -> rs = inf -> RSI = 100 - 0 = 100
+      # For a monotonically falling series:
+      # gain = 0 -> rs = 0  -> RSI = 100 - 100 = 0
+    narration: >
+      When the price only rises, loss is always zero. Division by zero
+      produces infinity in float arithmetic, not an error. Then 100 divided
+      by one plus infinity equals zero, so RSI equals 100. Python handles this
+      correctly without any special-casing, though it will emit a RuntimeWarning
+      about division by zero. In practice, real prices have both up and down
+      days, so this edge case rarely occurs in production.
+
+  - type: exercise
+    heading: "Exercise 2 — Implement RSI"
+    prompt: >
+      Implement rsi(series, window=14) following the six steps: diff, clip
+      gains, clip losses, rolling mean both, compute RS, return 100-100/(1+RS).
+      The first `window` values should be NaN. Non-NaN values must be in [0, 100].
+    hint: >
+      loss = -delta.clip(upper=0)  — note the negative sign. clip(upper=0) on
+      a negative number gives that negative number; the negative sign makes
+      it positive. For the all-rising test, use import warnings and
+      catch_warnings to suppress the divide-by-zero RuntimeWarning.
+    narration: >
+      If you get values outside [0, 100], check the sign on the loss
+      calculation. If you get all NaN, check that you are using
+      rolling(window=window) not rolling(window). If the first non-NaN is at
+      the wrong position, compare the number of NaN values against the window
+      size: RSI(14) has 14 NaN values, not 13.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "RSI = 100 - 100/(1+RS) where RS = avg_gain/avg_loss"
+      - "clip(lower=0) and clip(upper=0) separate gains from losses"
+      - "RSI oscillates between 0 and 100"
+      - "RSI > 70 = overbought; RSI < 30 = oversold"
+      - "Next: MACD and Bollinger Bands"
+    narration: >
+      RSI is complete. You now have three indicators: SMA, EMA, and RSI.
+      Next lesson: two more — MACD (which combines multiple EMAs) and
+      Bollinger Bands (which add a volatility dimension). Then we put them
+      all together in add_indicators.

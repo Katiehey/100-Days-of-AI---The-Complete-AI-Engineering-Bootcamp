@@ -1,0 +1,112 @@
+day: "090"
+lesson: 4
+title: "MACD and Bollinger Bands"
+slides:
+  - type: title
+    heading: "MACD and Bollinger Bands"
+    subheading: "Momentum convergence and volatility envelopes"
+    narration: >
+      MACD and Bollinger Bands are the two remaining indicators for today.
+      MACD combines two EMAs to produce a momentum signal with a crossover
+      trigger. Bollinger Bands place a dynamic volatility envelope around
+      price. Together with SMA, EMA, and RSI, they give you a complete view
+      of a market: trend direction, momentum strength, and current volatility.
+
+  - type: concept
+    label: "MACD"
+    heading: "MACD: Three Numbers from Two EMAs"
+    body: >
+      MACD = fast EMA - slow EMA.  Signal = EMA of MACD.  Histogram = MACD - Signal.
+    bullets:
+      - "MACD line: EMA(12) - EMA(26) — gap between fast and slow averages"
+      - "Signal line: EMA(9) applied to the MACD line"
+      - "Histogram: MACD - Signal — shows how far apart they are"
+      - "MACD crosses above signal: bullish momentum building"
+      - "Histogram shrinks toward zero: crossover is approaching"
+    narration: >
+      MACD was developed by Gerald Appel in the 1970s and remains one of the
+      most-used momentum indicators. The key insight is that when the shorter
+      EMA pulls away from the longer EMA, momentum is accelerating. When they
+      converge, momentum is fading. The signal line smooths the MACD line,
+      making the crossovers less noisy. The histogram makes the distance
+      between the two lines immediately visible without reading two charts.
+
+  - type: code
+    label: "MACD implementation"
+    heading: "MACD in Five Lines"
+    body: >
+      Each output is computed from the previous one.
+    code: |
+      def macd(series, fast=12, slow=26, signal=9):
+          fast_ema    = ema(series, fast)
+          slow_ema    = ema(series, slow)
+          macd_line   = fast_ema - slow_ema
+          signal_line = ema(macd_line, signal)
+          histogram   = macd_line - signal_line
+          return pd.DataFrame({
+              "macd":      macd_line,
+              "signal":    signal_line,
+              "histogram": histogram,
+          })
+
+      # Because EMA has no NaN, MACD also has no NaN
+      # histogram always equals macd - signal (by construction)
+    narration: >
+      EMA starts from the first observation, so MACD has no NaN values. This
+      is different from SMA-based indicators like Bollinger Bands. The signal
+      line is just another EMA — the same function, applied to a different
+      series. This is a good example of composition: you build the signal line
+      by reusing the ema function rather than implementing a separate formula.
+
+  - type: concept
+    label: "Bollinger Bands"
+    heading: "Bollinger Bands: Price Relative to Volatility"
+    body: >
+      Middle = SMA.  Upper = SMA + 2σ.  Lower = SMA - 2σ.
+    bullets:
+      - "Middle band: SMA(20) — the trend reference"
+      - "Upper band: SMA(20) + 2 * rolling_std(20)"
+      - "Lower band: SMA(20) - 2 * rolling_std(20)"
+      - "About 95% of prices fall within the bands (normal distribution assumption)"
+      - "Band squeeze: bands narrow before a breakout (volatility clustering)"
+    narration: >
+      The standard deviation measures how much price has varied over the last
+      20 days. When the market is calm, the bands are narrow. When the market
+      is volatile, they widen. Prices touching the upper band are not
+      necessarily a sell signal — in a strong uptrend, prices can walk along
+      the upper band for weeks. But when price touches the lower band after a
+      period of calm, it often precedes a mean-reversion bounce. The key is
+      context: bands combined with RSI give a much richer picture than either
+      alone.
+
+  - type: exercise
+    heading: "Exercise 4 — Implement bollinger_bands"
+    prompt: >
+      Implement bollinger_bands(series, window=20, num_std=2.0) returning a
+      DataFrame with columns upper, middle, lower. Middle is SMA(window).
+      Upper is middle + num_std * rolling std. Lower is middle - num_std.
+      First window-1 rows are NaN.
+    hint: >
+      std = series.rolling(window=window).std().  Note that .std() uses
+      ddof=1 (sample standard deviation) by default — this is the standard
+      convention for Bollinger Bands and matches most charting platforms.
+    narration: >
+      Three lines of pandas after computing the middle band. The upper and
+      lower bands are symmetric around the middle, so the algebra is simple.
+      Check 5 tests that volatile prices produce wider bands than stable
+      prices — this is the core property of Bollinger Bands.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MACD: fast_ema - slow_ema; signal = ema(macd); hist = macd - signal"
+      - "MACD has no NaN — built entirely from EMA"
+      - "Bollinger Bands: middle ± num_std * rolling_std"
+      - "BB bands widen with volatility; squeeze precedes breakout"
+      - "Next: add_indicators — combine all five into one DataFrame"
+    narration: >
+      Four of the five indicators are implemented. The fifth — add_indicators —
+      is the integration step. It takes an OHLCV DataFrame, calls all four
+      indicator functions on the Close column, and returns an enriched
+      DataFrame with nine new columns. That enriched DataFrame is the input
+      to the backtester on Day 91.

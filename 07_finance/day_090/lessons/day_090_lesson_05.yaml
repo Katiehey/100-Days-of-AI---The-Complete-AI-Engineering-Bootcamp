@@ -1,0 +1,120 @@
+day: "090"
+lesson: 5
+title: "add_indicators — The Full Indicator Table"
+slides:
+  - type: title
+    heading: "add_indicators"
+    subheading: "One function to enrich the OHLCV DataFrame"
+    narration: >
+      The final lesson ties everything together. add_indicators is the bridge
+      between the data pipeline (market_data.py from Day 89) and everything
+      that follows in Section 7. After today, every analysis, every backtest,
+      every strategy signal starts with one line: enriched equals
+      add_indicators of the raw OHLCV DataFrame.
+
+  - type: concept
+    label: "Nine new columns"
+    heading: "What add_indicators Adds"
+    body: >
+      Nine new columns, all derived from df["Close"].
+    bullets:
+      - "sma_{w}: Simple Moving Average, window w (default 20)"
+      - "ema_{w}: Exponential Moving Average, window w (default 20)"
+      - "rsi_{w}: Relative Strength Index, window w (default 14)"
+      - "macd: fast EMA - slow EMA (default 12/26)"
+      - "macd_signal: EMA of the MACD line (default 9)"
+      - "macd_hist: macd - macd_signal"
+      - "bb_upper / bb_middle / bb_lower: Bollinger Bands (default 20/2σ)"
+    narration: >
+      The column names are parameterized: sma_20, ema_20, rsi_14, rather
+      than just sma, ema, rsi. This means you can call add_indicators twice
+      with different windows and get non-overlapping columns — useful when
+      you want both a 10-day and a 50-day SMA side by side. The MACD and
+      Bollinger Band column names are fixed because they each produce multiple
+      related columns.
+
+  - type: code
+    label: "add_indicators"
+    heading: "The Full Implementation"
+    body: >
+      One function, nine assignments.
+    code: |
+      def add_indicators(df, sma_w=20, ema_w=20, rsi_w=14,
+                         macd_fast=12, macd_slow=26, macd_sig=9,
+                         bb_w=20, bb_std=2.0):
+          df    = df.copy()          # never mutate the input
+          close = df["Close"]
+
+          df[f"sma_{sma_w}"] = sma(close, sma_w)
+          df[f"ema_{ema_w}"] = ema(close, ema_w)
+          df[f"rsi_{rsi_w}"] = rsi(close, rsi_w)
+
+          m = macd(close, macd_fast, macd_slow, macd_sig)
+          df["macd"]        = m["macd"]
+          df["macd_signal"] = m["signal"]
+          df["macd_hist"]   = m["histogram"]
+
+          bb = bollinger_bands(close, bb_w, bb_std)
+          df["bb_upper"]  = bb["upper"]
+          df["bb_middle"] = bb["middle"]
+          df["bb_lower"]  = bb["lower"]
+
+          return df
+    narration: >
+      Notice that the MACD DataFrame column is named "signal" internally, but
+      add_indicators stores it as "macd_signal" in the output. This avoids a
+      naming collision with the broader concept of a trading signal in
+      subsequent days. When Day 92 generates buy and sell signals, it stores
+      them in a column called "signal" — not to be confused with the MACD
+      signal line.
+
+  - type: concept
+    label: "Usage pattern"
+    heading: "The Section 7 Pattern"
+    body: >
+      Every subsequent day in Section 7 starts with this two-line header.
+    bullets:
+      - "store = MarketDataStore(db_path, fetch_fn=...)  — from Day 89"
+      - "df = add_indicators(store.load('AAPL'))  — enriched DataFrame"
+      - "strategy signals = computed from the 9 indicator columns"
+      - "backtest runs on the enriched DataFrame"
+      - "risk module wraps the backtester output"
+    narration: >
+      You have now built the first two layers of the Section 7 stack:
+      market data from Day 89 and technical indicators from today. Days 91
+      and 92 add backtesting and strategy generation. Day 93 adds AI-driven
+      signals from news sentiment. Days 94 through 96 wrap everything in risk
+      management and a paper-trading bot. Every layer uses the layer below
+      it, starting from the OHLCV DataFrame and add_indicators.
+
+  - type: exercise
+    heading: "Exercise 5 — Implement add_indicators"
+    prompt: >
+      Implement add_indicators(df, sma_w, ema_w, rsi_w, macd_fast, macd_slow,
+      macd_sig, bb_w, bb_std) that returns a copy of df with 9 new indicator
+      columns. Use df["Close"] as the price series. Never mutate the input.
+    hint: >
+      Start with df = df.copy() and close = df["Close"]. Then six assignment
+      lines: sma, ema, rsi (simple), then unpack macd() and bollinger_bands()
+      into three columns each.
+    narration: >
+      This is pure integration: you are connecting the four functions you
+      implemented in exercises 1 through 4. If all four pass their checks,
+      add_indicators will pass too. The most common mistake is forgetting
+      df.copy() and inadvertently mutating the input — check 2 catches this.
+
+  - type: summary
+    heading: "Day 90 Complete"
+    bullets:
+      - "sma(series, window): rolling(window).mean() — trend reference"
+      - "ema(series, window): ewm(span, adjust=False) — responsive trend"
+      - "rsi(series, window): gain/loss rolling ratio — momentum 0–100"
+      - "macd(series, fast, slow, signal): three-column momentum DataFrame"
+      - "bollinger_bands(series, window, num_std): three-band volatility envelope"
+      - "add_indicators(df): enriches OHLCV with all 9 indicator columns"
+    narration: >
+      Day 90 is done. You can now transform raw OHLCV data into a rich
+      analytical DataFrame with one function call. Tomorrow, Day 91, you will
+      feed this enriched DataFrame into a backtester: given a set of signals
+      based on these indicators, what would the strategy have returned
+      historically? That is the question backtesting answers.

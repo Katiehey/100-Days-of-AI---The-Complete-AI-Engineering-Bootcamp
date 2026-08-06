@@ -1,0 +1,102 @@
+day: "090"
+lesson: 1
+title: "What Are Technical Indicators?"
+slides:
+  - type: title
+    heading: "Analyzing Markets"
+    subheading: "Technical indicators — SMA, EMA, RSI, MACD, Bollinger Bands"
+    narration: >
+      Day 90. You have market data — a clean OHLCV DataFrame from yesterday's
+      pipeline. Today you turn raw prices into actionable signals by computing
+      technical indicators. SMA, EMA, RSI, MACD, and Bollinger Bands are the
+      five most widely used indicators in systematic trading. By the end of
+      today you will be able to compute all five from scratch and combine them
+      into an enriched DataFrame that feeds directly into the backtester on
+      Day 91.
+
+  - type: concept
+    label: "What indicators are"
+    heading: "Indicators: Derived Statistics from Price"
+    body: >
+      Every indicator is a mathematical transform of OHLCV data.
+    bullets:
+      - "Trend indicators: SMA, EMA — where is price going?"
+      - "Momentum indicators: RSI, MACD — how fast is it moving?"
+      - "Volatility indicators: Bollinger Bands — how wide is the range?"
+      - "All three categories are complementary — use at least one of each"
+      - "Indicators lag price — they describe the past, not the future"
+    narration: >
+      The core insight about technical indicators is that they are backward-
+      looking. A 20-day SMA tells you the average price over the last 20 days.
+      It says nothing about the next day. Traders use them to identify patterns
+      that have been statistically associated with certain price movements —
+      not because the indicator predicts the future, but because it signals
+      when a particular market condition is present. Understanding this
+      limitation is as important as knowing the formula.
+
+  - type: concept
+    label: "Look-ahead bias"
+    heading: "The Golden Rule: No Look-Ahead Bias"
+    body: >
+      An indicator computed on day T must use only data up to day T.
+    bullets:
+      - "Signal at row i uses only rows 0 through i — never row i+1"
+      - "Rolling windows enforce this automatically: rolling(20).mean()"
+      - "Look-ahead bias inflates backtest returns — they look great but lie"
+      - "The most common form: using tomorrow's open to determine today's position"
+      - "In Day 91, signals.shift(1) before computing returns — the fix"
+    narration: >
+      Look-ahead bias is the most dangerous mistake in quantitative finance.
+      If your backtest peeks at future prices to generate a signal, the strategy
+      will look profitable in simulation but lose money in live trading. Pandas
+      rolling operations are your friend: rolling(20).mean() at position i uses
+      exactly positions i-19 through i — no peeking ahead. When you shift
+      signals by 1 in the backtester, you say: I saw this signal at the end of
+      today, so I trade at the start of tomorrow.
+
+  - type: concept
+    label: "NaN at the start"
+    heading: "First window-1 Values Are NaN — by Design"
+    body: >
+      Rolling indicators need a full window before they can produce a result.
+    bullets:
+      - "SMA(20): positions 0–18 are NaN; position 19 is the first value"
+      - "RSI(14): positions 0–13 are NaN; position 14 is the first value"
+      - "EMA: no NaN — starts from the very first observation"
+      - "MACD: no NaN — built from EMA, which has no NaN"
+      - "Handle NaN in downstream code: fillna(0) for positions, dropna() for fit"
+    narration: >
+      When you first run SMA with window 20 on 100 rows of data, you get 19
+      NaN values at the start. This is correct — there is not enough data to
+      compute a 20-day average for days 1 through 19. Do not fill these with
+      zeros or the previous value unless you have a specific reason. In the
+      backtester, NaN signals get filled with zero positions — meaning: hold
+      nothing during the warmup period. This is the right behaviour.
+
+  - type: exercise
+    heading: "Exercise 1 — Implement SMA and EMA"
+    prompt: >
+      Implement sma(series, window=20) using series.rolling(window).mean().
+      Implement ema(series, window=20) using series.ewm(span=window,
+      adjust=False).mean(). Neither function mutates the input.
+    hint: >
+      For SMA: one line. For EMA: one line. The checks test that SMA has
+      window-1 leading NaN values and that EMA has none.
+    narration: >
+      One line each. The value of this exercise is not the implementation —
+      it is understanding why the outputs look the way they do. After you
+      pass the checks, compare SMA and EMA on the synthetic data: notice how
+      EMA tracks price changes faster because recent values get more weight.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Technical indicators are backward-looking derived statistics"
+      - "Three categories: trend (SMA/EMA), momentum (RSI/MACD), volatility (BB)"
+      - "Look-ahead bias: signal at t can only use data up to t"
+      - "First window-1 values are NaN for rolling indicators"
+      - "Next: RSI — measuring momentum"
+    narration: >
+      You now understand the landscape. The next four lessons drill into
+      each indicator: the formula, the intuition, and the implementation.
+      SMA and EMA are done. Next: RSI.

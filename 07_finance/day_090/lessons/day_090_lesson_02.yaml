@@ -1,0 +1,106 @@
+day: "090"
+lesson: 2
+title: "Moving Averages — SMA and EMA"
+slides:
+  - type: title
+    heading: "Moving Averages"
+    subheading: "SMA and EMA — the foundation of trend analysis"
+    narration: >
+      Moving averages are the most-used tools in technical analysis. They
+      smooth price data to reveal the underlying trend without the noise of
+      daily fluctuations. The Simple Moving Average treats all days equally.
+      The Exponential Moving Average weights recent days more heavily. Both are
+      one line of pandas. Understanding when to use each is the skill.
+
+  - type: concept
+    label: "SMA"
+    heading: "Simple Moving Average"
+    body: >
+      SMA(n) at time t = average of the last n closing prices.
+    bullets:
+      - "SMA(20) at day 20 = mean(Close[1..20])"
+      - "SMA(20) at day 21 = mean(Close[2..21]) — drops oldest, adds newest"
+      - "pandas: series.rolling(window=20).mean()"
+      - "Popular windows: 20 (short), 50 (medium), 200 (long-term trend)"
+      - "Price above SMA: uptrend. Price below SMA: downtrend."
+    narration: >
+      The 200-day SMA is watched by professional traders worldwide. When a
+      stock's price crosses above its 200-day SMA, it is called the golden
+      cross — a bullish signal. When it crosses below, it is called the death
+      cross — bearish. These names are dramatic but the concept is simple: is
+      the current price above or below its long-run average? That single
+      question drives a lot of systematic trading decisions.
+
+  - type: concept
+    label: "EMA"
+    heading: "Exponential Moving Average"
+    body: >
+      EMA weights recent prices more heavily using a decay factor.
+    bullets:
+      - "alpha = 2 / (window + 1)  — the smoothing factor"
+      - "EMA[t] = alpha * Price[t] + (1-alpha) * EMA[t-1]"
+      - "pandas: series.ewm(span=window, adjust=False).mean()"
+      - "EMA(12) reacts faster than SMA(12) — same window, different weights"
+      - "No initial NaN — EMA starts from the very first price"
+    narration: >
+      The exponential decay means that yesterday's price matters more than the
+      price from two weeks ago, which matters more than the price from a month
+      ago. With a window of 12 and alpha of 2/13, a price move today has
+      twice the impact on EMA(12) that the same-sized move from 13 days ago
+      has. This makes EMA more responsive but also more susceptible to noise.
+      The choice between SMA and EMA depends on whether you want a more stable
+      or a more responsive signal.
+
+  - type: code
+    label: "SMA vs EMA"
+    heading: "Comparing SMA and EMA on Synthetic Data"
+    body: >
+      See the difference in responsiveness.
+    code: |
+      close = df["Close"]
+
+      s = sma(close, 20)   # rolling mean, 19 NaN at start
+      e = ema(close, 20)   # exponential, no NaN
+
+      # On a price series with a sudden jump:
+      # EMA reacts immediately — it updates on every new price
+      # SMA catches up after window/2 periods
+
+      # Crossover signal: price above SMA(20) = buy candidate
+      signal = (close > s).astype(int)   # 1 above, 0 below, NaN where s is NaN
+    narration: >
+      A simple moving average crossover — price crossing above or below the
+      SMA — is one of the oldest trading signals. It is not particularly
+      profitable on its own, but it is a useful building block. In Day 92,
+      you will combine multiple signals into a more robust strategy. For now,
+      the important pattern is: compute the indicator, then compare the price
+      to the indicator. The comparison generates a boolean or integer signal
+      that the backtester can act on.
+
+  - type: exercise
+    heading: "Exercise 1 — SMA and EMA (continued)"
+    prompt: >
+      Your SMA and EMA implementations from the previous exercise. If you have
+      not done Exercise 1 yet, complete it now before running this lesson's
+      checks.
+    hint: >
+      Check 5 tests EMA convergence on a step function: 10 zeros followed by
+      20 tens. With span=3, the EMA should be above 9.0 at the final position.
+    narration: >
+      Two implementations, two lines of code. The skill is in reading the
+      output. After you run the checks, try changing the window: sma(close, 5)
+      versus sma(close, 50). The shorter the window, the noisier but faster
+      the indicator. The longer the window, the smoother but slower.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "SMA: rolling(window).mean() — equal weighting, window-1 NaN"
+      - "EMA: ewm(span=window, adjust=False).mean() — exponential decay, no NaN"
+      - "alpha = 2/(window+1) — the decay rate"
+      - "EMA responds faster; SMA is more stable"
+      - "Next: RSI — measuring momentum, not trend"
+    narration: >
+      Moving averages tell you the direction of the trend. RSI tells you the
+      strength of the momentum. They answer different questions and complement
+      each other. Next lesson: RSI.
