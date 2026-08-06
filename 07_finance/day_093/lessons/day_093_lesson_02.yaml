@@ -1,0 +1,111 @@
+day: "093"
+lesson: 2
+title: "Scoring a Headline"
+slides:
+  - type: title
+    heading: "score_headline"
+    subheading: "Build prompt → call LLM → parse response"
+    narration: >
+      score_headline is the core function: three steps in five lines. Build
+      the messages, call the LLM or the injected mock, parse the response with
+      parse_score. Every other function in sentiment.py is either a utility
+      (parse_score, build_sentiment_prompt) or a higher-level wrapper
+      (score_headlines, aggregate_sentiment). This is the one that actually
+      touches the language model.
+
+  - type: code
+    label: "score_headline"
+    heading: "Three Steps, Five Lines"
+    body: >
+      The injection branch decides production vs. test path.
+    code: |
+      def score_headline(headline, llm_fn=None):
+          messages = build_sentiment_prompt(headline)
+          if llm_fn is not None:
+              response = llm_fn(messages)
+          else:
+              import ollama
+              response = ollama.chat(
+                  model="llama3.2",
+                  messages=messages,
+              )["message"]["content"]
+          return parse_score(response)
+
+      # Production: score_headline("Markets fall", llm_fn=None)  → Ollama
+      # Testing:    score_headline("Markets fall", _mock_llm)     → mock
+    narration: >
+      The lazy import — import ollama inside the else branch — means the module
+      loads without error even when ollama is not installed. The import only
+      runs in production. In a course gate or unit test where llm_fn is always
+      provided, ollama is never imported. This is the same pattern used for
+      yfinance in market_data.py on Day 89.
+
+  - type: concept
+    label: "Prompt quality"
+    heading: "Why 'Reply with ONLY a number' Matters"
+    body: >
+      LLMs are verbose by default. Constraining the format reduces parse failures.
+    bullets:
+      - "Without constraint: 'The sentiment of this headline is positive, I would score it 0.7'"
+      - "With constraint: '0.7'"
+      - "parse_score handles both — but the first form is slower and noisier"
+      - "Temperature = 0 (or very low) gives more consistent number outputs"
+      - "Few-shot examples in the system prompt further reduce format variance"
+    narration: >
+      LLMs trained for conversation tend to explain their answers. A system
+      prompt that says 'reply with ONLY a single decimal number' reduces but
+      does not eliminate explanatory text. The regex in parse_score finds the
+      number regardless of surrounding words — a deliberate defense-in-depth.
+      In production, you might add a few-shot example in the system prompt:
+      'Example — Headline: Markets rally. Response: 0.7' to further anchor the
+      model to the format you expect.
+
+  - type: concept
+    label: "Score interpretation"
+    heading: "Reading Sentiment Scores"
+    body: >
+      The number range [-1.0, 1.0] maps naturally to market expectations.
+    bullets:
+      - "+1.0: extremely bullish — strong buy signal"
+      - "+0.5 to +0.9: moderately bullish — lean long"
+      - "-0.1 to +0.1: neutral — stay flat"
+      - "-0.5 to -0.9: moderately bearish — avoid or short"
+      - "-1.0: extremely bearish — strong exit signal"
+    narration: >
+      The threshold in sentiment_to_signal defaults to 0.1. This means the
+      signal only goes long if the aggregate sentiment is above 0.1 — above
+      the neutral zone. You can tune this threshold: a higher threshold (0.3)
+      means you only trade on strong positive sentiment, fewer trades but higher
+      conviction. A lower threshold (0.05) means you trade on mild positivity,
+      more trades but more noise. The right threshold depends on the specific
+      market and model.
+
+  - type: exercise
+    heading: "Exercise 2 — Implement score_headline"
+    prompt: >
+      Implement score_headline(headline, llm_fn=None) following the three steps.
+      Check 4 verifies that llm_fn is called with a list of messages (not a
+      plain string). Check 5 verifies that 0.0 is returned when the LLM
+      response contains no parseable number.
+    hint: >
+      Checks 2 and 3 use _mock_llm which returns "0.75" for bullish keywords
+      and "-0.60" for bearish keywords. A headline containing "surge" or "rally"
+      will return a positive score; one with "crash" or "fall" returns negative.
+    narration: >
+      Check 4 uses a capturing lambda to verify the argument type. This tests
+      that you are passing the messages list from build_sentiment_prompt, not
+      just the raw headline string. The LLM API expects a structured messages
+      list — passing a plain string would cause an error in production.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "score_headline: build prompt → call LLM (or mock) → parse → return float"
+      - "Lazy import ollama: only imported when llm_fn is None"
+      - "Prompt constraint: 'reply with ONLY a number' reduces format variance"
+      - "parse_score handles messy output as a fallback"
+      - "Next: batch scoring over multiple headlines"
+    narration: >
+      One function, three steps. Next: score_headlines maps it over a list.
+      After that, aggregate_sentiment combines the list into a single score.
+      Then sentiment_to_signal converts that score into the {0,1} trading signal.

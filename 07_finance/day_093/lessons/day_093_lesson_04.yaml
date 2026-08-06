@@ -1,0 +1,119 @@
+day: "093"
+lesson: 4
+title: "SentimentSignal — The Stateful Class"
+slides:
+  - type: title
+    heading: "SentimentSignal"
+    subheading: "Stateful wrapper with history — the Section 6 pattern"
+    narration: >
+      SentimentSignal follows the same four-method design used throughout
+      Section 6 for agents and tools: a constructor that stores configuration,
+      a primary action method, a batch version, and a history for auditability.
+      The difference from Section 6 is that the 'action' here is not an LLM
+      chat — it is a structured scoring pipeline. The result is a trading signal
+      rather than a text response.
+
+  - type: concept
+    label: "Class design"
+    heading: "SentimentSignal: Constructor and State"
+    body: >
+      Two configuration parameters; one stateful list.
+    bullets:
+      - "__init__(llm_fn=None, threshold=0.1)"
+      - "_llm_fn: the injected or None LLM callable"
+      - "_threshold: minimum positive score to go long"
+      - "_history: list of {headline, score} dicts — append on every score"
+      - "history() returns a copy — internal state is not exposed directly"
+    narration: >
+      Storing the LLM function at construction time means you set it once and
+      call score or score_many many times without repeating the argument. The
+      threshold is similarly fixed at construction — in a live system you would
+      calibrate it on historical data before deploying. The history list is an
+      internal detail — callers get a copy from history() so they cannot mutate
+      the internal record.
+
+  - type: code
+    label: "SentimentSignal"
+    heading: "The Full Class"
+    body: >
+      Twelve lines; follows the Section 6 agent pattern.
+    code: |
+      class SentimentSignal:
+          def __init__(self, llm_fn=None, threshold=0.1):
+              self._llm_fn    = llm_fn
+              self._threshold = threshold
+              self._history   = []
+
+          def score(self, headline):
+              s = score_headline(headline, self._llm_fn)
+              self._history.append({"headline": headline, "score": s})
+              return s
+
+          def score_many(self, headlines):
+              return [self.score(h) for h in headlines]
+
+          def signal_from(self, headlines):
+              scores = self.score_many(headlines)
+              return sentiment_to_signal(
+                  aggregate_sentiment(scores), self._threshold)
+
+          def history(self): return list(self._history)
+          def clear_history(self): self._history.clear()
+    narration: >
+      score_many calls self.score (not the module-level score_headline directly)
+      so that every call is recorded in history. signal_from calls score_many
+      for the same reason — every headline in a batch is recorded. After running
+      a full day of signals, history() gives you a complete audit trail: every
+      headline, its score, and by extension every position the system took.
+      This is essential for explaining trading decisions in a regulated context.
+
+  - type: concept
+    label: "Auditability"
+    heading: "Why History Matters for AI Trading"
+    body: >
+      AI-driven signals must be explainable — history() provides the evidence.
+    bullets:
+      - "Regulators: 'Why did your system go long on March 15th?'"
+      - "Answer: three bullish headlines, mean score 0.65, above threshold 0.1"
+      - "history() provides the complete headline→score→decision chain"
+      - "Without history: black box — unusable in regulated environments"
+      - "With history: white box — every decision is reproducible and auditable"
+    narration: >
+      The history pattern is not just good engineering — in financial services
+      it may be a regulatory requirement. MiFID II in Europe, for example,
+      requires firms to document the basis for algorithmic trading decisions.
+      An LLM that reads headlines and produces signals must have a log of
+      which headlines were read, what scores were assigned, and what signal
+      was generated. history() is the start of that log. A production system
+      would also persist history to a database and include timestamps, model
+      versions, and headline sources.
+
+  - type: exercise
+    heading: "Exercise 5 — Implement SentimentSignal"
+    prompt: >
+      Implement the five methods of SentimentSignal. The stub has the correct
+      constructor — implement score (calls score_headline + appends to history),
+      score_many (calls self.score), signal_from (calls score_many, aggregate,
+      threshold), history (returns copy), clear_history (clears in-place).
+    hint: >
+      Check 4 tests that history() returns a COPY by mutating the returned list
+      and checking that the internal state is unchanged. If check 4 fails, you
+      returned self._history directly instead of list(self._history).
+    narration: >
+      The most common mistake is check 4: returning self._history instead of
+      list(self._history). The copy is important — callers can iterate or
+      modify the returned list without corrupting the internal record.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "SentimentSignal: follows Section 6 four-method agent pattern"
+      - "score() records every call in history — audit trail"
+      - "score_many() calls self.score — not the module function — for recording"
+      - "signal_from() integrates batch → aggregate → threshold in one call"
+      - "history() returns a copy; clear_history() resets the record"
+    narration: >
+      SentimentSignal is complete. The next lesson puts it all together:
+      how to build a daily signal Series for a full year of synthetic data
+      and connect it to the backtest engine. That is the integration that
+      ties Days 89 through 93 into one coherent pipeline.

@@ -1,0 +1,86 @@
+day: "093"
+lesson: 1
+title: "AI-Driven Signals: Why News Moves Markets"
+slides:
+  - type: title
+    heading: "AI-Driven Signals"
+    subheading: "Turn news headlines into trading signals with an LLM"
+    narration: >
+      Day 93. Today you add a fifth signal type to the strategy layer: AI-driven
+      news sentiment. Instead of computing signals from price data alone, you will
+      call a language model to read a financial headline and score it from negative
+      one (very bearish) to positive one (very bullish). That score becomes a
+      trading signal. The key insight is that price movements are often preceded
+      by news events — earnings surprises, central bank announcements, economic
+      data releases. An AI that reads and scores those events before the market
+      fully reacts has a potential information edge.
+
+  - type: concept
+    label: "News and price"
+    heading: "Why News Matters for Price"
+    body: >
+      Markets move on information. News is the primary source of new information.
+    bullets:
+      - "Earnings beats: stock often rises before and after the announcement"
+      - "Central bank signals: rate expectations move bonds and equities globally"
+      - "Economic data: jobs numbers, inflation, GDP revisions shift entire sectors"
+      - "Sentiment precedes price: pessimism builds before a sell-off"
+      - "AI reads faster than humans: scoring 100 headlines takes seconds"
+    narration: >
+      The efficient market hypothesis says that all public information is
+      instantly priced in. In practice, markets process news gradually — there is
+      a 'price discovery' period after a news event during which the signal can
+      still be acted on. News sentiment analysis does not try to beat the market
+      in the first millisecond. It tries to identify the aggregate direction of
+      information flow — is today's news predominantly positive or negative for
+      this asset? — and take a position accordingly.
+
+  - type: concept
+    label: "Injection pattern"
+    heading: "The llm_fn Injection Pattern"
+    body: >
+      Every sentiment function accepts llm_fn=None; production uses Ollama.
+    bullets:
+      - "llm_fn(messages: list[dict]) -> str — same shape as Ollama chat"
+      - "If llm_fn is not None: call it (testing, faster)"
+      - "If llm_fn is None: import ollama; call llama3.2 (production)"
+      - "Gate always injects _mock_llm — keyword-based, deterministic, no network"
+      - "This pattern appeared in Section 6 agents — same design, new application"
+    narration: >
+      The injection pattern is the same one you used throughout Section 6 for
+      agent LLM calls. A function that accepts llm_fn=None can be tested
+      deterministically without a running model. In production you pass nothing
+      and Ollama handles the call. For the course gate, a keyword-based mock
+      returns a predictable score string for any headline containing known words
+      like 'surge' or 'crash'. This design separates the AI logic from the AI
+      dependency — a hallmark of good AI engineering.
+
+  - type: exercise
+    heading: "Exercise 1 — parse_score and build_sentiment_prompt"
+    prompt: >
+      Implement parse_score(text) to extract the first float from the text
+      using re.findall(r"-?\d+(?:\.\d+)?", text) and clamp to [-1.0, 1.0].
+      Return 0.0 if no number found. Implement build_sentiment_prompt(headline)
+      to return a list with system and user messages.
+    hint: >
+      The regex r"-?\d+(?:\.\d+)?" matches optional minus, digits, optional
+      decimal point and more digits. Check 3 tests clamping: parse_score("-1.9")
+      should return -1.0, not -1.9. Check 5 tests that the headline appears in
+      the user message content.
+    narration: >
+      These two functions are the interface layer. parse_score handles the
+      messiness of real LLM output: sometimes the model says 'Score: 0.8',
+      sometimes just '0.8', sometimes a sentence with the number embedded.
+      The regex finds it regardless of context.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "News sentiment: LLM scores headlines from -1.0 to 1.0"
+      - "llm_fn injection: same pattern as Section 6 agents"
+      - "parse_score: regex + clamp — robust against messy LLM output"
+      - "build_sentiment_prompt: system instructs score format; user = headline"
+      - "Next: the full scoring pipeline — one headline at a time"
+    narration: >
+      The building blocks are in place. Next lesson: score_headline, the
+      function that actually calls the LLM and returns a float.

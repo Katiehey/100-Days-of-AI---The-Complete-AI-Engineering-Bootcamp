@@ -1,0 +1,123 @@
+day: "093"
+lesson: 5
+title: "Connecting Sentiment to the Backtest"
+slides:
+  - type: title
+    heading: "Sentiment → Signal → Backtest"
+    subheading: "The full Section 7 stack in one pipeline"
+    narration: >
+      The final lesson shows how to connect the sentiment pipeline to the
+      backtest engine. The bridge is simple: build a pd.Series of signals
+      aligned to the OHLCV index, where each day's signal comes from that
+      day's headlines. Pass the series to run_backtest. The rest is identical
+      to the price-based strategies from Day 92 — the backtester does not know
+      or care whether signals came from RSI or from LLM-scored headlines.
+
+  - type: concept
+    label: "Signal construction"
+    heading: "Building a Sentiment Signal Series"
+    body: >
+      Map headlines to signals over the OHLCV date range.
+    bullets:
+      - "For each date in df.index: collect headlines for that date"
+      - "ss.signal_from(day_headlines) → 0 or 1"
+      - "pd.Series(signals_dict, index=df.index) → aligned Series"
+      - "Pass to run_backtest(df, signal_series)"
+      - "Shift is applied inside run_backtest — same as price-based signals"
+    narration: >
+      In a live system, you would fetch real headlines from a financial news API
+      such as NewsAPI, Reuters, or Bloomberg. In the course exercises, you use
+      the keyword-based mock that returns deterministic scores. The code structure
+      is identical — swap the mock for a real API call and the pipeline produces
+      live signals. This is the modular design that makes the injection pattern
+      valuable: the backtest code never changes, only the LLM and the headline
+      source change.
+
+  - type: concept
+    label: "Combining signals"
+    heading: "Sentiment + Technical: Combined Alpha"
+    body: >
+      Sentiment and price-based signals are independent — combine them for higher confidence.
+    bullets:
+      - "Sentiment signal: news says bullish"
+      - "SMA crossover: price trend says bullish"
+      - "Combined: long only when BOTH agree"
+      - "Same confluence pattern as Day 92's combined_signal"
+      - "More filters = fewer trades = higher quality per entry"
+    narration: >
+      Sentiment and technical signals are generated from completely different
+      data sources — news text versus price history — so they are largely
+      independent. When both point in the same direction, the probability of
+      a profitable trade is higher than when only one does. Day 94 will add
+      risk management on top of this multi-signal foundation. By Day 95,
+      you will have a paper-trading bot that combines sentiment, technical
+      signals, and risk filters into an automated system.
+
+  - type: code
+    label: "Full pipeline"
+    heading: "Sentiment Signal in 10 Lines"
+    body: >
+      Generating a daily signal Series from headlines.
+    code: |
+      import pandas as pd
+
+      # Synthetic: one headline per day based on price direction
+      ss  = SentimentSignal(llm_fn=_mock_llm, threshold=0.1)
+      raw_signals = {}
+
+      for i, date in enumerate(df.index):
+          direction = df["Close"].iloc[i] - df["Close"].iloc[max(0, i-1)]
+          if direction > 1.0:
+              headlines = ["Markets rally on strong momentum"]
+          elif direction < -1.0:
+              headlines = ["Markets decline on selling pressure"]
+          else:
+              headlines = ["Markets trade mixed in quiet session"]
+          raw_signals[date] = ss.signal_from(headlines)
+
+      signal_series = pd.Series(raw_signals, index=df.index)
+      result = run_backtest(df, signal_series, "Sentiment")
+    narration: >
+      The loop generates one headline per day based on the synthetic price
+      direction — when prices rise, a bullish headline; when they fall, a
+      bearish one. In production, headline_fn would fetch real news. The
+      structure of the loop is identical regardless of the headline source.
+      run_backtest applies shift(1) inside, so today's headline signal
+      enters the portfolio tomorrow — correct causal structure.
+
+  - type: exercise
+    heading: "Project — Sentiment Pipeline Dashboard"
+    prompt: >
+      The project notebook walks through the complete pipeline: score batches
+      of bullish, bearish, and neutral headlines with the mock LLM, build a
+      signal Series over 20 days, run the backtest, and print the metrics.
+      No Ollama required — the mock LLM provides deterministic, instant scores.
+    hint: >
+      The project uses a helper that maps headline type to signal for 20 days.
+      After running, check that result["n_trades"] > 0 — if signals never
+      change, there are zero trades. If all signals are 0 (flat), check that
+      your aggregate_sentiment returns a value above 0.1 for bullish headlines.
+    narration: >
+      This is the payoff for Day 93: an LLM-based signal running through a
+      proper backtest. The signal source is AI; the evaluation framework is
+      the same as any price-based strategy. After today, all the signals —
+      SMA, RSI, MACD, combined, sentiment — can be compared in the same table.
+      Tomorrow, Day 94, you add risk management: position sizing, stop-losses,
+      and drawdown limits.
+
+  - type: summary
+    heading: "Day 93 Complete"
+    bullets:
+      - "parse_score: regex extract + clamp — robust against LLM format variance"
+      - "build_sentiment_prompt: system (score format) + user (headline)"
+      - "score_headline / score_headlines: LLM call with injection pattern"
+      - "aggregate_sentiment: mean + clamp; 0.0 for empty list"
+      - "sentiment_to_signal: > threshold → 1; else → 0"
+      - "SentimentSignal: stateful class with history for auditing"
+    narration: >
+      Six functions and one class. The Section 7 signal layer now has five
+      generators: SMA crossover, RSI mean reversion, MACD crossover, combined
+      technical, and news sentiment. Each produces a {0,1} Series that can be
+      backtested with the same run_backtest call. Day 94 adds the final control
+      layer: risk management — the module that keeps the strategy from blowing
+      up when signals are wrong.

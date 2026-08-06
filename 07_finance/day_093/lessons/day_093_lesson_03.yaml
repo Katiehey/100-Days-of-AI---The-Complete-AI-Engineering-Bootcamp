@@ -1,0 +1,114 @@
+day: "093"
+lesson: 3
+title: "Batch Scoring and Parsing"
+slides:
+  - type: title
+    heading: "Batch Scoring"
+    subheading: "Score many headlines, aggregate into one daily signal"
+    narration: >
+      A single headline is rarely sufficient to make a trading decision. News
+      flows continuously — multiple headlines per hour, per day. Scoring all
+      of them and aggregating into a mean sentiment gives a more stable signal
+      than any single headline. This lesson covers score_headlines for batch
+      processing, aggregate_sentiment for reducing the batch to one number, and
+      the robust parsing design that makes the pipeline fault-tolerant.
+
+  - type: concept
+    label: "Batch to aggregate"
+    heading: "From Many Headlines to One Daily Signal"
+    body: >
+      Five steps from raw text to a trading position.
+    bullets:
+      - "Step 1: collect today's headlines (earnings, macro, company news)"
+      - "Step 2: score_headlines → list of floats"
+      - "Step 3: aggregate_sentiment → mean score (clamped)"
+      - "Step 4: sentiment_to_signal → 0 or 1"
+      - "Step 5: pass to run_backtest as the signal Series for that day"
+    narration: >
+      In a production system, you would run this pipeline once per day after
+      market close: fetch the day's headlines from a news API, score each one,
+      aggregate, apply the threshold, and store the signal. The next day, you
+      execute the signal at market open. This is exactly the look-ahead prevention
+      from backtester.py: you observe the news today and trade tomorrow.
+      The sentiment signal, like any indicator-based signal, is subject to the
+      same shift(1) rule in run_backtest.
+
+  - type: concept
+    label: "Fault tolerance"
+    heading: "Robust Parsing for AI Pipelines"
+    body: >
+      In production, LLMs occasionally return unexpected output. Design for failure.
+    bullets:
+      - "parse_score returns 0.0 (neutral) if no number found — never crashes"
+      - "Neutral default: missing data → hold position, not random entry"
+      - "Clamping prevents out-of-range scores from breaking downstream math"
+      - "Aggregate over many headlines: one bad response has little impact"
+      - "Log all raw LLM responses for debugging (history() in SentimentSignal)"
+    narration: >
+      Fault tolerance is the difference between a research prototype and a
+      production system. If one LLM call returns 'I cannot process this request'
+      instead of a number, parse_score returns 0.0 and the pipeline continues.
+      If you averaged ten headlines and one is 0.0 (neutral default), the impact
+      on the aggregate is small. The history() method in SentimentSignal records
+      every raw response for later inspection — if the model starts misbehaving,
+      the history tells you which headlines triggered the problem.
+
+  - type: code
+    label: "Batch pipeline"
+    heading: "Five Lines from Headlines to Signal"
+    body: >
+      The complete daily sentiment pipeline.
+    code: |
+      headlines = [
+          "Tech stocks surge on AI earnings beat",
+          "Fed signals rate pause — markets rally",
+          "Consumer confidence rises to six-month high",
+      ]
+
+      scores = score_headlines(headlines, llm_fn=_mock_llm)
+      # e.g. [0.75, 0.75, 0.10]
+
+      agg    = aggregate_sentiment(scores)
+      # e.g. 0.533
+
+      signal = sentiment_to_signal(agg, threshold=0.1)
+      # e.g. 1 (go long)
+    narration: >
+      This is the complete pipeline for one trading day. In practice you would
+      wrap this in a function and call it once per day, storing the signal in
+      a Series aligned to your OHLCV index. The series then gets passed to
+      run_backtest, which applies shift(1) before computing strategy returns.
+      The sentiment signal obeys the same look-ahead rules as every other
+      signal: information from day t produces a position on day t+1.
+
+  - type: exercise
+    heading: "Exercises 3 and 4 — Batch Scoring + Aggregation"
+    prompt: >
+      Exercise 3: implement score_headlines(headlines, llm_fn=None) as a one-line
+      list comprehension. Exercise 4: implement aggregate_sentiment(scores) as
+      mean + clamp, returning 0.0 for empty; and sentiment_to_signal(sentiment,
+      threshold=0.1) returning 1 if sentiment > threshold else 0.
+    hint: >
+      Exercise 4 check 5 is the full pipeline: bullish headlines → scores →
+      aggregate → signal = 1. If it fails, trace through each step: print
+      scores, then agg, then sig. The mock returns 0.75 for bullish keywords,
+      so the mean of 4 bullish headlines should be 0.75.
+    narration: >
+      Both exercises are short. The value is in understanding the data flow:
+      strings → LLM → float list → mean → threshold → 0 or 1. Each step
+      reduces information: from many words to one number per headline, to one
+      number per day, to one bit. That final bit is your trading decision.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "score_headlines: map score_headline over a list"
+      - "aggregate_sentiment: mean of scores; 0.0 for empty"
+      - "sentiment_to_signal: > threshold → 1; else → 0"
+      - "Fault tolerance: 0.0 default when parsing fails"
+      - "Next: SentimentSignal — the stateful class with history"
+    narration: >
+      The functional pipeline is complete. The last lesson adds the stateful
+      SentimentSignal class, which wraps the pipeline and records every score
+      for auditing. This is the form you would use in a real trading system —
+      a class with history, not raw functions.
