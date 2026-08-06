@@ -1,0 +1,108 @@
+day: "094"
+lesson: 3
+title: "Drawdown Limits and Regime Filters"
+slides:
+  - type: title
+    heading: "Drawdown Limits"
+    subheading: "Stop trading when the market is against you"
+    narration: >
+      A drawdown limit is a portfolio-level rule: when the market has fallen
+      more than a fixed percentage from its recent peak, stop all trading and
+      go to cash. The 20% default is a common threshold — a 20% market decline
+      typically signals a bear market or serious economic stress. Many systematic
+      funds stop trading entirely during such periods, preserving capital until
+      conditions improve.
+
+  - type: concept
+    label: "Market drawdown"
+    heading: "Market Drawdown as a Regime Signal"
+    body: >
+      Deep drawdowns signal that market conditions have changed.
+    bullets:
+      - "market_drawdown[i] = (price[i] − peak[i]) / peak[i]"
+      - "Always ≤ 0: 0.0 at all-time highs, negative otherwise"
+      - "-0.20 threshold: stop trading in a 20%+ market decline"
+      - "Why: strategies calibrated on normal markets fail in crises"
+      - "Preservation over performance: surviving is more important than profit"
+    narration: >
+      The 2008–2009 financial crisis saw the S&P 500 fall 57% from peak to
+      trough. Many systematic strategies that performed well in normal markets
+      continued to generate buy signals during the decline — and lost enormous
+      amounts. A simple rule — stop trading when the market is down more than
+      20% from its recent peak — would have kept those strategies in cash
+      through most of the crisis. The drawdown limit is crude but effective.
+
+  - type: code
+    label: "Implementation"
+    heading: "market_drawdown and apply_drawdown_limit"
+    body: >
+      Two functions, four lines total.
+    code: |
+      def market_drawdown(prices):
+          peak = prices.cummax()          # rolling maximum
+          return (prices - peak) / peak   # Series ≤ 0
+
+      def apply_drawdown_limit(signals, prices, limit=-0.20):
+          dd     = market_drawdown(prices)
+          result = signals.copy().astype(int)
+          result[dd < limit] = 0          # zero signals in deep drawdown
+          return result
+
+      # Unlike apply_stop_loss, no loop needed — vectorised boolean mask
+      # cummax() handles the "rolling peak" at each bar
+    narration: >
+      market_drawdown reuses the same cummax logic from max_drawdown in the
+      backtester, but returns a Series instead of a scalar minimum. apply_drawdown_limit
+      then uses boolean indexing — a pandas one-liner — to zero all signals where
+      the drawdown is worse than the limit. No loop, no state — this is the power
+      of vectorised operations for regime filters that depend only on current market
+      state rather than trade history.
+
+  - type: concept
+    label: "Combined filters"
+    heading: "Order of Risk Filters Matters"
+    body: >
+      Apply stop-loss before drawdown limit for logical consistency.
+    bullets:
+      - "Stop-loss: trade-level, tracks individual position entry"
+      - "Drawdown limit: portfolio-level, tracks aggregate market performance"
+      - "Order: stop-loss first, drawdown limit second"
+      - "Alternative: drawdown limit first (prevent entries in bad regime)"
+      - "RiskManager.filter() applies stop → drawdown in that order"
+    narration: >
+      The RiskManager applies stop-loss first, then drawdown limit. This means:
+      first, trim individual losing trades that have exceeded their exit threshold.
+      Then, zero out any remaining signals that are in a bad market regime.
+      The result is a doubly-filtered signal: only trades that have not been
+      stopped out and are not in a drawdown-limited regime survive.
+
+  - type: exercise
+    heading: "Exercise 3 — market_drawdown and apply_drawdown_limit"
+    prompt: >
+      Implement market_drawdown(prices) as (prices - prices.cummax()) / prices.cummax().
+      Implement apply_drawdown_limit(signals, prices, limit=-0.20) using boolean
+      indexing. Check 3 uses prices [100, 110, 120, 90, 80] — the drawdown exceeds
+      -20% at bars 3 and 4, zeroing those signals.
+    hint: >
+      Check 5: limit=-1.0 means "trigger only when 100% below peak" which is
+      impossible, so all signals stay 1. This verifies that a very loose limit
+      does not filter anything. Check 4: limit=-0.10 on the sine-wave data
+      should trigger during the price decline phase.
+    narration: >
+      Two functions, three lines total. The key insight is the comparison:
+      dd < limit is True when drawdown is more negative than limit. Since both
+      are negative numbers, -0.25 < -0.20 is True (more severe drawdown).
+      If you write dd > limit, you will get the opposite behavior.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "market_drawdown: running distance below rolling peak"
+      - "apply_drawdown_limit: zero signals where dd < limit"
+      - "20% drawdown threshold: typical bear market entry"
+      - "Vectorised (no loop): faster and cleaner than stop-loss"
+      - "Next: RiskManager — combine both into one class"
+    narration: >
+      Both functions are complete. Next lesson: the RiskManager class, which
+      combines stop-loss and drawdown limit into a single filter call with
+      a summary report.

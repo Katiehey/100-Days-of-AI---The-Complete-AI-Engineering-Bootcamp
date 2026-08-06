@@ -1,0 +1,114 @@
+day: "094"
+lesson: 2
+title: "Stop-Loss: Cutting Losses Early"
+slides:
+  - type: title
+    heading: "Stop-Loss"
+    subheading: "Limit the damage on any single trade"
+    narration: >
+      A stop-loss is a pre-committed exit rule: if the trade moves against you
+      by more than a fixed percentage, you exit — no hesitation, no hope that
+      it will come back. The 5% default means that if you enter at $100 and the
+      price falls to $95 or below, you close the position. This limits the
+      maximum loss on any trade to 5% before slippage.
+
+  - type: concept
+    label: "Why stop-loss"
+    heading: "Why Traders Use Stop-Losses"
+    body: >
+      Human psychology makes cutting losses hard — stop-losses remove the decision.
+    bullets:
+      - "Loss aversion: people hold losers hoping to break even — and lose more"
+      - "Stop-loss forces exit before a small loss becomes a catastrophic one"
+      - "Asymmetry: -50% requires +100% to recover; capping at -5% is better"
+      - "Frees capital: exit a losing trade → capital available for a better one"
+      - "Cost: exits some trades early that would have recovered — acceptable"
+    narration: >
+      The famous trading rule is: 'cut your losses and let your winners run.'
+      A stop-loss is the mechanical implementation of the first half. Without it,
+      a trader facing a 10% loss tells themselves 'it will come back' and watches
+      it become 30%, then 50%. The stop-loss removes the decision from the human
+      at exactly the moment when human psychology is least reliable.
+
+  - type: code
+    label: "apply_stop_loss"
+    heading: "Bar-by-Bar State Machine"
+    body: >
+      Track entry price; trigger stop when price falls below the threshold.
+    code: |
+      def apply_stop_loss(signals, prices, stop_pct=0.05):
+          result      = signals.copy().astype(float)
+          entry_price = None
+
+          for i in range(len(result)):
+              if result.iloc[i] == 1:
+                  if entry_price is None:          # new entry
+                      entry_price = float(prices.iloc[i])
+                  elif is_stopped_out(entry_price,
+                                      float(prices.iloc[i]), stop_pct):
+                      result.iloc[i] = 0           # exit
+                      entry_price = None
+              else:
+                  entry_price = None               # flat → no active entry
+
+          return result.astype(int)
+    narration: >
+      The loop is the only state machine in this module. The state is
+      entry_price: None means flat, a float means long at that price.
+      When a new long signal appears and entry_price is None, we record
+      the entry. On subsequent long bars, we check the stop. If it triggers,
+      we zero the signal and reset entry_price. If the signal goes flat
+      (0), we also reset entry_price — the position is closed.
+
+  - type: concept
+    label: "Stop-loss trade-offs"
+    heading: "Choosing the Stop-Loss Percentage"
+    body: >
+      Tighter stops: fewer big losses; more premature exits.
+    bullets:
+      - "5% stop: exits quickly, many small losses, less catastrophic exposure"
+      - "20% stop: few exits, larger individual losses, more room for recovery"
+      - "The right level depends on the strategy's typical price volatility"
+      - "Rule of thumb: stop ≥ 2 × average daily move (so noise doesn't trigger it)"
+      - "Backtesting multiple stop levels helps find the optimal for the strategy"
+    narration: >
+      A stop-loss that is too tight will trigger on normal market noise —
+      every small adverse move exits the position before the trend has a
+      chance to develop. A stop-loss that is too wide allows losses large
+      enough to seriously damage the portfolio before triggering. The right
+      level is typically calibrated to the strategy's Average True Range —
+      the average daily price range — so that normal daily fluctuation does
+      not trigger the stop.
+
+  - type: exercise
+    heading: "Exercise 2 — Implement apply_stop_loss"
+    prompt: >
+      Implement apply_stop_loss(signals, prices, stop_pct=0.05) using the bar-by-bar
+      loop. Check 3 tests a controlled 5-bar sequence: prices go 100→102→98→93→95,
+      signal is always-long, stop_pct=0.05. The stop triggers at bar 3 (93 ≤ 95).
+    hint: >
+      The result starts as signals.copy().astype(float). Use result.iloc[i] to
+      read and write (avoids chained assignment). entry_price is None until the
+      first long bar. At bar 3: is_stopped_out(100, 93, 0.05) → 93 ≤ 95 → True.
+      After the stop, entry_price is reset to None. Bar 4 (signal=1, entry=None)
+      records a new entry at price=95.
+    narration: >
+      The controlled test is the most important check. Trace through it manually
+      before implementing: bar 0 enters at 100, bars 1 and 2 are above the stop,
+      bar 3 triggers the stop, bar 4 is a fresh entry. If check 3 fails, add a
+      print statement inside the loop to trace entry_price and the stop level
+      at each bar.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Stop-loss: exit when price ≤ entry × (1 − stop_pct)"
+      - "apply_stop_loss: bar-by-bar state machine with entry_price tracking"
+      - "Tighter stop: fewer big losses but more premature exits"
+      - "After stop: entry_price is cleared; next long bar starts fresh"
+      - "Next: drawdown limit — the portfolio-level regime filter"
+    narration: >
+      Stop-loss is complete. Next: drawdown limit, which operates at the
+      portfolio level rather than the trade level. Where stop-loss exits
+      one bad trade, drawdown limit halts all trading when the market is
+      in a sustained decline.

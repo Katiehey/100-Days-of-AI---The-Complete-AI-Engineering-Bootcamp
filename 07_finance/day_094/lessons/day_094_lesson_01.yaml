@@ -1,0 +1,88 @@
+day: "094"
+lesson: 1
+title: "Why Risk Management Matters"
+slides:
+  - type: title
+    heading: "Risk Management"
+    subheading: "Position sizing, stop-loss, drawdown limits"
+    narration: >
+      Day 94. You have a signal layer (Days 92–93) and a backtest engine
+      (Day 91). Today you add the control layer: risk management. Risk
+      management answers three questions every trade: how much to bet,
+      when to exit a losing trade, and when to stop trading entirely. Without
+      risk management, a strategy can generate excellent backtest results
+      and still blow up in production. With it, losses are bounded and the
+      portfolio survives to trade another day. The four functions and one
+      class in risk.py are the last layer before the trading bot.
+
+  - type: concept
+    label: "Risk vs return"
+    heading: "The Risk Management Trinity"
+    body: >
+      Three controls, one goal: survive long enough to profit.
+    bullets:
+      - "Position sizing: how much capital to allocate to each trade"
+      - "Stop-loss: exit a losing trade before it becomes catastrophic"
+      - "Drawdown limit: halt trading when the market is in a bad regime"
+      - "All three reduce return; all three prevent ruin"
+      - "A strategy that loses 50% needs 100% to recover — avoid deep drawdowns"
+    narration: >
+      The order matters. Position sizing limits the maximum possible loss per
+      trade. Stop-loss limits the actual loss on an individual trade. Drawdown
+      limit halts trading when the losses suggest the strategy is no longer
+      working — possibly because the market regime has changed. Each control
+      operates on a different time horizon: per-trade, per-position, and
+      per-portfolio. You need all three because each handles a different type
+      of failure.
+
+  - type: concept
+    label: "Kelly criterion"
+    heading: "The Kelly Criterion: Optimal Bet Size"
+    body: >
+      f* = win_rate − (1 − win_rate) / (avg_win / avg_loss)
+    bullets:
+      - "Kelly maximises long-run wealth — in theory"
+      - "In practice: use half-Kelly (f*/2) — real win rates are uncertain"
+      - "f* > 0 only when the strategy has positive expected value"
+      - "f* = 0 for a 50/50 strategy with equal wins and losses"
+      - "f* < 0 means the strategy has negative edge — do not trade it"
+    narration: >
+      The Kelly Criterion was developed by John L. Kelly at Bell Labs in 1956
+      as a formula for optimal bet sizing in gambling and investment. A positive
+      Kelly fraction means the strategy has mathematical edge. A fraction of
+      0.20 means bet 20% of capital on each trade to maximise long-run growth.
+      In practice, professional traders use half-Kelly or quarter-Kelly because
+      the formula assumes you know the exact win rate and average payoff —
+      estimates that are noisy in live trading. The formula is most useful as
+      a sanity check: if Kelly is near zero, the strategy barely has edge;
+      if it is very high, the inputs may be overfitted.
+
+  - type: exercise
+    heading: "Exercise 1 — kelly_fraction and is_stopped_out"
+    prompt: >
+      Implement kelly_fraction(win_rate, avg_win, avg_loss) using the formula
+      above. Return 0.0 for degenerate inputs; clamp to [0.0, 1.0].
+      Implement is_stopped_out(entry_price, current_price, stop_pct=0.05)
+      returning True if current_price ≤ entry_price × (1 − stop_pct).
+    hint: >
+      Check 2: kelly_fraction(0.5, 200, 100) — win/loss ratio b = 200/100 = 2;
+      f* = 0.5 − 0.5/2 = 0.25. Check 3: kelly_fraction(0.4, 100, 200) —
+      f* = 0.4 − 0.6/0.5 = 0.4 − 1.2 = −0.8 → clamped to 0.0.
+    narration: >
+      Two functions, four lines total. The Kelly formula is a one-liner after
+      the edge case guard. is_stopped_out is a comparison after the guard for
+      non-positive entry price. After implementing, try kelly_fraction with your
+      Day 91 backtest win_rate — plug in the win_rate and average win/loss from
+      the metrics dict.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Three risk controls: position sizing, stop-loss, drawdown limit"
+      - "Kelly Criterion: f* = win_rate − (1−win_rate)/(avg_win/avg_loss)"
+      - "Kelly > 0 means the strategy has positive expected value"
+      - "is_stopped_out: current ≤ entry × (1−stop_pct)"
+      - "Next: applying stop-loss to an entire signal Series"
+    narration: >
+      The building blocks are in place. Next lesson: apply_stop_loss, which
+      runs the stop-loss check bar by bar over the entire backtest period.

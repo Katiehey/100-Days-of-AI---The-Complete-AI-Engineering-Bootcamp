@@ -1,0 +1,115 @@
+day: "094"
+lesson: 5
+title: "The Full Risk Pipeline"
+slides:
+  - type: title
+    heading: "Risk-Adjusted Backtesting"
+    subheading: "Filters before execution, not after measurement"
+    narration: >
+      The final lesson shows the complete risk-adjusted pipeline. The key
+      insight is that risk controls must be applied BEFORE run_backtest, not
+      after. You do not compute an unfiltered backtest and then 'apply' risk
+      rules to the results — you filter the signals before they enter the
+      backtester. This ensures the backtest accurately reflects what the
+      live system would do.
+
+  - type: concept
+    label: "Pipeline order"
+    heading: "The Correct Pipeline Order"
+    body: >
+      Signal → Risk filter → Backtest. Not Signal → Backtest → Risk.
+    bullets:
+      - "WRONG: run_backtest(df, signals) then 'adjust' the result"
+      - "RIGHT: safe = rm.filter(signals, df['Close']); run_backtest(df, safe)"
+      - "Risk filtering changes the signal → changes the returns → changes the metrics"
+      - "The backtest of the filtered signal is the backtest of the real strategy"
+      - "A risk-filtered strategy with Sharpe 1.2 is better than unfiltered 1.5"
+    narration: >
+      Post-hoc risk adjustment is a form of look-ahead bias in strategy
+      evaluation: you backtest the raw strategy, see that it has a 40% drawdown,
+      and claim you 'would have' applied a drawdown limit. But you did not
+      actually backtest with the limit in place. Correctly implemented, the risk
+      filter modifies the signals before the backtester sees them. The backtester
+      then measures the actual return of the filtered strategy — lower return,
+      lower drawdown, potentially higher Sharpe.
+
+  - type: code
+    label: "Complete pipeline"
+    heading: "The Full Section 7 Stack"
+    body: >
+      Six lines from raw data to risk-adjusted metrics.
+    code: |
+      from market_data  import MarketDataStore, fetch_ohlcv
+      from indicators   import add_indicators
+      from strategy     import sma_crossover
+      from risk         import RiskManager
+      from backtester   import run_backtest
+
+      df       = add_indicators(store.load("AAPL"))
+      raw_sig  = sma_crossover(df)
+      rm       = RiskManager(stop_pct=0.05, drawdown_limit=-0.20)
+      safe_sig = rm.filter(raw_sig, df["Close"])
+      result   = run_backtest(df, safe_sig)
+      print(rm.summary(raw_sig, safe_sig))
+    narration: >
+      This six-line pipeline is the complete Section 7 stack that Days 89–94
+      have been building toward. Market data from Day 89, indicators from Day 90,
+      backtester from Day 91, strategy from Day 92, risk from today. On Day 95
+      you will add the paper-trading bot that runs this pipeline daily and sends
+      alerts. On Day 96, you will add scheduling and logging. The bot itself
+      is just a loop around this pipeline.
+
+  - type: concept
+    label: "Drawdown vs stop-loss"
+    heading: "When to Use Each Control"
+    body: >
+      Stop-loss and drawdown limit serve different purposes.
+    bullets:
+      - "Stop-loss: per-trade protection — exits after a specific loss on one position"
+      - "Drawdown limit: portfolio protection — halts when the market is in crisis"
+      - "Combine both: stop-loss for normal bad trades; drawdown limit for regime change"
+      - "Without stop-loss: one bad trade can eat all the Kelly-sized capital"
+      - "Without drawdown limit: a 2008-style crisis trades through the collapse"
+    narration: >
+      Think of it this way: stop-loss protects against individual trade failure.
+      Drawdown limit protects against system failure — when the market environment
+      makes the strategy's assumptions invalid. A trend-following strategy that
+      works in calm markets may generate false signals during a crash, adding
+      losses on top of losses. The drawdown limit says: if the environment has
+      changed enough to cause a 20% market decline, our signals are no longer
+      trustworthy — stop trading.
+
+  - type: exercise
+    heading: "Project — Risk-Filtered Strategy Dashboard"
+    prompt: >
+      The project compares five strategies — always-long, SMA crossover, RSI
+      mean reversion, MACD, and combined — each with and without RiskManager.
+      Print a table showing how risk filtering changes each strategy's metrics.
+      Observe the consistent pattern: lower total return, improved max drawdown,
+      sometimes higher Sharpe.
+    hint: >
+      Use RiskManager(stop_pct=0.05, drawdown_limit=-0.20) for all strategies.
+      The solution notebook asserts that risk-filtered max_drawdown ≥ unfiltered
+      max_drawdown (less negative) for every strategy.
+    narration: >
+      The project is the capstone of Day 94 and the section's risk layer.
+      After running it, you have a complete picture of what risk management costs
+      and what it buys: smaller worst-case losses at the expense of some return.
+      That trade-off is the core of risk management. Tomorrow's paper-trading bot
+      will apply these controls in a live simulation.
+
+  - type: summary
+    heading: "Day 94 Complete"
+    bullets:
+      - "kelly_fraction: optimal bet size — positive only with edge"
+      - "is_stopped_out: single-bar stop-loss check"
+      - "apply_stop_loss: bar-by-bar state machine, entry tracking"
+      - "market_drawdown + apply_drawdown_limit: regime filter"
+      - "RiskManager: filter (stop + drawdown) + summary"
+      - "Pipeline order: filter signals BEFORE run_backtest"
+    narration: >
+      The full Section 7 stack is built. Market data, indicators, strategies,
+      backtester, sentiment, risk management — all complete. Days 95 and 96
+      assemble these into a paper-trading bot: a program that runs the pipeline
+      daily, makes decisions, logs them, and sends alerts. That is the final
+      product of Section 7.

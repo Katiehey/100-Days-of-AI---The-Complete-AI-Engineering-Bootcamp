@@ -1,0 +1,114 @@
+day: "094"
+lesson: 4
+title: "RiskManager — The Combined Filter"
+slides:
+  - type: title
+    heading: "RiskManager"
+    subheading: "One class, one call, two risk controls"
+    narration: >
+      RiskManager is the final layer before the trading bot. It wraps
+      apply_stop_loss and apply_drawdown_limit into a single filter method.
+      The trading bot calls rm.filter(signals, prices) and gets back a
+      risk-controlled signal ready for execution. The summary method explains
+      how many bars were filtered and by how much — useful for evaluating
+      whether risk controls are too tight or too loose.
+
+  - type: code
+    label: "RiskManager"
+    heading: "Ten Lines"
+    body: >
+      Two controls in sequence; one summary method.
+    code: |
+      class RiskManager:
+          def __init__(self, stop_pct=0.05, drawdown_limit=-0.20):
+              self.stop_pct       = stop_pct
+              self.drawdown_limit = drawdown_limit
+
+          def filter(self, signals, prices):
+              s = apply_stop_loss(signals, prices, self.stop_pct)
+              return apply_drawdown_limit(s, prices, self.drawdown_limit)
+
+          def summary(self, original, filtered):
+              n_orig = int((original == 1).sum())
+              n_kept = int((filtered  == 1).sum())
+              return {
+                  "total_long_bars": n_orig,
+                  "kept_long_bars":  n_kept,
+                  "filtered_bars":   n_orig - n_kept,
+                  "filter_rate":     float((n_orig-n_kept)/max(n_orig,1)),
+              }
+    narration: >
+      The design is deliberately simple. filter applies the two controls in
+      sequence — stop-loss modifies a copy, drawdown limit modifies that copy
+      further. summary compares original and filtered using simple integer
+      counts. The filter_rate is the fraction of long bars that were removed.
+      A filter_rate of 0.30 means 30% of the raw strategy's long positions
+      were eliminated by risk controls.
+
+  - type: concept
+    label: "Risk calibration"
+    heading: "Calibrating Risk Controls"
+    body: >
+      Risk parameters should be calibrated, not guessed.
+    bullets:
+      - "stop_pct: calibrate to 2–3× the strategy's daily volatility"
+      - "drawdown_limit: calibrate to the market's historical bear-market depth"
+      - "Too tight: filter_rate > 50% → strategy barely trades (poor Sharpe)"
+      - "Too loose: filter_rate < 5% → risk controls add little protection"
+      - "Target: filter_rate 10–30% — meaningful protection without excess drag"
+    narration: >
+      Calibrating risk controls is an optimization problem: find the parameters
+      that maximize Sharpe ratio after filtering, not before. Too tight, and the
+      strategy barely trades — lots of missed opportunities. Too loose, and the
+      risk controls do nothing meaningful. In practice, you would backtest the
+      strategy over a range of stop_pct and drawdown_limit values, choosing the
+      combination that gives the best risk-adjusted return on historical data.
+
+  - type: concept
+    label: "Composition pattern"
+    heading: "The Filter Composition Pattern"
+    body: >
+      risk.py extends the pipeline from Days 91–93 without changing them.
+    bullets:
+      - "Day 91: run_backtest(df, signals) → metrics"
+      - "Day 92: signals = sma_crossover(df)"
+      - "Day 93: signals = sentiment_to_signal(aggregate_sentiment(scores))"
+      - "Day 94: safe_signals = rm.filter(signals, df['Close'])"
+      - "Combined: run_backtest(df, rm.filter(signal_series, df['Close']))"
+    narration: >
+      The composition pattern is the payoff for designing each module to be
+      independent. risk.py takes a signal Series and a price Series — it does
+      not care where the signals came from. Whether they came from SMA crossover,
+      RSI, MACD, sentiment, or a combination — the RiskManager applies the same
+      filters. This modularity is what allows you to build the paper-trading
+      bot in Days 95–96 by simply composing the existing modules.
+
+  - type: exercise
+    heading: "Exercises 4 and 5 — RiskManager"
+    prompt: >
+      Exercise 4: implement RiskManager. Check 2 verifies that the combined
+      filter has fewer or equal 1s than stop-loss alone (drawdown limit is
+      additive, not subtractive). Exercise 5: compare always-long vs
+      risk-filtered backtest and verify that max_drawdown improves.
+    hint: >
+      Exercise 5 check 1: r_risk["max_drawdown"] >= r_raw["max_drawdown"].
+      Both are negative. Less negative means less severe drawdown.
+      If risk-filtered has equal or worse drawdown, check that
+      apply_drawdown_limit is also being applied (not just stop-loss).
+    narration: >
+      The comparison table in check 5 is the key output. Risk-filtered total
+      return will likely be lower on the sine-wave data (fewer long positions),
+      but max drawdown should be less severe. That is the expected trade-off.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "RiskManager: filter applies stop-loss then drawdown limit"
+      - "summary: total_long_bars, kept_long_bars, filtered_bars, filter_rate"
+      - "Target filter_rate: 10–30% — meaningful but not excessive"
+      - "Calibrate stop_pct to 2–3× daily volatility"
+      - "Next: integrate RiskManager into the paper-trading bot (Day 95)"
+    narration: >
+      Day 94 is nearly done. The final lesson integrates risk management into
+      the full Section 7 pipeline for the project, and previews how Days 95–96
+      will wrap everything into a running paper-trading bot.
