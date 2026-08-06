@@ -1,0 +1,117 @@
+day: "089"
+lesson: 4
+title: "Storing Market Data"
+slides:
+  - type: title
+    heading: "Storing Market Data"
+    subheading: "store_ohlcv, load_ohlcv, and SQLite as a data store"
+    narration: >
+      Fetching data every time is slow and fragile. The market is closed on
+      weekends and after hours. If your script fetches on startup and yfinance
+      is rate-limited, your whole pipeline fails. Storing data locally in
+      SQLite solves all of this: fetch once, query many times. SQLite is
+      already in Python's standard library, it needs no server, and it handles
+      millions of rows easily for a personal finance project.
+
+  - type: concept
+    label: "SQLite for time series"
+    heading: "Why SQLite Works for Market Data"
+    body: >
+      SQLite handles the scale you need and nothing more.
+    bullets:
+      - "Single file, zero config — perfect for local data science"
+      - "PRIMARY KEY (ticker, date) — upsert with INSERT OR REPLACE"
+      - "Order by date — time series queries are natural"
+      - "Handles 10 years of daily data for 50 tickers in under 50 MB"
+      - "Scale up to Postgres/TimescaleDB later — same SQL"
+    narration: >
+      You already know SQLite from Day 42. The only new pattern here is the
+      compound primary key: ticker and date together. This lets you store
+      data for hundreds of tickers in one file without confusion. And INSERT
+      OR REPLACE means you can re-run your fetch pipeline without getting
+      duplicate rows — it updates in place if the row already exists.
+
+  - type: code
+    label: "store + load"
+    heading: "store_ohlcv and load_ohlcv"
+    body: >
+      Persist and retrieve one ticker at a time.
+    code: |
+      import tempfile, os
+
+      # Create a real file — ':memory:' opens a NEW db each call
+      with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+          db_path = f.name
+
+      try:
+          df = fetch_ohlcv("AAPL", fetch_fn=_synthetic_ohlcv)
+          n  = store_ohlcv(df, "AAPL", db_path)   # 252 rows stored
+          print(f"Stored {n} rows")
+
+          loaded = load_ohlcv("AAPL", db_path)
+          print(loaded.tail(3))
+          # DatetimeIndex, columns Open/High/Low/Close/Volume
+
+          empty = load_ohlcv("NOTEXIST", db_path)
+          print(len(empty))   # 0
+      finally:
+          os.unlink(db_path)
+    narration: >
+      The most common mistake with SQLite and ':memory:' is assuming that two
+      calls to sqlite3.connect(':memory:') share the same database. They do
+      not. Each call opens a fresh, empty, in-process database. For round-trip
+      testing — store then load — you must use a real file path. In exercises
+      and tests, use tempfile.NamedTemporaryFile and always clean up in a
+      finally block.
+
+  - type: concept
+    label: "Pitfalls"
+    heading: "SQLite Pitfalls for Market Data"
+    body: >
+      Three issues to watch for.
+    bullets:
+      - "':memory:' is per-connection: always use a file for round-trips"
+      - "Date storage: store as TEXT 'YYYY-MM-DD', ORDER BY works lexically"
+      - "Float precision: float64 -> REAL -> float64 is lossless for prices"
+      - "OperationalError on missing table: catch and return empty DataFrame"
+      - "timezone in DatetimeIndex: normalize_ohlcv strips it before storing"
+    narration: >
+      Storing dates as 'YYYY-MM-DD' text works because ISO-8601 dates sort
+      lexically in the same order as chronologically. So ORDER BY date gives
+      you the rows in time order even though the column type is TEXT, not
+      DATE. When you load, pd.to_datetime converts the text back to a proper
+      DatetimeIndex. The OperationalError catch handles the case where you
+      call load_ohlcv on a database that has never had store_ohlcv called —
+      the table doesn't exist yet.
+
+  - type: exercise
+    heading: "Exercise 4 — Implement store_ohlcv and load_ohlcv"
+    prompt: >
+      Implement store_ohlcv(df, ticker, db_path) that validates, normalizes,
+      and persists OHLCV data to SQLite. Returns the row count. Raises
+      ValueError on invalid data. Implement load_ohlcv(ticker, db_path) that
+      reads back the data with a DatetimeIndex, returning an empty DataFrame
+      if the ticker is not found.
+    hint: >
+      Use tempfile.NamedTemporaryFile in your tests — ':memory:' won't
+      round-trip. The table schema: ohlcv(ticker, date, open, high, low,
+      close, volume) with PRIMARY KEY (ticker, date). Catch
+      sqlite3.OperationalError for the missing-table case in load_ohlcv.
+    narration: >
+      The round-trip test is the most important check: store fifty rows, load
+      them back, confirm the count and the index type. If that passes, the
+      full pipeline works. If it fails, check whether you're using ':memory:'
+      versus a real file path.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "SQLite compound primary key (ticker, date) — no duplicate rows"
+      - "INSERT OR REPLACE — idempotent upsert"
+      - "':memory:' is per-connection — use a real file for round-trips"
+      - "Date as TEXT 'YYYY-MM-DD' — lexical sort equals chronological sort"
+      - "Next: MarketDataStore — one class for the full pipeline"
+    narration: >
+      You now have all the pieces. fetch_ohlcv brings data in. validate_ohlcv
+      checks it. normalize_ohlcv standardizes it. store_ohlcv persists it.
+      load_ohlcv retrieves it. The last exercise ties all five into one class.

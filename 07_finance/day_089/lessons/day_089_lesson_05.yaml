@@ -1,0 +1,117 @@
+day: "089"
+lesson: 5
+title: "The MarketDataStore"
+slides:
+  - type: title
+    heading: "The MarketDataStore"
+    subheading: "Integrating the pipeline — and a preview of Section 7"
+    narration: >
+      The MarketDataStore is the final piece of Day 89. It wraps all five
+      functions — fetch, validate, normalize, store, load — into one object
+      with a four-method interface. You hand it a database path and an optional
+      fetch function; it handles the rest. This is the same class pattern from
+      Section 4 and Section 6: bind at construction, delegate in methods.
+
+  - type: concept
+    label: "MarketDataStore"
+    heading: "Four Methods, One Pipeline"
+    body: >
+      The class is a thin wrapper — the real work is in the module functions.
+    bullets:
+      - "fetch(ticker, period, interval) -> DataFrame — raw, no store"
+      - "update(ticker, period, interval) -> int — fetch + validate + store"
+      - "load(ticker) -> DataFrame — read from SQLite"
+      - "tickers() -> list[str] — sorted list of updated tickers"
+    narration: >
+      Notice the distinction between fetch and update. fetch calls the API
+      and returns the DataFrame — it's read-only with respect to the database.
+      update calls fetch, then stores the result. This separation lets you
+      inspect data before committing it, or fetch for analysis without
+      persisting. The tickers() method returns the set of tickers that have
+      been updated in this session — not necessarily all tickers in the
+      database.
+
+  - type: code
+    label: "MarketDataStore usage"
+    heading: "Building a Mini Portfolio Data Store"
+    body: >
+      Fetch and store data for three tickers in four lines.
+    code: |
+      import tempfile, os
+
+      with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+          db_path = f.name
+
+      store = MarketDataStore(db_path=db_path, fetch_fn=_synthetic_ohlcv)
+
+      for ticker in ["AAPL", "MSFT", "GOOG"]:
+          n = store.update(ticker)
+          print(f"{ticker}: {n} rows stored")
+
+      print(store.tickers())  # ['AAPL', 'GOOG', 'MSFT']
+
+      aapl = store.load("AAPL")
+      print(aapl["Close"].describe())
+
+      os.unlink(db_path)
+    narration: >
+      This is the shape of every data pipeline in Section 7. You create a
+      MarketDataStore once, call update for each ticker at startup, and then
+      call load whenever you need the data. Days 90 through 96 will call
+      store.load at the top of each exercise to get their input data.
+
+  - type: concept
+    label: "Section 7 preview"
+    heading: "What the Next 11 Days Look Like"
+    body: >
+      Each day builds on market_data.py from today.
+    bullets:
+      - "Day 90: technical indicators — SMA, EMA, RSI, MACD, Bollinger Bands"
+      - "Day 91: backtesting — simulate a strategy on historical data"
+      - "Day 92: strategy signals — entry/exit rules from indicator combinations"
+      - "Day 93: AI signals — LLM-based news sentiment as a trading signal"
+      - "Day 94: risk management — position sizing, stop-loss, drawdown"
+      - "Days 95–96: a paper-trading bot that runs it all live-ish"
+      - "Days 97–100: productizing, landing page, portfolio, final capstone"
+    narration: >
+      The pipeline you built today — fetch, validate, normalize, store, load —
+      is the input stage for every day that follows. In Day 90, you will add
+      an indicators function that takes the DataFrame from store.load and
+      returns the same DataFrame with additional columns for SMA, RSI, and
+      MACD. In Day 91, the backtester will use that enriched DataFrame to
+      simulate trades. By Day 96, a full paper-trading agent will be reading
+      from the store and making decisions every minute.
+
+  - type: exercise
+    heading: "Exercise 5 — Implement MarketDataStore"
+    prompt: >
+      Implement MarketDataStore with four methods: fetch, update, load, and
+      tickers. fetch delegates to fetch_ohlcv with the stored fetch_fn.
+      update calls fetch then store_ohlcv. load calls load_ohlcv. tickers
+      returns a sorted list of all tickers that update has been called with.
+    hint: >
+      Store a set() of seen tickers at construction. add() to it in update().
+      Use a real file path (not ':memory:') in tests so store and load share
+      the same database.
+    narration: >
+      This is a clean integration exercise. If your five module-level
+      functions work correctly, MarketDataStore is just four lines of
+      delegation. The only new logic is tracking the set of tickers — and
+      sorting it in the tickers() method. If you get stuck, look at how
+      ToolRegistry, MediaStudio, or OpsAgent delegated to module-level
+      functions in earlier sections.
+
+  - type: summary
+    heading: "Day 89 Complete"
+    bullets:
+      - "OHLCV_COLS: the universal five-column price format"
+      - "fetch_ohlcv: injectable yfinance wrapper (gate-safe)"
+      - "validate_ohlcv: (bool, str) — four boundary checks"
+      - "normalize_ohlcv: tz-strip + column filter + copy"
+      - "store_ohlcv / load_ohlcv: SQLite persistence with compound PK"
+      - "MarketDataStore: four-method facade over the full pipeline"
+    narration: >
+      You have the foundation. market_data.py is the module every subsequent
+      day in Section 7 depends on. It fetches, validates, normalizes, stores,
+      and serves OHLCV data — all in a form that is testable, injectable, and
+      offline-safe. Tomorrow: computing technical indicators on top of this data.

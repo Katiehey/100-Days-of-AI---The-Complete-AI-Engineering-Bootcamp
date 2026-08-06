@@ -1,0 +1,115 @@
+day: "089"
+lesson: 3
+title: "Fetching and Normalizing"
+slides:
+  - type: title
+    heading: "Fetching and Normalizing"
+    subheading: "fetch_ohlcv, normalize_ohlcv, and the inject pattern"
+    narration: >
+      The inject pattern is the most important architectural decision in
+      Section 7. Every function that touches external data accepts a fetch_fn
+      parameter. When fetch_fn is None, it calls yfinance. When fetch_fn is
+      provided, it calls that instead. The gate always provides a synthetic
+      function — so no test ever touches the internet. Today you implement
+      this pattern and the normalize function that cleans up timezone
+      information.
+
+  - type: concept
+    label: "yfinance"
+    heading: "yfinance: Free Market Data in One Line"
+    body: >
+      yfinance wraps Yahoo Finance's API. One function call, a DataFrame back.
+    bullets:
+      - "pip install yfinance — already installed in ai-course"
+      - "yf.download(ticker, period, interval) -> DataFrame"
+      - "period: '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'max'"
+      - "interval: '1m', '5m', '15m', '1h', '1d', '1wk', '1mo'"
+      - "Returns tz-aware DatetimeIndex for intraday; tz-naive for daily"
+    narration: >
+      yfinance is free and covers most use cases — stocks, ETFs, crypto,
+      futures, and indices. You do not need an API key. The limitation is rate
+      limiting: it's not suitable for high-frequency production use. For
+      learning, backtesting, and building prototypes, it's more than enough.
+      One gotcha: sometimes it returns a MultiIndex column when you download
+      multiple tickers at once. Always handle that case.
+
+  - type: code
+    label: "fetch_ohlcv"
+    heading: "The Injectable Fetch Wrapper"
+    body: >
+      One parameter makes the whole pipeline testable.
+    code: |
+      def fetch_ohlcv(ticker, period="1y", interval="1d", fetch_fn=None):
+          if fetch_fn is not None:
+              return fetch_fn(ticker, period, interval)
+          import yfinance as yf
+          df = yf.download(ticker, period=period, interval=interval,
+                           progress=False)
+          if isinstance(df.columns, pd.MultiIndex):
+              df.columns = df.columns.get_level_values(0)
+          return df
+
+      # Production: hits the internet
+      df = fetch_ohlcv("AAPL", period="1y")
+
+      # Gate-safe: uses synthetic data, zero internet
+      df = fetch_ohlcv("AAPL", period="1y", fetch_fn=_synthetic_ohlcv)
+    narration: >
+      The lazy import — import yfinance inside the else branch — means the
+      module loads even if yfinance is not installed. This matters in testing
+      environments. The MultiIndex handling catches the case where yfinance
+      returns a two-level column when you download multiple tickers in one
+      call. For single-ticker downloads it's a no-op; for multi-ticker it
+      flattens the column names.
+
+  - type: concept
+    label: "normalize_ohlcv"
+    heading: "Normalizing: Strip Timezone, Keep 5 Columns"
+    body: >
+      Normalize immediately after fetch, before validate or store.
+    bullets:
+      - "df.copy() — never mutate the caller's DataFrame"
+      - "Strip tz: df.index.tz_localize(None) if tz-aware"
+      - "Keep only OHLCV_COLS: df[[c for c in OHLCV_COLS if c in df.columns]]"
+      - "This drops 'Adj Close' and any other extra columns yfinance adds"
+      - "After normalize, the DataFrame is uniform regardless of source"
+    narration: >
+      yfinance sometimes returns a tz-aware DatetimeIndex for daily data —
+      timezone UTC — and sometimes tz-naive. Downstream code that expects
+      tz-naive will crash on tz-aware. Normalizing strips this inconsistency
+      at the boundary. Similarly, yfinance returns 'Adj Close' in addition to
+      the five standard columns. Normalize removes it. After normalize, every
+      DataFrame in your pipeline has the same shape.
+
+  - type: exercise
+    heading: "Exercise 3 — Implement fetch_ohlcv and normalize_ohlcv"
+    prompt: >
+      Implement fetch_ohlcv(ticker, period, interval, fetch_fn=None) with
+      the injection pattern. Implement normalize_ohlcv(df) that strips
+      timezone, converts the index to DatetimeIndex if needed, and returns
+      only OHLCV_COLS. Both functions return a copy — neither mutates the
+      input.
+    hint: >
+      For normalize: check df.index.tz is not None before tz_localize(None).
+      tz_localize(None) on a tz-naive index raises a TypeError.
+      For fetch: the lazy yfinance import goes inside the else branch.
+    narration: >
+      These two functions are the input stage of your data pipeline. Every
+      day in Section 7 that needs market data calls fetch_ohlcv with an
+      injected function, then normalize_ohlcv, then validate_ohlcv. Writing
+      them correctly here means they work correctly everywhere.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "fetch_ohlcv: inject pattern replaces yfinance for gate safety"
+      - "Lazy import: import yfinance inside else branch"
+      - "MultiIndex columns: flatten with df.columns.get_level_values(0)"
+      - "normalize_ohlcv: tz-strip + column filter + copy"
+      - "Next: store_ohlcv and load_ohlcv — SQLite persistence"
+    narration: >
+      The inject pattern is a transferable skill. Anywhere you call an
+      external API — yfinance, Stripe, a REST endpoint, a database — wrapping
+      it in a function that accepts a mock_fn parameter makes your code
+      trivially testable. You already used this pattern in Section 6 with
+      llm_fn. In Section 7 it's fetch_fn. The idea is the same.

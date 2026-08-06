@@ -1,0 +1,107 @@
+day: "089"
+lesson: 1
+title: "What Is OHLCV?"
+slides:
+  - type: title
+    heading: "Financial Data"
+    subheading: "Section 7 begins — OHLCV, yfinance, and market data pipelines"
+    narration: >
+      Welcome to Section 7: Finance, Trading, and Productizing. Over the next
+      twelve days you will build a complete financial data pipeline, implement
+      technical indicators, backtest a trading strategy, add AI-driven signals,
+      and wrap everything into a paper-trading bot. Today is the foundation:
+      understanding market data and building the tools to fetch, validate, and
+      store it reliably.
+
+  - type: concept
+    label: "OHLCV"
+    heading: "The Universal Price Format"
+    body: >
+      Every candlestick chart you have ever seen is built from OHLCV data.
+    bullets:
+      - "Open: price at the start of the period"
+      - "High: highest price reached during the period"
+      - "Low:  lowest price reached during the period"
+      - "Close: price at the end of the period"
+      - "Volume: number of shares or contracts traded"
+    narration: >
+      OHLCV stands for Open, High, Low, Close, Volume. These five numbers
+      describe everything that happened in a given time period — a day, an hour,
+      or a minute. Open and Close tell you where the price started and ended.
+      High and Low tell you the range. Volume tells you how many people
+      participated. Every major data source — yfinance, Alpaca, Interactive
+      Brokers, Binance — returns data in this format, so learning it once
+      transfers everywhere.
+
+  - type: concept
+    label: "Why it matters"
+    heading: "Why Engineers Work With Market Data"
+    body: >
+      Market data is the raw material for a whole class of AI applications.
+    bullets:
+      - "Backtesting: test a strategy on historical prices before risking money"
+      - "Technical signals: compute RSI, MACD, Bollinger Bands from OHLCV"
+      - "AI signals: feed price patterns to an LLM for market commentary"
+      - "Paper trading: simulate live trading on real data without real money"
+      - "Portfolio analytics: track returns, drawdown, Sharpe ratio"
+    narration: >
+      You already know all the engineering tools you need for this section.
+      Pandas DataFrames, rolling windows from Day 46, SQLite from Day 42, API
+      patterns from Day 22, scheduling from Day 27, agent patterns from
+      Section 6 — all of these reappear in the next twelve days, applied to
+      a new domain. The domain is finance, but the skills are the same.
+
+  - type: code
+    label: "OHLCV structure"
+    heading: "What an OHLCV DataFrame Looks Like"
+    body: >
+      A 5-row slice of daily AAPL data.
+    code: |
+      import pandas as pd
+
+      #            Open    High     Low   Close     Volume
+      # 2024-01-02  185.0  188.0  184.5  185.9  84_000_000
+      # 2024-01-03  184.0  186.5  182.0  184.3  79_000_000
+      # 2024-01-04  183.5  185.0  181.0  182.9  72_000_000
+
+      df.index   # DatetimeIndex — tz-naive, one row per trading day
+      df.dtypes  # float64 for OHLC; float64 or int64 for Volume
+      df["High"].max()   # highest intraday price over the period
+      df["Close"].pct_change()  # daily return series
+    narration: >
+      The DataFrame index is a DatetimeIndex — dates, not integers. There is no
+      Saturday or Sunday: stock markets are closed on weekends, so business-day
+      frequency produces the right gaps automatically. The five columns are
+      always capitalised exactly this way: Open, High, Low, Close, Volume.
+      You will see these exact column names throughout Section 7, so get used
+      to them now.
+
+  - type: exercise
+    heading: "Exercise 1 — Build a Synthetic OHLCV DataFrame"
+    prompt: >
+      Implement make_ohlcv(n) that builds a synthetic DataFrame with n rows.
+      The index is n business days from 2023-01-01. Close follows a sine wave.
+      Open is the previous row's Close. High is Close * 1.01. Low is Close *
+      0.99. Volume is 1_000_000 + i * 1_000 for row i.
+    hint: >
+      Use math.sin with period n. Build close as a pd.Series with a
+      DatetimeIndex. Then open = close.shift(1).fillna(close.iloc[0]).
+    narration: >
+      Rather than hitting the internet in the gate, we build synthetic data by
+      hand. A sine wave gives us realistic price variation — prices go up and
+      down — without randomness. You will use this same synthetic function as
+      the injected fetch_fn for every gate in Section 7.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "OHLCV: Open / High / Low / Close / Volume — the universal price format"
+      - "DatetimeIndex with business-day frequency — no weekends"
+      - "The five column names are always capitalised exactly this way"
+      - "Synthetic data injected via fetch_fn — keeps the gate offline"
+      - "Next: validate_ohlcv — never trust incoming data"
+    narration: >
+      The OHLCV format is the foundation. Every indicator, every backtest,
+      every trading signal in Section 7 starts with a DataFrame that looks
+      exactly like what you built in Exercise 1. Next lesson: before you do
+      anything with that DataFrame, validate it.

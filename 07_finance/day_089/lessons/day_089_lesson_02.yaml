@@ -1,0 +1,108 @@
+day: "089"
+lesson: 2
+title: "Validating Market Data"
+slides:
+  - type: title
+    heading: "Validating Market Data"
+    subheading: "validate_ohlcv — trust but verify"
+    narration: >
+      Data quality is the unglamorous part of financial engineering. yfinance
+      can return missing columns on certain tickers. Intraday data can have
+      inverted High and Low. Gaps in the calendar leave NaN rows. An invalid
+      DataFrame fed into a rolling average or a backtest produces wrong numbers
+      silently. Today's lesson: write a validator that catches these problems
+      before they propagate.
+
+  - type: concept
+    label: "What can go wrong"
+    heading: "Four Things That Go Wrong With Market Data"
+    body: >
+      Each is common enough to check explicitly.
+    bullets:
+      - "Not a DataFrame: someone passed a dict or a list by mistake"
+      - "Missing columns: the API returned fewer columns than expected"
+      - "Empty DataFrame: the ticker had no data in the requested period"
+      - "Inverted prices: High < Low — a data-provider bug, not a market event"
+    narration: >
+      The inverted High/Low case is subtle. It happens with bad data feeds and
+      with adjusted closing prices that have been improperly scaled. If your
+      indicator uses High and Low (Bollinger Bands, ATR, stochastic), an
+      inversion will produce NaN or nonsense. Catching it at the boundary —
+      in validate_ohlcv — means the rest of your code never has to handle it.
+
+  - type: code
+    label: "validate_ohlcv"
+    heading: "The Validator in Full"
+    body: >
+      Four checks, (bool, str) return, never raises.
+    code: |
+      def validate_ohlcv(df):
+          if not isinstance(df, pd.DataFrame):
+              return False, "not a DataFrame"
+          missing = [c for c in OHLCV_COLS if c not in df.columns]
+          if missing:
+              return False, "missing columns: " + ", ".join(missing)
+          if len(df) == 0:
+              return False, "DataFrame is empty"
+          valid_rows = df.dropna(subset=["High", "Low"])
+          if len(valid_rows) > 0 and (valid_rows["High"] < valid_rows["Low"]).any():
+              return False, "High < Low detected"
+          return True, ""
+    narration: >
+      Notice the return type: a tuple of boolean and a reason string, never a
+      bare boolean and never an exception. This pattern — ok, reason equals
+      validate of something — appears throughout Section 6 in the guardrails
+      module and throughout Section 7 in the data pipeline. It makes the
+      caller decide what to do on failure: log it, raise, skip, or retry.
+      The validator's only job is to check and report.
+
+  - type: concept
+    label: "Boundary validation"
+    heading: "Validate at the Boundary"
+    body: >
+      Call validate_ohlcv once, at the point where data enters your system.
+    bullets:
+      - "At the output of fetch_ohlcv — before storing to SQLite"
+      - "At the input of store_ohlcv — last chance before persistence"
+      - "Never inside indicators or backtesting — trust your own pipeline"
+      - "Return (False, reason) from validators — let callers decide on failure"
+      - "dropna before checking High < Low — NaN rows are handled separately"
+    narration: >
+      The boundary-validation principle means you validate data exactly once,
+      at the point it enters your system from an external source. Inside your
+      own code, once data has passed validation, trust it. Don't add
+      isinstance checks inside rolling() calls. Don't re-validate in the
+      backtest loop. Validate at the boundary; trust within.
+
+  - type: exercise
+    heading: "Exercise 2 — Implement validate_ohlcv"
+    prompt: >
+      Implement validate_ohlcv(df) that returns (True, "") for valid OHLCV
+      data and (False, reason_string) for invalid data. Check: is it a
+      DataFrame? Are all 5 OHLCV_COLS present? Is it non-empty? Is High >=
+      Low for all non-NaN rows? Never raise.
+    hint: >
+      Use df.dropna(subset=["High", "Low"]) before the High/Low check so NaN
+      rows don't produce false positives. Test each condition in order and
+      return immediately on the first failure.
+    narration: >
+      The checks in this exercise are deliberately simple — each is one line
+      of pandas. The real skill is the architecture: checking in the right
+      order, returning immediately on failure, and never raising an exception.
+      Future days will call validate_ohlcv inside store_ohlcv and inside the
+      MarketDataStore, so correctness here pays forward.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Four things to check: type, columns, length, High >= Low"
+      - "(bool, str) return pattern — caller decides what failure means"
+      - "dropna before High/Low check — NaN is not an inversion"
+      - "Validate once at the boundary; trust your own pipeline"
+      - "Next: fetch_ohlcv — the injectable yfinance wrapper"
+    narration: >
+      Validation is one of those things that pays off silently. When your
+      pipeline never crashes on bad data, you don't notice the validator
+      working. You only notice it's missing when a NaN propagates through
+      fifteen calculations and you spend two hours finding where it came from.
+      Next lesson: the fetch wrapper.
