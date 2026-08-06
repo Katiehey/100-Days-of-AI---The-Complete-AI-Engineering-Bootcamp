@@ -1,0 +1,87 @@
+day: "088"
+lesson: 2
+title: "Task Management — OpsTask and TaskStore"
+slides:
+  - type: title
+    heading: "Task Management"
+    subheading: "OpsTask, TaskStore, and OpsTools"
+    narration: >
+      Before the agent can reason about work, it needs a model of work.
+      OpsTask is a simple dataclass with four status values. TaskStore manages
+      a dict of tasks and exposes five operations. build_ops_tools wraps the
+      store in four callable tool functions that the LLM can select and invoke.
+
+  - type: concept
+    label: "OpsTask"
+    heading: "The Unit of Work"
+    body: >
+      Four fields define everything the agent knows about a task.
+    bullets:
+      - "id: auto-assigned string (task_001, task_002, ...)"
+      - "title: human-readable name"
+      - "description: optional context"
+      - "status: pending | running | done | failed"
+      - "result: output string, empty until the task completes"
+    narration: >
+      The status machine is linear: pending → running → done or failed. The
+      agent drives these transitions by calling run_task. It checks them by
+      calling check_status. The status is what the agent reasons about when
+      deciding what to do next. A task in 'failed' state can be retried;
+      a task in 'done' state is skipped.
+
+  - type: concept
+    label: "TaskStore"
+    heading: "The Task Registry"
+    body: >
+      TaskStore is a simple dict wrapper with five operations.
+    bullets:
+      - "add(title, description) -> OpsTask: creates and registers a task"
+      - "get(task_id) -> OpsTask or None"
+      - "all() -> list[OpsTask]"
+      - "pending() -> list[OpsTask]: only status=='pending'"
+      - "update(task_id, status, result) -> OpsTask"
+    narration: >
+      The TaskStore is deliberately simple. In a production system you would
+      replace it with a database (SQLite as in Day 82, or Postgres). But for
+      learning the agent pattern, an in-memory dict is enough. The interface
+      is the same either way: the tools call the same five methods regardless
+      of what backs the store.
+
+  - type: code
+    label: "OpsTools"
+    heading: "Four Tool Functions"
+    body: >
+      build_ops_tools returns a dict the agent's loop can dispatch into.
+    code: |
+      store = TaskStore()
+      store.add("Run linter")
+      store.add("Run tests")
+      store.add("Generate report")
+
+      executor = lambda task: f"Ran {task.title}: OK"
+      tools = build_ops_tools(store, executor_fn=executor)
+
+      print(tools["list_tasks"]())
+      # [task_001] [pending] Run linter
+      # [task_002] [pending] Run tests
+      # [task_003] [pending] Generate report
+
+      print(tools["run_task"]("task_001"))
+      # Task task_001 done: Ran Run linter: OK
+
+      print(tools["generate_report"]())
+      # Ops Report (all): 3 tasks — 1 done, 2 pending
+    narration: >
+      The executor_fn is the injection point for the actual work. In tests we
+      inject a lambda. In production you would inject a function that actually
+      runs the command, calls the CI API, or executes the script. The tool
+      functions themselves never need to change — only the executor.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "OpsTask: id/title/description/status/result dataclass"
+      - "TaskStore: dict-backed registry with add/get/all/pending/update"
+      - "build_ops_tools: four tool fns (list, run, check, report)"
+      - "executor_fn: injectable — separates what to run from how to run it"
+      - "The store is the agent's working memory for this session"

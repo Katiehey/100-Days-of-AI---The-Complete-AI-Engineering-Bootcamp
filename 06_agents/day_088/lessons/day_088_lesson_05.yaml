@@ -1,0 +1,82 @@
+day: "088"
+lesson: 5
+title: "The Full OpsAgent — Section 6 in Review"
+slides:
+  - type: title
+    heading: "The Full OpsAgent"
+    subheading: "Section 6 complete"
+    narration: >
+      You have now built ten agents across ten days. The OpsAgent is the
+      synthesis: a system that can autonomously manage a queue of operational
+      tasks, reason about what to do next, execute tools safely, enforce
+      guardrails, and produce a full audit trail. This lesson reviews what you
+      built across the section and previews what comes next.
+
+  - type: concept
+    label: "OpsAgent"
+    heading: "One Class, All the Pieces"
+    body: >
+      OpsAgent.run() is a four-stage pipeline before any loop starts.
+    bullets:
+      - "Stage 1: check_input(goal) — block injection at the door"
+      - "Stage 2: check_approval(goal) — human confirmation if needed"
+      - "Stage 3: build_ops_tools(store) — assemble tool functions"
+      - "Stage 4: run_ops_loop(...) — the ReAct loop with budget"
+      - "All four stages wrapped in one try/append/return pattern"
+    narration: >
+      The structure of run() mirrors the safe_ask() pipeline from Day 87, with
+      two differences. First, the output guard is omitted — ops agents return
+      internal state (task results), not user-facing text that needs filtering.
+      Second, the loop itself is the budget boundary, so there is no separate
+      budget check at the run() level — it happens inside run_ops_loop.
+
+  - type: concept
+    label: "Section 6 review"
+    heading: "Ten Agents, Ten Patterns"
+    body: >
+      Each day introduced one transferable pattern.
+    bullets:
+      - "Day 79: tool registry + action parsing (never raises)"
+      - "Day 80: ReAct loop + scratchpad as working memory"
+      - "Day 81: tool schemas + validation before execution"
+      - "Day 82: short-term (session) + long-term (SQLite) memory"
+      - "Day 83: Kahn topological sort for task dependencies"
+      - "Day 84: specialist agents + Handoff audit records"
+      - "Day 85: MCP — open standard for agent-tool connections"
+      - "Day 86: agentic RAG — decide when and what to retrieve"
+      - "Day 87: four-layer guardrail pipeline (validate_text / Guard / gate / budget)"
+      - "Day 88: capstone — compose all patterns into a deployable system"
+    narration: >
+      These ten patterns cover most of what you will encounter in real agent
+      engineering. The specific class names will differ — every framework has
+      its own vocabulary — but the underlying ideas are stable. A ReAct loop
+      is a ReAct loop whether you build it in LangChain, LlamaIndex, or raw
+      Python. A guardrail is a guardrail whether you call it a filter, a policy,
+      or a fence.
+
+  - type: concept
+    label: "What comes next"
+    heading: "Section 7 — Finance, Trading & Productizing"
+    body: >
+      Days 89–100 take these skills to a new domain.
+    bullets:
+      - "Days 89–94: financial data, analysis, backtesting, AI signals"
+      - "Days 95–96: building a paper-trading bot"
+      - "Days 97–100: productizing, launching, portfolio, final capstone"
+      - "The agent patterns from Section 6 reappear as trading agents"
+      - "The web app skills from Section 4 reappear as the trading dashboard"
+    narration: >
+      Section 7 is not a fresh start. It is the same skills applied to a new
+      domain with higher stakes. A trading agent is an ops agent that manages
+      a portfolio of positions instead of a queue of tasks. An AI signal
+      generator is a retrieval agent over news data. The patterns are the same;
+      the domain is different.
+
+  - type: summary
+    heading: "Section 6 Complete"
+    bullets:
+      - "OpsAgent = TaskStore + OpsTools + run_ops_loop + OpsGuardrails"
+      - "Ten agents built: simple → ReAct → tool → memory → plan → multi → MCP → RAG → safe → ops"
+      - "Every agent follows: injectable LLM fn, max_iterations, 4-method class shape"
+      - "Guardrails make agents deployable; without them they are demos"
+      - "Next: Section 7 — Finance, Trading & Productizing (Days 89–100)"

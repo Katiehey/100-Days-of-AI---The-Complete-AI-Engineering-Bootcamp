@@ -1,0 +1,88 @@
+day: "088"
+lesson: 4
+title: "OpsGuardrails — Controlling the Agent"
+slides:
+  - type: title
+    heading: "OpsGuardrails"
+    subheading: "Three guardrail layers for the ops agent"
+    narration: >
+      Ops agents are especially dangerous without guardrails because they take
+      real actions: running commands, changing state, generating reports that
+      might be acted on. Day 87's three layers — input guard, budget tracker,
+      approval gate — are bundled into OpsGuardrails, which is the single object
+      passed to OpsAgent at construction time.
+
+  - type: concept
+    label: "Three layers"
+    heading: "What Each Layer Protects Against"
+    body: >
+      Each layer catches a different category of misuse.
+    bullets:
+      - "Input guard: blocks injection attacks and malformed goals"
+      - "Budget: caps the total iterations across all run() calls"
+      - "Approval gate: pauses for human confirmation before running"
+      - "All three are injectable — testing uses mocks, production uses real logic"
+      - "check_budget() both checks AND records in one atomic call"
+    narration: >
+      The atomic check-and-record design of check_budget() prevents a race
+      condition: if you called ok() and record() separately, two threads could
+      both pass the ok() check and both record, exceeding the budget. Calling
+      check_budget() as one unit avoids this — the increment only happens if the
+      check passed.
+
+  - type: code
+    label: "OpsGuardrails usage"
+    heading: "Configuring a Production Guardrail"
+    body: >
+      One object, three layers of protection.
+    code: |
+      guardrails = OpsGuardrails(
+          max_budget    = 50,
+          banned_inputs = ["rm -rf", "drop table", "shutdown"],
+          approve_fn    = lambda goal: True,   # auto-approve for testing
+      )
+
+      # In a CLI app: ask the operator
+      def cli_approve(goal):
+          print(f"Agent wants to: {goal}")
+          return input("Proceed? (y/n) ").strip().lower() == "y"
+      guardrails = OpsGuardrails(approve_fn=cli_approve)
+
+      # Check input before the loop
+      ok, reason = guardrails.check_input("Run all pending tasks")
+      # Check + record once per iteration
+      ok, reason = guardrails.check_budget()
+      # Reset between sessions
+      guardrails.reset()
+    narration: >
+      The approve_fn in production would do something meaningful: prompt a
+      human operator, check a feature flag, verify that the deployment window
+      is open, or consult a policy engine. The interface doesn't care — it just
+      calls approve_fn and acts on the boolean result.
+
+  - type: concept
+    label: "Audit through history"
+    heading: "Every Blocked Call Is in History"
+    body: >
+      OpsAgent records blocked runs just like successful ones.
+    bullets:
+      - "Blocked record: {goal, answer=None, blocked=True, reason, trace=[], ...}"
+      - "reason prefix: 'input: ...' or 'gate: ...' (matched to the blocking layer)"
+      - "Budget-stopped runs: blocked=False but stopped='budget'"
+      - "Iterate history() to build an audit report of all goals attempted"
+      - "Never delete history during a session — it is the audit log"
+    narration: >
+      The distinction between blocked=True and stopped='budget' is deliberate.
+      A blocked run never reached the agent. A budget-stopped run got some work
+      done but didn't finish. An operator reviewing history can see both and
+      react appropriately: resubmit the blocked goal with a corrected phrasing,
+      or reset the budget and rerun the budget-stopped goal.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "OpsGuardrails bundles input guard + budget + approval gate"
+      - "check_budget(): atomic check-and-record prevents over-counting"
+      - "All three approve_fn patterns: auto, CLI, conditional"
+      - "Blocked runs (input/gate) vs stopped runs (budget) are distinct"
+      - "History is the audit log — never discard it mid-session"

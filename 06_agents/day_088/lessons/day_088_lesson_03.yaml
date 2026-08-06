@@ -1,0 +1,85 @@
+day: "088"
+lesson: 3
+title: "The Ops Reasoning Loop"
+slides:
+  - type: title
+    heading: "The Ops Reasoning Loop"
+    subheading: "parse_ops_step, format_ops_step, run_ops_loop"
+    narration: >
+      The reasoning loop is the heart of the ops agent. It follows the ReAct
+      pattern from Day 80: Thought, Action, Observation, repeat. Each iteration
+      calls the LLM once, parses the response, executes the named tool, and
+      appends the result to a growing scratchpad that feeds back into the next
+      prompt. The loop stops when the LLM emits a Final Answer.
+
+  - type: concept
+    label: "parse_ops_step"
+    heading: "Two Output Formats"
+    body: >
+      The LLM can respond in one of two ways per turn.
+    bullets:
+      - "Action step: Thought / Action / Input (JSON args)"
+      - "Final answer step: Thought / Final Answer"
+      - "parse_ops_step detects which format by checking for 'Final Answer:'"
+      - "Never raises: returns safe defaults on parse failure"
+      - "Unknown action -> 'Error: unknown tool' in the observation"
+    narration: >
+      The two-format design is intentional. The agent must explicitly commit to
+      a final answer — it cannot accidentally stop in the middle. If the LLM
+      output is unparseable, parse_ops_step returns a step with action=None and
+      final=None. The loop treats this as an unknown tool and records an error
+      observation, then tries again on the next iteration.
+
+  - type: code
+    label: "Loop trace"
+    heading: "Three Iterations to Completion"
+    body: >
+      A typical three-step ops run.
+    code: |
+      # Iteration 0: list tasks
+      Thought: First I'll see what needs doing
+      Action: list_tasks
+      Input: {}
+      Observation: [task_001] [pending] Run tests
+                   [task_002] [pending] Generate report
+
+      # Iteration 1: run the first task
+      Thought: I'll run the tests
+      Action: run_task
+      Input: {"task_id": "task_001"}
+      Observation: Task task_001 done: All 42 tests passed
+
+      # Iteration 2: final answer
+      Thought: Tests passed; report was already done
+      Final Answer: Ran all pending tasks. Tests: 42 passed.
+    narration: >
+      Notice that the scratchpad grows from iteration to iteration. By iteration
+      2, the LLM has seen the full history of what it did and can synthesise a
+      meaningful final answer. The scratchpad is the agent's short-term working
+      memory — it exists only for the duration of this run() call.
+
+  - type: concept
+    label: "Budget integration"
+    heading: "Budget as Loop Control"
+    body: >
+      The OpsGuardrails budget is checked at the top of each iteration.
+    bullets:
+      - "Every iteration = one LLM call = one budget unit"
+      - "check_budget() is called before run_ops_step, not after"
+      - "If budget exhausted: return {'stopped': 'budget'} immediately"
+      - "The budget persists across run() calls — shared session limit"
+      - "reset() starts a new session without recreating the agent"
+    narration: >
+      Budget-as-loop-control is cleaner than a timeout. Timeouts are
+      non-deterministic: the same agent can hit or miss a timeout depending on
+      LLM latency. A budget is deterministic: exactly N iterations, every time.
+      This makes the agent's behaviour reproducible and auditable.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "parse_ops_step: two formats — action or final answer"
+      - "format_ops_step: appends thought + action + observation to scratchpad"
+      - "run_ops_loop: budget check → step → execute → repeat"
+      - "Scratchpad grows per iteration — the agent's short-term memory"
+      - "Final Answer is the only way to exit normally; budget exits early"

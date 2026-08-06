@@ -1,0 +1,79 @@
+day: "088"
+lesson: 1
+title: "What Is an Ops Agent?"
+slides:
+  - type: title
+    heading: "Capstone: Ops Agent"
+    subheading: "Section 6 in one coherent system"
+    narration: >
+      This is the capstone day for Section 6. You have built eight agents in
+      the last nine days. Today you wire them into one coherent system: an
+      autonomous operations agent that reasons, acts, enforces guardrails, and
+      produces a full audit trail. An ops agent is a practical pattern that
+      appears in real engineering: CI/CD orchestrators, incident responders,
+      deployment pipelines, and monitoring systems all follow the same shape.
+
+  - type: concept
+    label: "What ops agents do"
+    heading: "Operations as an Agent Problem"
+    body: >
+      Ops agents manage a queue of tasks across a system lifecycle.
+    bullets:
+      - "Tasks: discrete units of work with status (pending/running/done/failed)"
+      - "Tools: list, run, check, report — the four basic ops verbs"
+      - "Reasoning: decide which task to run next based on current state"
+      - "Safety: guardrails prevent runaway execution or harmful commands"
+      - "Audit: every action logged for post-hoc review"
+    narration: >
+      The ops pattern is everywhere once you see it. A deployment agent asks:
+      which services are pending? Runs them. Checks status. Reports. An incident
+      agent asks: which alerts are unacknowledged? Runs diagnostics. Generates a
+      summary. A code review agent asks: which files need linting? Runs the linter.
+      Reports results. Same four verbs. Same ReAct loop.
+
+  - type: concept
+    label: "Section 6 synthesis"
+    heading: "What This Day Pulls Together"
+    body: >
+      Every Section 6 day appears in the ops agent.
+    bullets:
+      - "Day 79/80: agent loop + ReAct (Thought/Action/Observation)"
+      - "Day 81: tool registry and execution"
+      - "Day 82: TaskStore as persistent task memory"
+      - "Day 83: goals decomposed into tasks"
+      - "Day 84: orchestrator orchestrates tool agents"
+      - "Day 87: OpsGuardrails (input + budget + approval)"
+    narration: >
+      Days 85 and 86 — MCP and retrieval agents — are specialisations that
+      could be wired in as additional tools. The capstone doesn't include every
+      pattern from the section; it includes the ones that form the backbone of
+      an operational system. MCP would be how you expose the ops agent to
+      external clients; retrieval would be how it answers questions about its
+      own history.
+
+  - type: concept
+    label: "Anatomy"
+    heading: "The Four Components"
+    body: >
+      OpsAgent = TaskStore + OpsTools + run_ops_loop + OpsGuardrails
+    bullets:
+      - "TaskStore: the source of truth for what needs to be done"
+      - "OpsTools: the four functions the agent can call"
+      - "run_ops_loop: the ReAct loop that reasons and acts"
+      - "OpsGuardrails: the safety layer that wraps the loop"
+      - "OpsAgent: one class that wires all four together"
+    narration: >
+      Each component is independently testable. You can unit-test TaskStore
+      without the agent. You can test each tool function without the loop. You
+      can test the loop with a mock LLM without the guardrails. And you can test
+      OpsAgent end-to-end by injecting mocks for all four. This layered
+      testability is the key engineering property of the design.
+
+  - type: summary
+    heading: "What You Will Build"
+    bullets:
+      - "OpsTask + TaskStore: the unit of work and its registry"
+      - "build_ops_tools: four injectable tool functions"
+      - "parse_ops_step + run_ops_loop: the ReAct reasoning machinery"
+      - "OpsGuardrails: input + budget + approval gates"
+      - "OpsAgent: the capstone class wiring all four components"
