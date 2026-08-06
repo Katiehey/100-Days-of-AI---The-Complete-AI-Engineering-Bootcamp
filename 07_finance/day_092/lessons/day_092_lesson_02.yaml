@@ -1,0 +1,101 @@
+day: "092"
+lesson: 2
+title: "SMA Crossover — Trend-Following"
+slides:
+  - type: title
+    heading: "SMA Crossover"
+    subheading: "The oldest trend-following rule"
+    narration: >
+      The SMA crossover has been used in markets since long before computers.
+      The idea is simple: if short-term average prices are above long-term
+      average prices, the market is in an uptrend. Go long. When the short-term
+      average falls below the long-term, the trend has reversed. Go flat or
+      short. Despite its simplicity, some version of this rule appears in almost
+      every major systematic trading fund.
+
+  - type: concept
+    label: "Fast vs slow SMA"
+    heading: "Fast and Slow SMAs: Two Views of the Trend"
+    body: >
+      The crossover captures the gap between short-term and long-term momentum.
+    bullets:
+      - "Fast SMA (20): tracks last month's average — short-term trend"
+      - "Slow SMA (50): tracks last quarter's average — long-term trend"
+      - "fast > slow: short-term strength above long-term mean → uptrend"
+      - "fast < slow: short-term weakness below long-term mean → downtrend"
+      - "The crossover event (from below to above) is the entry trigger"
+    narration: >
+      The 20/50 crossover is sometimes called the golden cross when the faster
+      SMA crosses above the slower SMA, and the death cross when it crosses
+      below. Professional traders use the 50/200 crossover for longer-term
+      signals. The shorter the windows, the more trades are generated — but
+      also more false signals. Longer windows give fewer, cleaner signals but
+      react slowly to trend changes.
+
+  - type: code
+    label: "sma_crossover"
+    heading: "Implementation: Four Lines"
+    body: >
+      The comparison produces a boolean; astype(int) converts to signal.
+    code: |
+      def sma_crossover(df, fast=20, slow=50):
+          close    = df["Close"]
+          fast_sma = close.rolling(fast).mean()
+          slow_sma = close.rolling(slow).mean()
+          return (fast_sma > slow_sma).fillna(False).astype(int)
+
+      # fillna(False): before enough data for slow SMA, output 0
+      # astype(int):   True → 1, False → 0; no NaN in output
+    narration: >
+      The output has no NaN because fillna(False) handles the warmup period.
+      For the first slow-1 bars, both SMAs may be NaN. The comparison of
+      NaN with NaN produces NaN. fillna(False) replaces those NaN with False,
+      which then becomes 0. After the slow SMA has enough data, all values are
+      True or False — no NaN at all.
+
+  - type: concept
+    label: "Trade-offs"
+    heading: "Trend-Following Trade-Offs"
+    body: >
+      No strategy is free — SMA crossover has known failure modes.
+    bullets:
+      - "Works well in trending markets; loses money in choppy, range-bound markets"
+      - "Lags price: enters after the trend starts, exits after it ends"
+      - "Whipsaw: generates many trades when price oscillates near the crossover"
+      - "Longer windows: fewer trades, less whipsaw, more lag"
+      - "Adding filters (RSI, MACD) reduces whipsaw at the cost of fewer entries"
+    narration: >
+      Whipsaw is the biggest problem with SMA crossover: when price oscillates
+      around the crossover level, the strategy generates many small losing trades.
+      Each individual loss is small, but many small losses add up. The combined
+      signal you will build in Exercise 4 adds MACD confirmation to reduce
+      whipsaw: only enter when both the trend AND the momentum agree.
+
+  - type: exercise
+    heading: "Exercise 1 — SMA Crossover (continued)"
+    prompt: >
+      Complete your sma_crossover implementation from the previous exercise.
+      After passing all checks, compare the number of 1s (long positions) in
+      sma_crossover(df, 10, 20) vs sma_crossover(df, 20, 50) on the synthetic
+      data. Which generates more long signals?
+    hint: >
+      sig.sum() gives the count of 1s. The shorter-window crossover (10/20)
+      reacts faster and will likely generate more position changes.
+    narration: >
+      The check 5 verification — that your output matches the reference formula
+      exactly — is the most important. It rules out off-by-one errors in the
+      window calculation and ensures you are computing the comparison in the
+      correct direction.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "SMA crossover: fast_sma > slow_sma → long; otherwise flat"
+      - "Works best in trending markets; fails in choppy markets"
+      - "Shorter windows: more trades, more whipsaw"
+      - "Longer windows: fewer trades, more lag"
+      - "Filters like MACD confirmation reduce whipsaw"
+    narration: >
+      SMA crossover is done. Next: RSI mean reversion — the opposite market
+      hypothesis. Where SMA crossover says 'follow the trend,' RSI says
+      'bet on the reversal when prices have moved too far too fast.'

@@ -1,0 +1,85 @@
+day: "092"
+lesson: 1
+title: "What Makes a Trading Strategy?"
+slides:
+  - type: title
+    heading: "Building a Strategy"
+    subheading: "Turn indicator rules into actionable signals"
+    narration: >
+      Day 92. You have a backtester from Day 91 and indicators from Day 90.
+      Today you write the strategies: the rules that convert indicator values
+      into buy and sell decisions. You will build three strategies — SMA
+      crossover, RSI mean reversion, and MACD crossover — then combine them
+      into a single filtered signal. Each strategy represents a different market
+      hypothesis: trend-following, mean-reversion, and momentum. By the end of
+      today, you can generate and backtest any rule-based signal in a few lines.
+
+  - type: concept
+    label: "Signal anatomy"
+    heading: "Anatomy of a Signal"
+    body: >
+      A signal is a rule applied to indicators that produces a position: 1 (long),
+      0 (flat), or -1 (short).
+    bullets:
+      - "If (indicator condition) then position = 1, else position = 0"
+      - "Signal must use only past information — no future data"
+      - "Entry rule: when to go from 0 to 1"
+      - "Exit rule: when to go from 1 to 0"
+      - "Hold rule: what to do between entry and exit (usually: hold)"
+    narration: >
+      The signal is the bridge between indicators and the backtest engine.
+      indicators.py computes SMA, EMA, RSI, MACD, Bollinger Bands. The backtest
+      engine takes a signal Series and computes returns. strategy.py sits in
+      the middle: it reads indicators from df and writes a signal Series.
+      Every strategy you write this week follows the same pattern: compute an
+      indicator, apply a threshold rule, return a 0/1 Series.
+
+  - type: concept
+    label: "Three strategy types"
+    heading: "Three Market Hypotheses"
+    body: >
+      Different strategies bet on different market behaviors.
+    bullets:
+      - "Trend-following: markets that go up continue going up (momentum)"
+      - "Mean-reversion: markets that fall too far bounce back"
+      - "Momentum crossover: strength of trend measured by EMA divergence"
+      - "Combined: require multiple hypotheses to agree → fewer but better entries"
+      - "No single type works in all markets — diversification applies to strategies too"
+    narration: >
+      Trend-following works well in trending markets and fails in choppy ones.
+      Mean-reversion works in range-bound markets and fails in strong trends.
+      This is why professional quant funds run many strategies simultaneously:
+      they are betting on different market regimes. When one regime fails,
+      another succeeds. Today you build three complementary strategies that
+      represent these three different market hypotheses.
+
+  - type: exercise
+    heading: "Exercise 1 — SMA Crossover"
+    prompt: >
+      Implement sma_crossover(df, fast=20, slow=50) that returns 1 when
+      the fast SMA is above the slow SMA, 0 otherwise. No NaN values.
+      Use _sma(series, window) = series.rolling(window).mean().
+    hint: >
+      (fast_sma > slow_sma) returns a boolean Series. .fillna(False) converts
+      the first slow-1 NaN values to False. .astype(int) converts True/False
+      to 1/0.
+    narration: >
+      One line after the two SMA computations. The fillna(False) is important:
+      before the first slow SMA value is available, the comparison would
+      produce NaN, which .astype(int) would convert to 0 anyway — but
+      explicitly filling is safer and makes the intent clear. Check 5 verifies
+      that your output matches the expected boolean comparison exactly.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "A signal is a rule on indicators producing {-1, 0, 1}"
+      - "Three types: trend-following, mean-reversion, momentum"
+      - "Combined signals require multiple hypotheses to agree"
+      - "sma_crossover: 1 when fast_sma > slow_sma, 0 otherwise"
+      - "Next: RSI mean reversion and MACD crossover"
+    narration: >
+      The SMA crossover is the foundation. Next you will build RSI mean
+      reversion — a completely different market hypothesis — and then MACD
+      crossover, which combines two EMAs. All three will be fed into the
+      backtester in Exercise 5.

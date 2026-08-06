@@ -1,0 +1,117 @@
+day: "092"
+lesson: 5
+title: "Evaluating and Comparing Strategies"
+slides:
+  - type: title
+    heading: "Comparing Strategies"
+    subheading: "Read the metrics table — not just total return"
+    narration: >
+      The final lesson covers how to evaluate and compare strategies. Running
+      a backtest is easy. Interpreting it correctly is the skill. Total return
+      is the least useful metric in isolation — a strategy that earns 50% with
+      a 60% drawdown is worse than one that earns 30% with a 10% drawdown.
+      This lesson teaches you to read the full metrics table and understand
+      what each number means for strategy quality.
+
+  - type: concept
+    label: "Reading metrics"
+    heading: "How to Read a Backtest Metrics Table"
+    body: >
+      Every metric answers a different question.
+    bullets:
+      - "total_return: how much did it make? (least useful alone)"
+      - "sharpe_ratio: how much return per unit of risk? (most useful)"
+      - "max_drawdown: what is the worst case? (survival question)"
+      - "win_rate: fraction of trading days with positive P&L"
+      - "n_trades: how often does it trade? (proxy for transaction costs)"
+    narration: >
+      The Sharpe ratio is the single most important number. A Sharpe of 2.0
+      with 15% return beats a Sharpe of 0.5 with 30% return — the second
+      strategy is taking four times as much risk to earn twice as much. Max
+      drawdown is the second most important: if the drawdown exceeds your
+      psychological tolerance or risk limits, the strategy is undriveable
+      regardless of Sharpe. Win rate and n_trades matter for implementation:
+      a strategy that trades 200 times per year at 0.1% transaction cost is
+      losing 20% to costs before making any profit.
+
+  - type: concept
+    label: "Strategy trade-offs"
+    heading: "Expected Trade-Off Profile by Strategy Type"
+    body: >
+      Different strategies have different metric fingerprints.
+    bullets:
+      - "Trend-following (SMA): high Sharpe in trending markets, few trades"
+      - "Mean-reversion (RSI): more trades, often lower Sharpe, low drawdown"
+      - "Momentum (MACD): intermediate — more responsive than SMA, less noise than RSI"
+      - "Combined: lowest n_trades, highest quality per trade — but misses many moves"
+      - "Buy-and-hold: highest drawdown, zero complexity — the benchmark"
+    narration: >
+      On the synthetic sine-wave data, these profiles will not be as clean as
+      in real markets — the sine wave is too regular. But the structural
+      relationships still hold: combined has fewer trades than SMA or MACD,
+      RSI mean-reversion has more trades, buy-and-hold has the largest drawdown
+      because it is always exposed. Learning to read these patterns on synthetic
+      data prepares you for interpreting real market results where the noise is
+      much higher.
+
+  - type: code
+    label: "Comparison table"
+    heading: "Printing a Side-by-Side Comparison"
+    body: >
+      Run all strategies; print one row per metric.
+    code: |
+      strategies = [
+          ("Buy-Hold", pd.Series(1, index=df.index)),
+          ("SMA-cross", sma_crossover(df)),
+          ("RSI-MR",    rsi_mean_reversion(df, oversold=35, overbought=65)),
+          ("MACD",      macd_cross(df)),
+          ("Combined",  combined_signal(df)),
+      ]
+      results = [run_backtest(df, sig, label) for label, sig in strategies]
+
+      # Print table
+      for key in ["total_return","sharpe_ratio","max_drawdown","n_trades"]:
+          row = f"{key:<20}"
+          for r in results:
+              v = r[key]
+              row += f" {v:>10.2%}" if isinstance(v, float) else f" {v:>10d}"
+          print(row)
+    narration: >
+      The comparison table is what you would show a potential investor or
+      manager. It makes the trade-offs visible at a glance. A strategy with
+      great Sharpe but 200 trades per year has hidden costs that may eliminate
+      the edge. A strategy with poor Sharpe but very low drawdown might still
+      be useful as part of a diversified portfolio. No single row of the table
+      tells the full story.
+
+  - type: exercise
+    heading: "Exercise 5 — Full Strategy Comparison"
+    prompt: >
+      Using the prelude implementations of all four strategies plus run_backtest,
+      run all five strategies (including buy-and-hold) and print the comparison
+      table. The 5 checks verify: correct keys, equity consistency, combined is
+      conservative, all drawdowns ≤ 0, and the table prints successfully.
+    hint: >
+      Check 3 allows combined to have n_trades up to sma_trades + 1 because
+      the initial position transition (0→1) can differ. If it fails, check that
+      combined_signal returns the logical AND of sma_crossover and macd_cross.
+    narration: >
+      This exercise is the payoff for three days of work. Day 89 fetched
+      data. Day 90 computed indicators. Day 91 built the backtest engine.
+      Day 92 built the strategies. All four layers running together in one
+      notebook is the Section 7 stack in miniature.
+
+  - type: summary
+    heading: "Day 92 Complete"
+    bullets:
+      - "sma_crossover: trend-following via fast/slow SMA comparison"
+      - "rsi_mean_reversion: contrarian via RSI thresholds + forward-fill"
+      - "macd_cross: momentum via MACD line vs signal line comparison"
+      - "combined_signal: confluence filter requiring trend AND momentum"
+      - "Metrics: Sharpe > total_return; drawdown > win_rate in importance"
+    narration: >
+      Four strategies built and tested. Day 93 adds a fifth signal source:
+      AI-driven news sentiment. Instead of computing signals from price data,
+      you will call an LLM to analyze news headlines and produce a sentiment
+      score that feeds into the backtest as a signal. This is the point where
+      AI engineering intersects with quantitative trading.

@@ -1,0 +1,106 @@
+day: "092"
+lesson: 4
+title: "MACD Crossover"
+slides:
+  - type: title
+    heading: "MACD Crossover"
+    subheading: "Momentum signal from the gap between two EMAs"
+    narration: >
+      The MACD crossover is a momentum-based signal that avoids the complexity
+      of threshold tuning. Long when the MACD line is above the signal line;
+      flat when below. No neutral zone, no forward-fill — just a continuous
+      {0,1} signal. This makes it easy to combine with other signals: wherever
+      the MACD says 'long' and the SMA crossover also says 'long,' you have
+      two independent confirmations.
+
+  - type: concept
+    label: "MACD as a signal"
+    heading: "From Indicator to Signal: One Comparison"
+    body: >
+      MACD line > signal line → long; MACD line < signal line → flat.
+    bullets:
+      - "MACD line   = EMA(12) − EMA(26)  — how far fast is above slow"
+      - "Signal line = EMA(MACD, 9)       — smoothed MACD"
+      - "When MACD > signal: upward momentum is accelerating"
+      - "When MACD < signal: upward momentum is fading"
+      - "No warmup NaN — EMA starts from the first price"
+    narration: >
+      The MACD crossover is a signal about a signal: it measures whether the
+      gap between two EMAs is growing or shrinking. When the MACD line crosses
+      above the signal line, it means the fast EMA has recently gained speed
+      relative to the slow EMA — momentum is building. Unlike RSI, there is no
+      threshold to tune and no neutral zone to configure. The comparison is
+      binary and clean.
+
+  - type: code
+    label: "macd_cross"
+    heading: "MACD Crossover: Four Lines"
+    body: >
+      Three computations and one comparison.
+    code: |
+      def macd_cross(df, fast=12, slow=26, signal=9):
+          close       = df["Close"]
+          macd_line   = _ema(close, fast) - _ema(close, slow)
+          signal_line = _ema(macd_line, signal)
+          return (macd_line > signal_line).astype(int)
+
+      # No fillna needed — EMA has no NaN, so macd_line has no NaN,
+      # so signal_line has no NaN, so the comparison has no NaN.
+    narration: >
+      Because EMA starts from the very first observation rather than
+      requiring a full window before producing output, every row has a
+      defined macd_line and signal_line. The comparison produces a boolean
+      Series with no NaN values. astype(int) converts it to {0, 1}. This
+      is simpler than RSI because there is no warmup NaN to handle.
+
+  - type: concept
+    label: "Combined signal"
+    heading: "Combined Signal: Confidence Through Confluence"
+    body: >
+      Require two independent signals to agree before entering a trade.
+    bullets:
+      - "SMA crossover: uptrend confirmed (fast SMA > slow SMA)"
+      - "MACD cross:    momentum positive (MACD > signal)"
+      - "Combined: 1 only when BOTH are 1"
+      - "Fewer entries, but higher confidence per entry"
+      - "combined.sum() ≤ min(sma.sum(), macd.sum()) — stricter than either"
+    narration: >
+      Signal confluence is one of the most reliable risk filters in systematic
+      trading. When two independent indicators built on different formulas and
+      different time horizons both say 'buy,' the probability that the signal
+      is a false positive is lower than when only one says it. The cost is
+      that you enter later in the trend and miss some moves entirely. Whether
+      the trade-off is worth it depends on the market and the transaction costs.
+
+  - type: exercise
+    heading: "Exercises 3 and 4 — MACD Cross and Combined Signal"
+    prompt: >
+      Implement macd_cross(df, fast=12, slow=26, signal=9) in Exercise 3.
+      Then implement combined_signal(df, ...) in Exercise 4 by calling
+      sma_crossover and macd_cross and taking their logical AND.
+    hint: >
+      Check 2 of Exercise 4: combined.sum() must be ≤ both sma.sum() and
+      macd.sum(). Check 3 verifies that combined == (sma==1 & macd==1)
+      exactly. If check 3 fails, make sure you are using astype(int) at
+      the end rather than returning a boolean Series.
+    narration: >
+      Two exercises for one lesson. MACD cross is straightforward. Combined
+      signal is one line after the two calls. The value of these exercises
+      is not the implementation — it is understanding what the output looks
+      like: combined has fewer 1s than either component because it requires
+      both to agree simultaneously.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "MACD cross: macd_line > signal_line → 1; no NaN"
+      - "Signal confluence: AND of two independent signals"
+      - "Combined signal is more conservative: fewer but higher-quality entries"
+      - "Three strategy types built: trend (SMA), mean-reversion (RSI), momentum (MACD)"
+      - "Next: backtest all three and read the comparison table"
+    narration: >
+      All three strategies and the combined signal are done. Exercise 5 runs
+      all of them through the backtester and prints a comparison table. You
+      will see how different market hypotheses produce different metric profiles:
+      trend strategies have high Sharpe but few trades; mean-reversion strategies
+      have lower Sharpe but more trades. Neither is universally better.

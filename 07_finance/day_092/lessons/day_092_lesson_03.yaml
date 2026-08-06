@@ -1,0 +1,87 @@
+day: "092"
+lesson: 3
+title: "RSI Mean Reversion"
+slides:
+  - type: title
+    heading: "RSI Mean Reversion"
+    subheading: "Buy when the market is oversold; sell when overbought"
+    narration: >
+      RSI mean reversion is the classic contrarian strategy. When prices have
+      fallen so fast that RSI drops below 30, the selling is likely overdone —
+      buy, expecting a bounce. When prices have risen so fast that RSI exceeds
+      70, the buying is likely exhausted — exit, expecting a pullback. Between
+      those thresholds, hold whatever position you had. This is the 'neutral
+      zone' that prevents constant entry and exit on small RSI fluctuations.
+
+  - type: concept
+    label: "Hold logic"
+    heading: "The Hold Zone: Forward-Fill Between Thresholds"
+    body: >
+      The signal only changes at the thresholds; between them, it holds.
+    bullets:
+      - "RSI < 30: set signal = 1 (go long)"
+      - "RSI > 70: set signal = 0 (go flat)"
+      - "30 ≤ RSI ≤ 70: signal = NaN → ffill from previous explicit value"
+      - "ffill propagates the last 0 or 1 through the neutral zone"
+      - "fillna(0): before first RSI value, default to flat"
+    narration: >
+      The forward-fill pattern is the key difference between RSI mean reversion
+      and a simple threshold filter. Without forward-fill, you would set signal
+      to 0 everywhere between thresholds — meaning you exit as soon as RSI
+      recovers above 30, even if the position is still profitable. With
+      forward-fill, you stay long until RSI hits the overbought level at 70.
+      This turns the strategy from a very short-hold scalper into a medium-term
+      position holder — a more realistic market behavior.
+
+  - type: code
+    label: "rsi_mean_reversion"
+    heading: "RSI Mean Reversion: Five Steps"
+    body: >
+      Set, fill, default.
+    code: |
+      def rsi_mean_reversion(df, window=14, oversold=30, overbought=70):
+          rsi_s  = _rsi(df["Close"], window)    # computed RSI series
+          signal = pd.Series(float("nan"), index=df.index)
+          signal[rsi_s < oversold]   = 1.0      # explicitly set to long
+          signal[rsi_s > overbought] = 0.0      # explicitly set to flat
+          return signal.ffill().fillna(0).astype(int)
+
+      # ffill():    carries 0 or 1 forward through the neutral zone
+      # fillna(0):  warmup bars before first RSI get 0 (flat)
+    narration: >
+      The series starts as all-NaN. You then stamp 1.0 at every oversold bar
+      and 0.0 at every overbought bar. Everything in between stays NaN. The
+      forward-fill propagates the most recent explicit value through the neutral
+      zone. The final fillna(0) handles the warmup period where no RSI has been
+      computed yet — before enough data exists for a rolling window.
+
+  - type: exercise
+    heading: "Exercise 2 — RSI Mean Reversion"
+    prompt: >
+      Implement rsi_mean_reversion(df, window=14, oversold=30, overbought=70)
+      following the five steps. Check 2 uses looser thresholds (40/60) to
+      ensure the sine-wave data produces both 0s and 1s. Check 5 verifies
+      that the warmup period (before first RSI) gives 0.
+    hint: >
+      If you get no 1s with default thresholds (30/70), that is correct —
+      the synthetic sine wave may not drop below RSI 30. Use oversold=40,
+      overbought=60 for the test. The implementation is the same; only the
+      thresholds change.
+    narration: >
+      Pay attention to the order of operations: first stamp the explicit
+      values, then forward-fill, then fill remaining NaN with 0.
+      If you do fillna(0) before ffill, you will get wrong behavior — the
+      warmup 0s will block the forward-fill from propagating.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "RSI mean reversion: buy oversold, sell overbought, hold in between"
+      - "Forward-fill carries the last explicit signal through the neutral zone"
+      - "Default (warmup period): flat (0) — never trade without enough data"
+      - "Works in range-bound markets; fails in strong trends"
+      - "Next: MACD crossover — momentum without the threshold complexity"
+    narration: >
+      RSI mean reversion is done. Next: MACD crossover — a cleaner momentum
+      signal that does not need forward-fill because the MACD comparison
+      is defined at every bar from the start.
