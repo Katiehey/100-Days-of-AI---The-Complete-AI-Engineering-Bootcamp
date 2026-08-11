@@ -1,0 +1,85 @@
+day: "097"
+lesson: 1
+title: "From Script to Product"
+slides:
+  - type: title
+    heading: "Productizing Your AI"
+    subheading: "Packaging, documentation, pricing, access control"
+    narration: >
+      Day 97. The trading bot is complete and automated. Today you take a step
+      back from implementation and think about the product layer: what does it
+      take to turn a working script into something other people can install,
+      pay for, and rely on? Four components: packaging (how they install it),
+      documentation (how they understand it), pricing (how you charge for it),
+      and access control (how you enforce who can use it).
+
+  - type: concept
+    label: "Script vs product"
+    heading: "What Makes a Product Different from a Script?"
+    body: >
+      A script works for you. A product works for strangers.
+    bullets:
+      - "Script: lives on your machine, runs when you run it"
+      - "Product: installable by strangers, documented, versioned, priced"
+      - "Packaging: pip install my-bot — one command installs everything"
+      - "Documentation: README, usage examples, changelog"
+      - "Pricing: how you capture value from the product's utility"
+      - "Access control: who can call which features (API keys, tiers)"
+    narration: >
+      The gap between a working script and a distributable product is mostly
+      packaging and documentation. The code itself often barely changes. What
+      changes is everything around it: the pyproject.toml that makes it pip-
+      installable, the README that explains what it does and how to start,
+      the changelog that tracks what changed between versions, the pricing
+      page that converts visitors into customers, and the API key check that
+      ensures only paying users access premium features.
+
+  - type: concept
+    label: "Product development order"
+    heading: "The Order of Productization"
+    body: >
+      Build in this order: package → document → price → gate.
+    bullets:
+      - "1. Package: make it installable (pyproject.toml)"
+      - "2. Document: make it understandable (README, examples)"
+      - "3. Price: decide what to charge (cost-plus or value-based)"
+      - "4. Gate: enforce access (API keys, tier checks)"
+      - "5. Ship: publish to PyPI, host the API, tell people about it"
+    narration: >
+      The order matters because each step depends on the previous one. You
+      cannot document a product you have not packaged — what would you tell
+      people to install? You cannot price a product whose value you have not
+      articulated in documentation. You cannot gate access until you have
+      decided what each tier can access. Today you build all four layers.
+      Tomorrow (Day 98) you build the landing page that brings users to the
+      product.
+
+  - type: exercise
+    heading: "Exercise 1 — generate_pyproject"
+    prompt: >
+      Implement generate_pyproject(cfg) to return a pyproject.toml string.
+      Include [build-system], [project] (name, version, description, authors,
+      license, requires-python, dependencies), and [project.scripts] with the
+      CLI entry point. If cfg.dependencies is empty, write "dependencies = []".
+    hint: >
+      The CLI name is cfg.name.replace("-", "_"). Use an f-string or string
+      concatenation to build the TOML. For non-empty deps, format each as
+      "    "dep"," on its own line inside square brackets.
+    narration: >
+      pyproject.toml is the PEP 621 standard for Python packaging. Once you have
+      this file, pip install . (in the project directory) installs your package.
+      pip install my-bot installs it from PyPI after you run twine upload. The
+      [project.scripts] section creates a CLI command — after installation,
+      users can run "my_bot" in their terminal.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Products require: packaging, documentation, pricing, access control"
+      - "ProductConfig: metadata dataclass for all artifact generators"
+      - "pyproject.toml: PEP 621 standard, enables pip install"
+      - "CLI entry point in [project.scripts]: name = 'module:main'"
+      - "Next: generate_readme and generate_changelog_entry"
+    narration: >
+      Packaging is done. Next: documentation — the README and changelog that
+      explain the product to users who have never seen your code.

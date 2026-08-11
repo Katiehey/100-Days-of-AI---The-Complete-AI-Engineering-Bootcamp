@@ -1,0 +1,80 @@
+day: "097"
+lesson: 2
+title: "Documentation as a Product Feature"
+slides:
+  - type: title
+    heading: "Documentation"
+    subheading: "The README is the product's first impression"
+    narration: >
+      Documentation is not an afterthought — it is a product feature. A
+      great product with bad documentation fails. A mediocre product with
+      great documentation sells. The README is the first thing a potential
+      user sees, and it has about 10 seconds to answer three questions:
+      what does it do, how do I install it, and what does it look like in use?
+
+  - type: concept
+    label: "README structure"
+    heading: "The Anatomy of a Good README"
+    body: >
+      Five sections, one goal: convert the reader into an installer.
+    bullets:
+      - "# Name + tagline: what it is in one sentence"
+      - "## Features: why to choose this over alternatives"
+      - "## Installation: pip install — one command"
+      - "## Usage: a working code example they can copy-paste"
+      - "## License: required for open source; important for commercial use"
+    narration: >
+      The Features section answers 'why'. Installation answers 'how to start'.
+      Usage answers 'what does it look like'. If a user can read your README
+      in 60 seconds and understand what your product does, whether it fits
+      their needs, how to install it, and how to use it — you have a good
+      README. generate_readme builds this structure from a ProductConfig and
+      two lists: feature strings and example dicts.
+
+  - type: concept
+    label: "CHANGELOG"
+    heading: "The Changelog: Trust Through Transparency"
+    body: >
+      A changelog shows users that the project is maintained and improving.
+    bullets:
+      - "Every release gets one entry: ## [version] — YYYY-MM-DD"
+      - "Breaking changes: listed prominently (users need to upgrade carefully)"
+      - "New features: what they gained in this release"
+      - "Bug fixes: what stopped working and now works again"
+      - "Format: Keep a Changelog (keepachangelog.com) is the standard"
+    narration: >
+      The changelog is especially important for libraries and APIs that other
+      code depends on. Users need to know what changed between versions before
+      upgrading. A missing or inconsistent changelog is a red flag that suggests
+      the maintainer does not think about their users' upgrade experience.
+      generate_changelog_entry produces one entry in the standard format.
+
+  - type: exercise
+    heading: "Exercise 2 — generate_readme and generate_changelog_entry"
+    prompt: >
+      generate_readme(cfg, features, examples) should return a Markdown string
+      starting with "# {cfg.name}", containing ## Features (bullet list),
+      ## Installation (pip install ...), ## Usage (code blocks), and ## License.
+      generate_changelog_entry(version, changes) should return "## [{version}] — {today}"
+      followed by change bullet points.
+    hint: >
+      For features: "\n".join(f"- {f}" for f in features). For examples:
+      use "\n\n".join(...) to separate code blocks with a blank line.
+      datetime.date.today().isoformat() gives "2025-01-15".
+    narration: >
+      Both functions are primarily string manipulation. The key is the structure:
+      each section starts with ## and is separated by blank lines. Check 1 verifies
+      the README starts with "# cfg.name" — if the header is wrong, users see the
+      wrong name in GitHub's rendered preview.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "README: # name + tagline, ## Features, Installation, Usage, License"
+      - "generate_readme: ProductConfig + features list + examples list → str"
+      - "Changelog: ## [version] — YYYY-MM-DD + change bullet points"
+      - "datetime.date.today().isoformat() for today's date"
+      - "Next: pricing — calculating what to charge"
+    narration: >
+      Documentation is done. Next: pricing — how to decide what to charge and
+      how to structure tiers to serve different customer segments.

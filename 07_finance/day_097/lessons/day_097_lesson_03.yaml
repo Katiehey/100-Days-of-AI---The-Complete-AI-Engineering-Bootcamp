@@ -1,0 +1,83 @@
+day: "097"
+lesson: 3
+title: "Pricing AI Products"
+slides:
+  - type: title
+    heading: "Pricing"
+    subheading: "Cost-plus: know your costs, add margin"
+    narration: >
+      Pricing an AI product is different from pricing a traditional software
+      product because AI has variable marginal costs — every API call costs
+      real money in compute and tokens. The most common first approach for
+      AI products is cost-plus pricing: calculate your cost to serve a
+      customer, then add a margin. Simple, defensible, and easy to adjust.
+
+  - type: concept
+    label: "Cost-plus formula"
+    heading: "The Cost-Plus Formula"
+    body: >
+      price = cost / (1 − margin)
+    bullets:
+      - "cost = cost_per_call × calls_per_month"
+      - "margin = 0.5 → price = 2 × cost (50% gross margin)"
+      - "margin = 0.8 → price = 5 × cost (80% gross margin)"
+      - "margin = 0.0 → price = cost (break-even, no profit)"
+      - "SaaS benchmark: 70%+ gross margin is healthy at scale"
+    narration: >
+      If your LLM calls cost $0.001 per call and a customer makes 1000 calls
+      per month, your cost is $1.00. At 50% margin, you charge $2.00. At 80%
+      margin, you charge $5.00. The formula price = cost / (1 - margin) ensures
+      that margin is the fraction of the price that is profit — not the fraction
+      of the cost that is added on top. These are different: 50% margin means
+      50% of the $2.00 price is profit ($1.00), not 50% added to cost ($1.50).
+
+  - type: concept
+    label: "Tier design"
+    heading: "Designing Pricing Tiers"
+    body: >
+      Most SaaS products use 3–4 tiers to serve different customer segments.
+    bullets:
+      - "Free / Hobbyist (100–1000 calls): acquisition — get users in the door"
+      - "Pro (1000–10000 calls): the main revenue tier for individuals"
+      - "Enterprise (10000+ calls): teams, higher margin, annual contracts"
+      - "Rule: each higher tier costs less per call (volume discount)"
+      - "Rule: higher tiers have higher absolute margin (enterprise pays more)"
+    narration: >
+      Tiers serve different purposes. The Free tier is customer acquisition —
+      it has thin margins but converts curious users into paying customers.
+      The Pro tier is the profit center — most paying customers land here.
+      Enterprise tiers command higher margins because they include SLAs, support,
+      and dedicated onboarding. The price_per_call decreases with volume (good
+      deal for high-volume customers) but the absolute monthly spend increases
+      (good revenue for you).
+
+  - type: exercise
+    heading: "Exercise 3 — calculate_price and generate_pricing_tiers"
+    prompt: >
+      calculate_price(cost_per_call, calls_per_month, margin=0.5) → round(cost*calls/(1-margin), 2).
+      Raise ValueError if margin ≥ 1.0 or margin < 0.
+      generate_pricing_tiers(cost_per_call, tiers) → list of dicts with
+      name, calls, price_per_month, and price_per_call (price_per_month / calls).
+    hint: >
+      Check 2: margin=0.8 → cost=$1.00 → price=1.00/0.2=5.00.
+      Check 5: Free tier (100 calls, 0.5 margin) → $0.001*100/0.5 = $0.20.
+      price_per_call = price_per_month / max(calls, 1).
+    narration: >
+      The math is simple. The value is in understanding what the numbers mean:
+      a Free tier at $0.20/month means you break even at 100 calls if your
+      infrastructure has zero fixed costs. In practice you eat the fixed costs
+      for free users in exchange for acquisition. The Pro tier at $2.00/month
+      is where you actually build a business.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Cost-plus: price = cost / (1 − margin)"
+      - "50% margin → 2× cost; 80% margin → 5× cost"
+      - "Tiers: Free (acquisition), Pro (revenue), Enterprise (high margin)"
+      - "price_per_call decreases with volume — reward high-usage customers"
+      - "Next: feature gating — enforce who accesses which tier"
+    narration: >
+      Pricing is done. Next: feature gating — the mechanism that connects your
+      pricing tiers to your code, ensuring only authorized keys can call
+      premium features.

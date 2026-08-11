@@ -1,0 +1,87 @@
+day: "097"
+lesson: 5
+title: "The Complete Productization Pipeline"
+slides:
+  - type: title
+    heading: "Shipping a Product"
+    subheading: "Package → document → price → gate → publish"
+    narration: >
+      The final lesson shows the complete pipeline: take a working AI project,
+      run it through all four productization steps, and produce the artifacts
+      needed to publish on PyPI, host on GitHub, and sell to customers. After
+      Exercise 5, you have a pyproject.toml, a README, a changelog, a pricing
+      table, and a feature gate — everything needed to ship.
+
+  - type: concept
+    label: "PyPI publishing"
+    heading: "Publishing to PyPI"
+    body: >
+      Three commands to publish a Python package.
+    bullets:
+      - "pip install build twine  — the publishing tools"
+      - "python -m build  — creates dist/*.whl and dist/*.tar.gz"
+      - "twine upload dist/*  — uploads to PyPI (requires API token)"
+      - "After: anyone can pip install your-package-name"
+      - "Test first on test.pypi.org: twine upload --repository testpypi dist/*"
+    narration: >
+      Once you have a pyproject.toml, publishing is three commands. The
+      python -m build command creates a wheel (binary distribution) and a
+      source distribution. twine upload sends them to PyPI. The PyPI API
+      token can be created at pypi.org/manage/account/token — store it
+      as an environment variable (TWINE_PASSWORD) so you never commit it
+      to git. After publishing, your package is installable worldwide in
+      seconds.
+
+  - type: concept
+    label: "The shipping checklist"
+    heading: "The Product Shipping Checklist"
+    body: >
+      Seven items before you call it shipped.
+    bullets:
+      - "□ pyproject.toml with correct name, version, dependencies"
+      - "□ README with Features, Installation, Usage, License"
+      - "□ CHANGELOG.md with this release's changes"
+      - "□ Tests pass (the gate system from this course)"
+      - "□ Pricing tiers defined and documented on landing page"
+      - "□ API key gate in place for premium features"
+      - "□ Published to PyPI or hosted (Render/Railway/Fly.io)"
+    narration: >
+      This checklist is the difference between a side project and a product.
+      Every item is covered by what you have built in Days 89–97. The gate
+      tests from this course satisfy 'tests pass'. The productizer.py from
+      today generates the packaging, docs, and pricing. The bot from Days
+      95–96 is the deployable product. All that remains is the landing page
+      (Day 98) and the portfolio to showcase it (Day 99).
+
+  - type: exercise
+    heading: "Project — Trading Bot Product Artifacts"
+    prompt: >
+      Generate all four artifacts for the trading bot: pyproject.toml,
+      README.md, changelog entry, pricing tiers table. Use the provided
+      ProductConfig, features list, and tiers from the exercise.
+      Verify: [project] in pyproject, ## Features in README,
+      prices increase with volume, pricing table is Markdown.
+    hint: >
+      Check 3: assert prices[0] < prices[1] < prices[2] < prices[3] for
+      the four tiers. Since all tiers use cost-plus with fixed cost_per_call,
+      higher call volume = higher absolute monthly price.
+    narration: >
+      The project is the final step of productization. After completing it,
+      you have all the artifacts needed to publish the trading bot as a real
+      package. Day 98 adds the landing page — the web page that explains
+      the product to potential customers before they install it.
+
+  - type: summary
+    heading: "Day 97 Complete"
+    bullets:
+      - "ProductConfig: metadata dataclass for all generators"
+      - "generate_pyproject: valid pyproject.toml from config"
+      - "generate_readme: Markdown with Features, Installation, Usage"
+      - "calculate_price + generate_pricing_tiers: cost-plus SaaS pricing"
+      - "format_pricing_table: Markdown pricing table"
+      - "validate_api_key + gate_feature: minimal access control"
+      - "Next: Day 98 — the landing page to bring users to the product"
+    narration: >
+      Day 97 is complete. The product layer is built. Three days remain:
+      landing page (Day 98), portfolio (Day 99), and the final capstone
+      (Day 100) where you ship your own AI product from scratch.

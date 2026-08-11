@@ -1,0 +1,85 @@
+day: "097"
+lesson: 4
+title: "Feature Gating and Access Control"
+slides:
+  - type: title
+    heading: "Feature Gating"
+    subheading: "API keys: connect pricing to code"
+    narration: >
+      A pricing tier is just marketing until you enforce it in code. Feature
+      gating is the mechanism: an API key identifies the customer, the key maps
+      to a tier, and the tier determines which features are accessible. In the
+      simplest form — which is where every product starts — it is a set of
+      valid keys and a function that checks membership.
+
+  - type: code
+    label: "Gate pattern"
+    heading: "validate_api_key and gate_feature"
+    body: >
+      Three lines. The entire access control layer.
+    code: |
+      def validate_api_key(key, valid_keys):
+          return key in valid_keys
+
+      def gate_feature(api_key, valid_keys, feature_fn, *args, **kwargs):
+          if not validate_api_key(api_key, valid_keys):
+              raise PermissionError(f"Invalid API key: {api_key!r}")
+          return feature_fn(*args, **kwargs)
+
+      # Usage:
+      result = gate_feature(user_key, PAID_KEYS, run_backtest, df, signals)
+    narration: >
+      validate_api_key is a one-liner. gate_feature wraps any function with
+      an access check. PermissionError is the correct built-in exception for
+      "you don't have permission to do this" — it maps naturally to HTTP 403
+      if you expose this as an API endpoint. The *args/**kwargs pass-through
+      means gate_feature is generic: it can wrap any function, with any
+      arguments, with no changes to the gated function itself.
+
+  - type: concept
+    label: "Production gating"
+    heading: "Beyond Simple Key Validation"
+    body: >
+      Real production systems add: database lookup, rate limiting, tier checks.
+    bullets:
+      - "Step 1 (today): key in set — works for small number of customers"
+      - "Step 2: key → database lookup → tier, usage count, expiry"
+      - "Step 3: rate limiter — N calls per minute, M per month"
+      - "Step 4: tiered features — Free can call X but not Y"
+      - "Libraries: slowapi (FastAPI rate limiting), stripe-python (billing)"
+    narration: >
+      Today's implementation is deliberately minimal: it is exactly the
+      validation logic you need, and nothing more. Once you have paying
+      customers, you will extend it: the API key lookup becomes a database
+      query, which returns the customer's tier, remaining call quota, and
+      expiry date. The gate_feature wrapper remains the same — only the
+      valid_keys lookup changes from a set to a database call. Good design.
+
+  - type: exercise
+    heading: "Exercise 4 — validate_api_key and gate_feature"
+    prompt: >
+      validate_api_key(key, valid_keys) → key in valid_keys (case-sensitive).
+      gate_feature(api_key, valid_keys, feature_fn, *args, **kwargs) →
+      call feature_fn(*args, **kwargs) if valid; raise PermissionError if not.
+    hint: >
+      Check 2: "KEY-ABC-123" (uppercase) should return False — exact match
+      only. Check 4: the PermissionError message should include the bad key
+      string (e.g. f"Invalid API key: {api_key!r}"). Check 5: kwargs are
+      passed through (*args and **kwargs in gate_feature).
+    narration: >
+      Four lines total. The most common mistake: forgetting to raise PermissionError
+      and just returning None instead. The caller must be able to distinguish
+      "feature returned None" from "feature was blocked" — an exception is
+      the correct signal for "you don't have access."
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "validate_api_key: key in valid_keys — one line"
+      - "gate_feature: check key → raise PermissionError or call fn"
+      - "PermissionError → HTTP 403 when exposing as an API"
+      - "Production extension: set → database lookup → tier → rate limit"
+      - "Next: Exercise 5 — full productization of the trading bot"
+    narration: >
+      Access control is done. Exercise 5 brings all four components together
+      in a complete productization pipeline for the trading bot.
