@@ -8,7 +8,7 @@ rewriting lessons — **no paid API required** (zero-cost constraint). The
 systematic-engineering thread — tests, schemas, logging, git, error handling —
 is reinforced a little more each section, never front-loaded.
 
-**Authoring status:** Days 1–96 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–6 complete. Section 6 (AI Agents, Days 79–88) complete. Days 89–96 gate-green; Section 7 in progress. Days 97–100 pending (next: Day 97 — Productizing Your AI).
+**Authoring status:** Days 1–97 authored (lessons + exercises + project, gate-green). Warmup + Sections 1–6 complete. Section 6 (AI Agents, Days 79–88) complete. Days 89–97 gate-green; Section 7 in progress. Days 98–100 pending (next: Day 98 — Launching).
 Update this line as days are completed.
 
 **Day 3 prereq:** Ollama must be installed and running before starting Day 3.
