@@ -1,0 +1,87 @@
+day: "095"
+lesson: 5
+title: "Paper Trader Architecture"
+slides:
+  - type: title
+    heading: "Architecture"
+    subheading: "How the Section 7 modules fit together"
+    narration: >
+      The fifth lesson steps back and looks at the architecture of the full
+      Section 7 system. Each module built from Days 89–95 has a clear
+      responsibility: fetch, validate, enrich, signal, filter, or simulate.
+      Understanding the boundary between each module is what lets you swap
+      components — change the strategy, add a new risk filter, or plug in
+      a live data feed — without touching the rest.
+
+  - type: concept
+    label: "Module map"
+    heading: "The Section 7 Module Map"
+    body: >
+      Seven modules, one pipeline: data → indicators → signal → risk → simulate.
+    bullets:
+      - "market_data.py: fetch, validate, normalize, store, load OHLCV"
+      - "indicators.py: sma, ema, rsi, macd, bollinger_bands, add_indicators"
+      - "backtester.py: compute_returns, compute_equity, run_backtest (vectorised)"
+      - "strategy.py: sma_crossover, rsi_mean_reversion, macd_cross, combined"
+      - "sentiment.py: score_headline, aggregate_sentiment, SentimentSignal"
+      - "risk.py: kelly_fraction, apply_stop_loss, apply_drawdown_limit, RiskManager"
+      - "paper_trader.py: PaperAccount, run_paper_trader, format_report"
+    narration: >
+      Each module is independent: strategy.py does not import from indicators.py;
+      paper_trader.py does not import from risk.py. The pipeline is assembled in
+      the calling code — the bot script (Day 96) or a notebook. This independence
+      makes each module easy to test in isolation and easy to swap out. The calling
+      code decides which modules to compose, which is the correct place for that
+      decision.
+
+  - type: concept
+    label: "Bot architecture"
+    heading: "The Paper Trading Bot Architecture"
+    body: >
+      The bot is a pipeline with one stateful object (PaperAccount).
+    bullets:
+      - "Stateless: market_data → indicators → strategy → risk → signals"
+      - "Stateful: PaperAccount (cash, shares, trade log)"
+      - "All stateless steps can be re-run; only PaperAccount holds history"
+      - "Day 96 wraps the stateless pipeline in a daily scheduler"
+      - "For live trading: replace Close price source with a broker's live feed"
+    narration: >
+      The clean separation between stateless signal generation and stateful
+      account tracking is what makes the paper trader easy to adapt for live
+      trading. Every step before PaperAccount.buy() can be run repeatedly
+      without side effects. PaperAccount holds the account state. In a live
+      system, the broker API is the external state — the bot just needs to call
+      broker.place_order() instead of account.buy().
+
+  - type: exercise
+    heading: "Project — Paper Trading Dashboard"
+    prompt: >
+      Run three strategies (SMA-cross, always-long, always-flat) through
+      the paper trader with $10,000 initial cash. Print the format_report
+      for each. Assert that always-flat has n_trades=0, that always-long
+      has n_buys=n_sells=1, and that max_drawdown ≤ 0 for all strategies.
+    hint: >
+      Always-flat: signal = pd.Series(0, index=df.index).
+      Always-long: signal = pd.Series(1, index=df.index).
+      The solution asserts |n_buys - n_sells| <= 1 for all strategies
+      (force-liquidation may add one extra sell).
+    narration: >
+      The project is a quick integration test of the full system. Three
+      strategies, three reports. If always-flat shows non-zero equity changes,
+      something is wrong with portfolio_value. If always-long shows n_trades > 2,
+      the bot is re-entering a position mid-loop.
+
+  - type: summary
+    heading: "Day 95 Complete"
+    bullets:
+      - "Trade dataclass: six-field order record"
+      - "PaperAccount: cash + shares state; buy, sell, portfolio_value"
+      - "run_paper_trader: bar-by-bar loop + force-liquidate + result dict"
+      - "format_report: human-readable string for logging and alerts"
+      - "Architecture: stateless pipeline → stateful account"
+      - "Next: Day 96 — scheduling, logging, and live-simulation alerts"
+    narration: >
+      The paper-trading bot is complete. Day 96 adds the production wrapper:
+      scheduling the bot to run daily, logging every session to a file, and
+      sending an alert when the strategy takes a position. At that point, the
+      entire Section 7 system is operational.

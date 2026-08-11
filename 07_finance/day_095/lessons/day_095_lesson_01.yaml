@@ -1,0 +1,82 @@
+day: "095"
+lesson: 1
+title: "Paper Trading vs Real Trading"
+slides:
+  - type: title
+    heading: "The Trading Bot I"
+    subheading: "Paper trading: test before you risk real money"
+    narration: >
+      Day 95. You have every building block: market data (Day 89), indicators
+      (Day 90), backtesting (Day 91), strategies (Day 92), sentiment (Day 93),
+      and risk management (Day 94). Today you assemble them into a paper-trading
+      bot — a simulation that acts exactly like a real trading system, but with
+      fake money. Paper trading is the standard industry practice for testing
+      strategies before going live.
+
+  - type: concept
+    label: "Paper vs vectorised"
+    heading: "Why Paper Trading If We Have run_backtest?"
+    body: >
+      Day 91's vectorised backtester and Day 95's paper trader serve different purposes.
+    bullets:
+      - "run_backtest: fast, returns-algebra, no explicit cash/shares tracking"
+      - "PaperAccount: slow bar-by-bar loop, tracks every dollar and share"
+      - "Paper trader → can be adapted for live execution with minimal changes"
+      - "Paper trader → trade log shows WHEN and at WHAT PRICE each order executes"
+      - "Paper trader → dollar-level position sizing (not signal fraction algebra)"
+    narration: >
+      The vectorised backtester from Day 91 is ideal for rapid strategy research —
+      you can test thousands of parameter combinations quickly. But it produces
+      aggregate metrics, not order-by-order detail. The paper trader runs the same
+      strategy bar by bar, maintains explicit cash and share counts, and logs every
+      trade. This makes it easy to adapt for live trading: replace the Close price
+      with a live market feed and the simulated order with a real broker API call.
+      The only line that changes.
+
+  - type: concept
+    label: "Paper trading workflow"
+    heading: "The Paper Trading Workflow"
+    body: >
+      Run the strategy in simulation for N days; review the trade log; go live.
+    bullets:
+      - "Step 1: research on run_backtest (fast, many parameters)"
+      - "Step 2: validate on paper trader (explicit trades, realistic detail)"
+      - "Step 3: paper trade forward for 30+ days (observe live behavior)"
+      - "Step 4: go live with the same code, just swap the price source"
+      - "Step 5: monitor vs. paper performance — large divergence = data issue"
+    narration: >
+      Paper trading solves the forward-test problem. A backtest is always tested
+      on historical data the researcher has already seen. Paper trading is tested
+      on data that arrives daily — the researcher cannot overfit to it. After 30
+      days of paper trading that matches the backtested performance, the strategy
+      has passed a meaningful out-of-sample test. Only then should real capital
+      be risked.
+
+  - type: exercise
+    heading: "Exercise 1 — PaperAccount.buy and portfolio_value"
+    prompt: >
+      Implement portfolio_value(price) → cash + shares * price.
+      Implement buy(date, price, fraction=1.0): convert fraction of cash to shares,
+      append a Trade, update self.cash and self.shares.
+    hint: >
+      shares = (self.cash * fraction) / price. cost = shares * price. If cost > self.cash
+      due to float rounding, recalculate. Then self.cash -= cost; self.shares += shares.
+      Create a Trade and append to self.trades. Buying at price 100 with $10000 → 100 shares, 0 cash.
+    narration: >
+      portfolio_value is one line. buy is about eight. The guard for cost > self.cash
+      prevents floating-point accumulation from making the cash balance slightly negative.
+      After implementing, verify check 4: portfolio_value equals initial_cash immediately
+      after buying at the same price — because you spent exactly as much cash as the
+      shares are worth.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Paper trading: bar-by-bar simulation with explicit cash/share tracking"
+      - "Paper trader vs. backtester: different tools for different stages"
+      - "PaperAccount: cash and shares updated on every buy/sell"
+      - "portfolio_value = cash + shares × price (mark-to-market)"
+      - "Next: sell and the trade log"
+    narration: >
+      The first exercise establishes the core state. Next lesson: sell, and
+      how the trade log captures every order for review.

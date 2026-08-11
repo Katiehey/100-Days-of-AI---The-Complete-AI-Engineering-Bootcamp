@@ -1,0 +1,83 @@
+day: "095"
+lesson: 2
+title: "The Trade Log"
+slides:
+  - type: title
+    heading: "Trade Log"
+    subheading: "Every order, every dollar, every timestamp"
+    narration: >
+      The trade log is the paper trader's paper trail. Every buy and sell is
+      recorded with its date, price, shares, cash balance after the order, and
+      total portfolio value after the order. This log is invaluable for debugging
+      strategy behavior — you can look at exactly which bars triggered which orders
+      and why the equity curve looks the way it does.
+
+  - type: code
+    label: "Trade dataclass"
+    heading: "The Trade Record"
+    body: >
+      Six fields describe a complete order record.
+    code: |
+      @dataclass
+      class Trade:
+          date:        object   # pd.Timestamp — bar date
+          action:      str      # "BUY" or "SELL"
+          price:       float    # execution price (bar's Close)
+          shares:      float    # shares transacted
+          cash_after:  float    # cash remaining after execution
+          value_after: float    # total portfolio value after execution
+    narration: >
+      Using a dataclass is cleaner than a dict for structured data you will
+      read back frequently. You can access trade.price, trade.date, trade.action
+      instead of trade["price"] — more readable and less error-prone. The
+      value_after field makes it easy to reconstruct the equity curve from just
+      the trade log: on bars with no trade, portfolio value = cash + shares × close.
+
+  - type: concept
+    label: "Sell logic"
+    heading: "Selling: Mirror of Buy"
+    body: >
+      sell liquidates the entire position and records the trade.
+    bullets:
+      - "Guard: if shares ≤ 0, return None (already flat — nothing to sell)"
+      - "proceeds = self.shares × price"
+      - "self.cash += proceeds; self.shares = 0.0"
+      - "Record Trade(action='SELL', shares=sold_shares, ...)"
+      - "The second call to sell (when flat) returns None — no duplicate trade"
+    narration: >
+      The sell-all approach is standard for a simple paper trader. In a more
+      sophisticated system, you might sell a fraction of the position. But for
+      the bot in Days 95–96, every exit liquidates the entire position — simple,
+      clear, and easy to verify from the trade log. The guard prevents a second
+      sell from creating a spurious trade record when the bot processes a 1→0
+      transition but shares are already 0.
+
+  - type: exercise
+    heading: "Exercise 2 — PaperAccount.sell"
+    prompt: >
+      Implement sell(date, price). Guard: if shares <= 0, return None.
+      Otherwise: proceeds = shares × price; update cash and shares;
+      append Trade(action="SELL", shares=sold_shares, ...).
+      Check 3: buy at 100 → 100 shares; sell at 110 → cash = $11,000.
+    hint: >
+      sold_shares = self.shares (before zeroing). After: self.cash += proceeds,
+      self.shares = 0.0. value_after = self.portfolio_value(price) which with
+      shares=0 is just self.cash. Check 5: calling sell a second time when flat
+      should return None and NOT add a second trade record.
+    narration: >
+      The sell method is symmetric to buy. The most common mistake is setting
+      self.shares = 0.0 before computing sold_shares. Always record what you
+      sold before clearing the position. Check 3 tests a profit: 100 shares
+      bought at $100 and sold at $110 yields $11,000 — a $1,000 or 10% gain.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Trade dataclass: six fields, full order context"
+      - "sell: guard for flat position; proceeds → cash; shares → 0"
+      - "Trade log: buy+sell → 2 records; double-sell → only 1 record"
+      - "value_after = cash (after sell), since shares = 0"
+      - "Next: the bot loop in run_paper_trader"
+    narration: >
+      With buy and sell complete, the PaperAccount state machine is finished.
+      Next: the bot loop that calls buy/sell on every signal transition.

@@ -1,0 +1,95 @@
+day: "095"
+lesson: 4
+title: "Reporting and the Full Stack"
+slides:
+  - type: title
+    heading: "format_report"
+    subheading: "From result dict to readable report"
+    narration: >
+      format_report converts the result dictionary from run_paper_trader into
+      a human-readable string. This is the output that gets logged to a file
+      (Day 96) and optionally sent as a notification. A good report shows
+      everything needed to evaluate the session at a glance: initial capital,
+      final value, return, drawdown, and the number and details of trades.
+
+  - type: code
+    label: "format_report"
+    heading: "A Simple Text Report"
+    body: >
+      Build a list of lines; join with newline.
+    code: |
+      def format_report(result):
+          lines = [
+              "=== Paper Trading Report ===",
+              f"Initial cash :  ${result['initial_cash']:>12,.2f}",
+              f"Final value  :  ${result['final_value']:>12,.2f}",
+              f"Total return :  {result['total_return']:>12.2%}",
+              f"Max drawdown :  {result['max_drawdown']:>12.2%}",
+              f"Trades total :  {result['n_trades']:>12d}",
+              f"  Buys       :  {result['n_buys']:>12d}",
+              f"  Sells      :  {result['n_sells']:>12d}",
+          ]
+          if result["trades"]:
+              first = result["trades"][0]
+              last  = result["trades"][-1]
+              lines.append(f"First trade  :  {first.action} @ ${first.price:,.2f}"
+                           f"  ({first.date})")
+              lines.append(f"Last trade   :  {last.action} @ ${last.price:,.2f}"
+                           f"  ({last.date})")
+          return "
+".join(lines)
+    narration: >
+      The format string {:>12,.2f} right-aligns in 12 characters with commas
+      and 2 decimal places — standard for financial formatting. The {:>12.2%}
+      format converts a decimal like 0.15 to 15.00%. The trade details at the
+      bottom — first and last trade — give a quick sanity check: does the first
+      trade look right? Did the bot actually exit?
+
+  - type: concept
+    label: "Day 96 extension"
+    heading: "Day 96: Scheduling and Logging"
+    body: >
+      Tomorrow's session wraps the bot in a scheduler and adds file logging.
+    bullets:
+      - "Day 96 adds: log_result(result, path) → appends report to a log file"
+      - "Day 96 adds: schedule_daily(fn) → run the bot at market close each day"
+      - "Day 96 adds: send_alert(message) → webhook notification on entry/exit"
+      - "Day 95 (today): the bot logic; Day 96: the operational wrapper"
+      - "format_report is the bridge: same string goes to log file and alert"
+    narration: >
+      The bot logic (today) is completely separate from the operational wrapper
+      (Day 96). This is a good software engineering pattern: the trading algorithm
+      should not know or care whether its output goes to a file, a Slack webhook,
+      or a screen. format_report returns a plain string that the wrapper decides
+      what to do with. This makes the bot easy to test in isolation.
+
+  - type: exercise
+    heading: "Exercises 4 and 5 — format_report and Full Pipeline"
+    prompt: >
+      Exercise 4: implement format_report. Build a list of lines including all
+      required fields; add first/last trade details if trades exist. Exercise 5:
+      run SMA-crossover strategy through risk filters then paper trader; compare
+      raw vs. risk-filtered reports.
+    hint: >
+      Exercise 5 check 1: risk max_drawdown >= raw max_drawdown (less negative).
+      Check 5: |n_buys - n_sells| <= 1 for both — should be 0 if the last
+      signal was a sell, or 1 if the last position was force-liquidated.
+    narration: >
+      The full pipeline exercise is the payoff for the last 7 days of work.
+      Every module from Days 89–95 is in play. Observe the comparison: risk
+      filtering typically reduces both return and max_drawdown, and fewer trades
+      are executed. That is the correct behavior.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "format_report: multiline string with all key metrics and trade details"
+      - "Financial formatting: {:,.2f} for dollars, {:.2%} for percentages"
+      - "Bot design: algorithm (Day 95) separate from operational wrapper (Day 96)"
+      - "format_report output → log file, notification, or screen (Day 96 decides)"
+      - "Next: Day 96 wraps the bot in a scheduler + logger"
+    narration: >
+      Day 95 is complete. The paper-trading bot is built and tested end-to-end.
+      Tomorrow you wrap it in scheduling and logging to make it production-like:
+      running daily at market close, logging every session, sending alerts on
+      trade entries and exits.

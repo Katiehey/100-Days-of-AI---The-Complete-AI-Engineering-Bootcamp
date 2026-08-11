@@ -1,0 +1,94 @@
+day: "095"
+lesson: 3
+title: "The Bot Loop"
+slides:
+  - type: title
+    heading: "The Bot Loop"
+    subheading: "Signal → decision → order → record"
+    narration: >
+      The bot loop is the inner engine of run_paper_trader. It iterates over
+      every bar in the dataset, comparing the current signal to the previous
+      one. A 0→1 transition triggers a buy; a 1→0 triggers a sell; no change
+      means hold. At each bar, the equity is recorded. After the loop, any
+      open position is force-liquidated.
+
+  - type: code
+    label: "Bot loop"
+    heading: "The Signal Transition Logic"
+    body: >
+      Five state transitions; one bar-by-bar loop.
+    code: |
+      prev_signal = 0
+      for i in range(len(df)):
+          sig   = int(signals.iloc[i])
+          price = float(df["Close"].iloc[i])
+
+          if sig == 1 and prev_signal == 0:    # entry: go long
+              account.buy(date, price)
+          elif sig == 0 and prev_signal == 1:  # exit: go flat
+              account.sell(date, price)
+          # else: hold (no action)
+
+          eq_values.append(account.portfolio_value(price))
+          prev_signal = sig
+
+      # Force-liquidate any open position at end
+      if account.shares > 0:
+          account.sell(df.index[-1], df["Close"].iloc[-1])
+    narration: >
+      The signal transition logic is the trading rule in code. prev_signal
+      tracks the state from the previous bar. On a 0→1 transition, the
+      strategy just went long — buy. On a 1→0 transition, the strategy
+      exited — sell. If the signal stays the same (0→0 or 1→1), hold.
+      Note that this uses the current bar's Close as the execution price.
+      In a real system you would use the next bar's Open; for paper trading
+      at daily frequency, Close is standard.
+
+  - type: concept
+    label: "Force liquidation"
+    heading: "Why Force-Liquidate at the End?"
+    body: >
+      Always end the simulation fully flat for clean accounting.
+    bullets:
+      - "Without force-sell: final equity = cash + open position value (unrealized)"
+      - "With force-sell: final equity = cash only (all realized)"
+      - "Both give the same dollar value (selling at close doesn't change value)"
+      - "But the account object is clean: cash = final_value, shares = 0"
+      - "Necessary for Day 96: the daily bot should always be fully settled each day"
+    narration: >
+      The force-sell is a bookkeeping convenience. Selling shares at the current
+      market price does not change the portfolio value — you just convert shares
+      to cash at market. But it leaves the account object in a clean state:
+      account.cash equals the final portfolio value and account.shares is zero.
+      This is important for Day 96, where the bot runs daily and needs a clean
+      start each morning.
+
+  - type: exercise
+    heading: "Exercise 3 — run_paper_trader"
+    prompt: >
+      Implement the for loop: on 0→1 signal → buy; on 1→0 → sell; always
+      append portfolio_value. After the loop, force-sell if shares > 0.
+      Build the result dict. Check 1: flat signal → equity always equals
+      initial_cash and n_trades=0. Check 2: always-long → n_buys=1, n_sells=1.
+    hint: >
+      Check 3: buy 10000 / close[0] shares at close[0]; equity[i] = shares × close[i].
+      So equity tracks the price series scaled by initial_cash / close[0].
+      The force-sell adds a SELL to account.trades, so n_trades=2 for always-long.
+    narration: >
+      The TODO in the exercise is just two if/elif lines inside the loop,
+      plus the force-sell check after. If check 1 fails, the hold case is
+      not working — make sure you only call buy on 0→1 and sell on 1→0.
+      If check 2 fails, count the trades: the force-sell after the loop
+      should be the second trade for always-long.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Bot loop: prev_signal tracks last bar; transitions trigger orders"
+      - "0→1: buy; 1→0: sell; same: hold"
+      - "Force-liquidate at end for clean accounting"
+      - "equity Series: portfolio_value at each bar's Close"
+      - "Next: format_report and the full pipeline"
+    narration: >
+      The bot loop is done. Next: format_report to generate the daily summary
+      report, and the full Section 7 pipeline from raw data to formatted results.
