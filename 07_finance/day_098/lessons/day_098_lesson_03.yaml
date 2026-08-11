@@ -1,0 +1,88 @@
+day: "098"
+lesson: 3
+title: "AI-Assisted Marketing Copy"
+slides:
+  - type: title
+    heading: "Marketing Copy with LLMs"
+    subheading: "Generate taglines, emails, and social posts"
+    narration: >
+      Marketing copy — taglines, headlines, call-to-action text — is one of
+      the highest-leverage uses of LLMs for solo developers. Writing great copy
+      is hard and time-consuming. An LLM can generate ten variants in seconds,
+      and you pick the best one. Today you build the prompt-building and
+      response-parsing functions for tagline generation, then generate the
+      launch email and social post directly (no LLM needed for those).
+
+  - type: concept
+    label: "Tagline prompt design"
+    heading: "Building the Tagline Prompt"
+    body: >
+      System: JSON array only. User: n taglines, ≤10 words, clear benefit.
+    bullets:
+      - "System prompt: constrain the format strictly (JSON array, no markdown)"
+      - "User prompt: name, description, count, word limit, benefit requirement"
+      - "parse_taglines: strip markdown fences; json.loads → list[str]"
+      - "Generate 5–10 variants; pick the best two or three"
+      - "A/B test taglines: run two landing pages, measure conversion"
+    narration: >
+      The system prompt is the key to reliable structured output. By telling
+      the LLM "respond with a JSON array of strings only, no explanation, no
+      markdown", you maximise the chance of getting clean JSON. parse_taglines
+      handles the case where the model still adds a markdown code fence — a
+      common failure mode. After stripping the fence, json.loads does the rest.
+      In Exercise 3, you will see how this fits into the injection pattern:
+      llm_fn(generate_tagline_prompt(...)) → parse_taglines(response).
+
+  - type: code
+    label: "Injection pattern"
+    heading: "The Full Tagline Generation Flow"
+    code: |
+      # 1. Build the prompt
+      messages = generate_tagline_prompt("AI Bot", "Automates trading.", n=5)
+
+      # 2. Call the LLM (injected — same pattern throughout the course)
+      response = llm_fn(messages)   # llm_fn = ollama.chat or any compatible fn
+
+      # 3. Parse the response
+      taglines = parse_taglines(response)
+      # → ["Your edge, automated.", "Trade smarter, not harder.", ...]
+
+      # 4. Pick the best one for the landing page
+      best = taglines[0]
+    narration: >
+      This is the injection pattern from Day 93 (sentiment signals) applied to
+      marketing copy. llm_fn is injected — in development it is a mock that
+      returns a fixed JSON string, in production it calls Ollama or a cloud
+      model. The gate uses a mock LLM that returns a hardcoded JSON array.
+      The functions are testable without a running LLM.
+
+  - type: exercise
+    heading: "Exercise 3 — generate_tagline_prompt and parse_taglines"
+    prompt: >
+      generate_tagline_prompt(product_name, description, n=3) returns a list
+      of two message dicts: system (JSON array only, no markdown) and user
+      (n taglines, name, description, ≤10 words, JSON array of n strings).
+      parse_taglines(llm_response) strips markdown fences and json.loads the result.
+    hint: >
+      Check 5: the fenced input is '```json\n[...]\n```'. Split on "\n",
+      take lines[1:-1], rejoin, then json.loads. Make sure your fence-stripping
+      handles the case where there are exactly 3 lines correctly.
+    narration: >
+      The two most common LLM output failures: (1) the model adds a code fence
+      despite the instruction not to; (2) the model adds extra text before or
+      after the JSON. parse_taglines handles failure mode 1 with the fence
+      stripping. For failure mode 2, you would extend parse_taglines with a
+      regex search for the first '[' and last ']'. Today's implementation handles
+      the common case.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Tagline generation: system prompt constrains format; user prompt specifies n"
+      - "parse_taglines: strip fences → json.loads → list[str]"
+      - "Injection pattern: generate_prompt → llm_fn → parse → pick best"
+      - "A/B test taglines on the landing page to find the highest converter"
+      - "Next: launch email + social post generation"
+    narration: >
+      Taglines done. Next: the two most important launch-day pieces of content —
+      the email to your waitlist and the social post that spreads the word.

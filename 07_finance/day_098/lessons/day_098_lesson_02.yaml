@@ -1,0 +1,83 @@
+day: "098"
+lesson: 2
+title: "The Waitlist Strategy"
+slides:
+  - type: title
+    heading: "The Waitlist"
+    subheading: "Capturing demand before you build"
+    narration: >
+      The waitlist is one of the highest-signal things you can do before
+      launching a product. A visitor who types their email address is telling
+      you "I want this". A hundred email addresses are strong evidence of real
+      demand — much stronger than a hundred page views. Today's Waitlist class
+      stores subscribers in a JSON file, handles deduplication, normalises
+      emails, and exports to CSV for use in email tools.
+
+  - type: concept
+    label: "Waitlist mechanics"
+    heading: "What the Waitlist Does"
+    body: >
+      Email addresses from interested users, stored and ready to use on launch day.
+    bullets:
+      - "add(email): validate, normalise, deduplicate, persist"
+      - "count(): how many people want the product"
+      - "list_emails(): get all addresses for batch email sending"
+      - "export_csv(): CSV for import into Mailchimp/ConvertKit/Postmark"
+      - "File-backed: survives restarts, trivial to inspect and edit"
+    narration: >
+      The Waitlist class stores subscribers as a JSON file. Every add() call
+      loads the file, checks for duplicates, appends the new entry, and writes
+      back. This is safe for a waitlist size up to a few thousand — at that
+      scale, you would migrate to a database (SQLite or Postgres). The export_csv
+      method generates CSV with the standard columns (email, name, joined_at,
+      source) that every major email marketing tool can import.
+
+  - type: concept
+    label: "Email validation"
+    heading: "Why Email Validation Matters"
+    body: >
+      Garbage in, bounced emails out. Validate at the boundary.
+    bullets:
+      - "Minimum check: stripped, lowercase, contains '@'"
+      - "Better: regex for RFC 5322 format (overkill for most products)"
+      - "Best: send a confirmation email and require the click"
+      - "Today: stripped + lower + '@' check — practical minimum"
+      - "Duplicate check: same email once, case-insensitively"
+    narration: >
+      The Waitlist.add() method strips whitespace, lowercases the email, and
+      checks for '@'. This catches the most common mistakes (accidental spaces,
+      capitalisation) without requiring a complex regex. The duplicate check is
+      case-insensitive because 'Alice@Example.com' and 'alice@example.com' are
+      the same address. In production you would add a confirmation email flow
+      (double opt-in) to verify the address is real and the owner consented —
+      required by GDPR and CAN-SPAM.
+
+  - type: exercise
+    heading: "Exercise 2 — Waitlist"
+    prompt: >
+      Implement the Waitlist class: _load (JSON → WaitlistEntry list),
+      _save (list → JSON file, mkdir parents), add (strip+lower, validate '@',
+      deduplicate, append, save, return True/False), count, list_emails, export_csv.
+      WaitlistEntry has email, name, joined_at (auto-ISO), source.
+    hint: >
+      _load: json.loads(self.path.read_text()) → [WaitlistEntry(**e) for e in data].
+      _save: json.dumps([{"email":e.email,...} for e in self._entries], indent=2).
+      export_csv: csv.DictWriter(io.StringIO(), fieldnames=[...]).
+    narration: >
+      The persistence pattern here (load → mutate → save) is the simplest
+      possible approach. It works well at small scale. The key design decisions:
+      lowercase emails (so dedup is case-insensitive), return True/False from
+      add (so callers know whether a new subscriber was added), and persist
+      after every add (so no subscriber is lost if the process crashes).
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Waitlist: JSON-backed subscriber list with add/count/list/export"
+      - "Email normalisation: strip + lower before storing"
+      - "Deduplication: check existing entries before appending"
+      - "CSV export: csv.DictWriter + io.StringIO → importable string"
+      - "Next: LLM-generated taglines + marketing copy"
+    narration: >
+      The waitlist is done. Next: how to use an LLM to generate the marketing
+      copy — taglines, launch emails, and social posts.

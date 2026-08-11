@@ -1,0 +1,86 @@
+day: "098"
+lesson: 5
+title: "The Complete Launch Pipeline"
+slides:
+  - type: title
+    heading: "Launch Day"
+    subheading: "Page → waitlist → copy → distribution"
+    narration: >
+      Lesson 5 shows the complete launch pipeline: generate the landing page,
+      populate a waitlist with test subscribers, generate taglines from a mock
+      LLM response, build launch emails for each subscriber, and produce the
+      social posts. After Exercise 5, you have every artifact needed to launch
+      the AI trading bot as a real product.
+
+  - type: concept
+    label: "Launch sequence"
+    heading: "The Launch Day Sequence"
+    body: >
+      Seven steps from 'ready to ship' to 'users arriving'.
+    bullets:
+      - "1. Publish landing page (Vercel, Netlify, GitHub Pages — free)"
+      - "2. Post to Twitter/LinkedIn/HN — the first traffic spike"
+      - "3. Send launch email to waitlist — your highest-intent audience"
+      - "4. Submit to Product Hunt (launches at midnight PT)"
+      - "5. Monitor analytics + email opens for the first 24 hours"
+      - "6. Respond to every comment and question personally"
+      - "7. Iterate: update landing page copy based on what's converting"
+    narration: >
+      The launch is not a one-time event — it is a 48-hour sprint followed by
+      a week of follow-up. The first 24 hours are about distribution: getting
+      the page in front of as many interested people as possible. The second
+      24 hours are about conversion: understanding who clicked, who signed up,
+      and why. After day two, you ship the first real user feedback into the
+      product. The tools you built today handle steps 1, 2, and 3 programmatically.
+
+  - type: concept
+    label: "Metrics to watch"
+    heading: "Three Metrics That Matter on Launch Day"
+    body: >
+      Visitor → subscriber → user. Three conversion steps.
+    bullets:
+      - "Landing page conversion: subscribers / visitors (target ≥ 10%)"
+      - "Email open rate: opens / sent (target ≥ 40% for launch email)"
+      - "Click-through rate: CTA clicks / opens (target ≥ 20%)"
+      - "These compound: 1000 visitors × 10% × 40% × 20% = 8 activated users"
+      - "If any step is low: improve the copy or the offer, not the next step"
+    narration: >
+      The funnel math is humbling. Even with good conversion rates at every
+      step, the absolute numbers are small at launch. This is why the waitlist
+      matters: it trades immediate low-intent visitors for higher-intent future
+      users. A launch email to 200 waitlist subscribers will outperform
+      a cold email to 2000 strangers by a large margin. Invest in the quality
+      of each stage of the funnel before trying to increase volume.
+
+  - type: exercise
+    heading: "Exercise 5 — Full Launch Pipeline"
+    prompt: >
+      Chain all four components: generate_landing_page (valid HTML with product
+      name), Waitlist (3 subscribers), parse_taglines from fenced mock LLM output,
+      generate_launch_email for each subscriber, generate_social_post for
+      twitter + linkedin.
+    hint: >
+      Check 3: the mock LLM response is fenced (```json...```). parse_taglines
+      must strip the fence and return a list of 3 non-empty strings. Check 5:
+      assert len(tw) <= 280 and ("#AI" in li or "#ProductLaunch" in li).
+    narration: >
+      This pipeline is what you would run on launch morning: generate the page,
+      confirm the waitlist is ready, pick the best tagline, send the launch
+      emails, schedule the social posts. The code is fast — the entire pipeline
+      runs in milliseconds because all four components are pure Python with no
+      network calls.
+
+  - type: summary
+    heading: "Day 98 Complete"
+    bullets:
+      - "generate_landing_page: complete HTML5 from LandingPageConfig"
+      - "Waitlist: file-backed; add/count/list_emails/export_csv"
+      - "generate_tagline_prompt + parse_taglines: LLM tagline variants"
+      - "generate_launch_email: personalised plain-text launch email"
+      - "generate_social_post: Twitter (≤280) + LinkedIn (hashtags) + generic"
+      - "Next: Day 99 — Portfolio & Personal Brand"
+    narration: >
+      Day 98 is complete. The product is now packaged (Day 97), documented,
+      priced, access-controlled, and ready to launch. Day 99 builds the
+      portfolio site that showcases all 100 days of work to potential employers,
+      clients, and collaborators. One day after that: the final capstone.

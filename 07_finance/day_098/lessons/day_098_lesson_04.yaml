@@ -1,0 +1,86 @@
+day: "098"
+lesson: 4
+title: "The Launch Email and Social Posts"
+slides:
+  - type: title
+    heading: "Launch Day Content"
+    subheading: "The email to your waitlist + the posts that spread the word"
+    narration: >
+      Launch day has two content jobs: the email to your waitlist (your most
+      interested users) and the social posts (your bid for wider distribution).
+      Both are generated deterministically from the product config — no LLM
+      needed because the format is fixed. The only variables are the product
+      name, the chosen tagline, and the URL.
+
+  - type: concept
+    label: "Launch email structure"
+    heading: "The Launch Email Structure"
+    body: >
+      Seven lines. That's all a good launch email needs.
+    bullets:
+      - "Greeting: personalised if you have a name; generic if not"
+      - "Hook: 'The wait is over. {product} is officially live.'"
+      - "Tagline: the one-line reason to care"
+      - "Early-access note: reward them for being on the waitlist"
+      - "CTA: → the URL (simple arrow link, not a designed button)"
+      - "Escape hatch: 'Questions? Just reply to this email.'"
+      - "Sign-off: The {product} Team"
+    narration: >
+      The launch email is not a newsletter. It is a moment-of-truth communication
+      that every person on your waitlist will open. Keep it short. Plain text
+      outperforms HTML in deliverability and open rates for launch emails. The
+      personalised greeting (using the subscriber's name from the waitlist) adds
+      warmth without requiring dynamic template rendering. The arrow link (→)
+      is more readable in plain text than a button, and it works in every email
+      client.
+
+  - type: concept
+    label: "Platform-specific copy"
+    heading: "Twitter vs LinkedIn vs Generic"
+    body: >
+      Same message, different format, different audience.
+    bullets:
+      - "Twitter: ≤280 chars; punchy; emoji for visibility; link at end"
+      - "LinkedIn: longer; story-driven; hashtags for discovery; professional tone"
+      - "Hacker News: no marketing speak; technical; 'Ask HN' or 'Show HN'"
+      - "generic: one-liner for bots, RSS, SMS — just name + tagline + url"
+      - "Truncate Twitter posts to 277 + '...' if the content exceeds 280 chars"
+    narration: >
+      Platform fit matters. A LinkedIn post with emoji and casual language gets
+      dismissed by LinkedIn's professional audience. A long formal post on Twitter
+      gets ignored because nobody reads past 280 chars. generate_social_post
+      takes the platform as a parameter and formats accordingly. In production
+      you would add Reddit, Product Hunt, and IndieHackers variants — each with
+      their own community norms.
+
+  - type: exercise
+    heading: "Exercise 4 — generate_launch_email and generate_social_post"
+    prompt: >
+      generate_launch_email(product_name, tagline, cta_url, recipient_name="")
+      returns {"subject": ..., "body": ...}. Subject must contain product_name.
+      Body: greeting → product live → tagline → early access → URL → sign-off.
+      generate_social_post(product, tagline, url, platform="twitter") returns str.
+      Twitter ≤280 chars; LinkedIn has hashtags; other → one-liner.
+    hint: >
+      Twitter: build the post first, then truncate: post[:277]+"..." if len>280.
+      LinkedIn: include "#AI", "#ProductLaunch", "#BuildInPublic" — check 5
+      tests for at least one of these. generic: f"{name}: {tagline} — {url}".
+    narration: >
+      The generate_launch_email function is called once per waitlist subscriber.
+      If you have 200 subscribers, you call it 200 times with different
+      recipient_name values. In production you would feed the output into a
+      transactional email service (Postmark, Resend, SendGrid) via their API.
+      The Waitlist.export_csv() method from Exercise 2 gives you the CSV to
+      import into those services if you prefer a no-code email tool.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Launch email: 7-line structure — greeting, hook, tagline, CTA, sign-off"
+      - "generate_launch_email: personalised or generic greeting from recipient_name"
+      - "Twitter: ≤280 chars, truncate at 277; LinkedIn: hashtags, professional"
+      - "generate_social_post: platform-specific formatting in one function"
+      - "Next: Exercise 5 — full launch pipeline end-to-end"
+    narration: >
+      All four tools are ready. Exercise 5 chains them together into a complete
+      launch day pipeline.

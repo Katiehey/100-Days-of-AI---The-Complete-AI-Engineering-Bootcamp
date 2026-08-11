@@ -1,0 +1,81 @@
+day: "098"
+lesson: 1
+title: "Product Launch Fundamentals"
+slides:
+  - type: title
+    heading: "Launching"
+    subheading: "Getting from product to users"
+    narration: >
+      Day 98. The product is built and packaged. Today you learn how to get
+      it in front of users: a landing page that explains it, a waitlist that
+      captures interest, marketing copy that communicates the value, and the
+      social posts that spread the word. These are not optional extras —
+      without them, a great product gets zero users.
+
+  - type: concept
+    label: "Launch components"
+    heading: "The Four Components of a Product Launch"
+    body: >
+      Landing page → waitlist → marketing copy → distribution.
+    bullets:
+      - "Landing page: the product's front door; converts visitors to subscribers"
+      - "Waitlist: captures demand before launch; social proof; launch fuel"
+      - "Marketing copy: taglines, emails, social posts that communicate value"
+      - "Distribution: the channels that bring users to the page (SEO, social, HN)"
+      - "Order: build the page first, then drive traffic"
+    narration: >
+      A landing page is not a polished website — it is a single page with one
+      job: convince the visitor to sign up. A waitlist is a list of email
+      addresses from people who want the product before it exists. Marketing
+      copy is the language that makes people understand and want the product.
+      Distribution is where those people come from. Today you build the first
+      three. Distribution (SEO, content, paid ads) is a subject for another
+      course — but the tools you build today are what distribution leads to.
+
+  - type: concept
+    label: "Landing page job"
+    heading: "The Landing Page's Only Job"
+    body: >
+      One page. One action. Everything else is noise.
+    bullets:
+      - "Hero: what it is + why it matters (tagline + h1) in < 5 seconds"
+      - "Features: why choose this over alternatives (3–5 bullets)"
+      - "Social proof: who else uses it (testimonials, logos, numbers)"
+      - "CTA: one clear action (waitlist email, 'Start free', 'Try demo')"
+      - "Remove everything that doesn't help the visitor take the action"
+    narration: >
+      The most common landing page mistake is including too much information.
+      Every additional paragraph, link, or option reduces conversion. The page
+      has one job: get the visitor to click the CTA. generate_landing_page
+      produces a four-section page with exactly that structure. In production
+      you would add analytics (Plausible, Fathom, Posthog) to measure the
+      conversion rate and A/B test the copy.
+
+  - type: exercise
+    heading: "Exercise 1 — generate_landing_page"
+    prompt: >
+      generate_landing_page(cfg) returns a complete HTML5 document.
+      Required: <!DOCTYPE html> start; <title> and <h1> with product_name;
+      tagline in the hero; each feature as a <li>; cta_text as a button/link;
+      primary_color in the CSS; a section with id="waitlist".
+    hint: >
+      Build the string with concatenation or a big f-string. The feature items
+      can be built with "\n".join(f"<li>{f}</li>" for f in cfg.features).
+      The #waitlist section just needs the id attribute — it doesn't need to
+      actually submit a form for these checks.
+    narration: >
+      In production you would use a static site generator (Astro, Hugo, Next.js)
+      or a no-code tool (Carrd, Webflow). But generating HTML from Python is
+      useful for programmatically creating personalised pages, email templates,
+      and report outputs — skills you use throughout the course.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Landing page: hero + features + waitlist form, one CTA"
+      - "LandingPageConfig: metadata dataclass drives all generators"
+      - "generate_landing_page: complete HTML5 doc from config"
+      - "Next: the Waitlist — capturing and managing subscribers"
+    narration: >
+      The front door is built. Next: the mechanism that captures email addresses
+      from visitors who want to hear more.
