@@ -1,0 +1,82 @@
+day: "100"
+lesson: 1
+title: "Scoping the Final Project"
+slides:
+  - type: title
+    heading: "Day 100 — Final Capstone"
+    subheading: "Scoping, planning, and shipping your AI product"
+    narration: >
+      Day 100. The final day. Every concept, every tool, every pattern from
+      the previous 99 days leads here. The capstone is not a test — it is a
+      project you choose, specify, build, and ship. Today you learn how to
+      scope it correctly so it ships in a finite amount of time, and how to
+      track your progress through the six standard build phases.
+
+  - type: concept
+    label: "Scoping"
+    heading: "How to Scope a Capstone That Ships"
+    body: >
+      The biggest risk is scope creep. The antidote: a validated spec.
+    bullets:
+      - "One sentence tagline: if you can't say what it does in 10 words, the scope is unclear"
+      - "Three concrete deliverables: code files, endpoints, deployed URLs — not 'features'"
+      - "Two sections of this course: pick where you go deep, not where you go wide"
+      - "One domain: finance, text, vision, agents — not all of them"
+      - "validate_spec enforces this: 3+ deliverables, 2+ tech items, 1+ sections"
+    narration: >
+      Scope creep is the reason most side projects never ship. The fix is a
+      written spec that has been validated before you write the first line of
+      production code. validate_spec is an automated version of the "does this
+      make sense?" review. It catches the most common failures: too few concrete
+      deliverables (vague scope), too little tech (proof-of-concept that isn't
+      a product), no course section reference (disconnected from what you learned).
+
+  - type: concept
+    label: "The spec"
+    heading: "CapstoneSpec: The Seven Fields"
+    body: >
+      Seven fields. One source of truth for the entire capstone.
+    bullets:
+      - "name: what people will call it"
+      - "tagline: the one-sentence pitch"
+      - "domain: where it lives (finance, text, vision, agents)"
+      - "description: one paragraph for the portfolio case study"
+      - "sections_used: which parts of the course you applied"
+      - "deliverables: the concrete artifacts (≥ 3: files, endpoints, demos)"
+      - "tech_stack: the technologies (≥ 2: language + at least one framework)"
+    narration: >
+      Once you fill in CapstoneSpec, every other generator has what it needs:
+      generate_project_plan builds the implementation plan, default_phases
+      creates the tracking phases, format_completion_certificate generates the
+      final summary, and the Day 97–99 tools (generate_pyproject, generate_readme,
+      generate_portfolio_page) all take the same data. One spec, seven artifacts.
+
+  - type: exercise
+    heading: "Exercise 1 — validate_spec"
+    prompt: >
+      validate_spec(spec) checks: name/tagline/domain/description are non-empty
+      strings; deliverables has ≥ 3 items; tech_stack has ≥ 2 items;
+      sections_used has ≥ 1 item. Returns (True, []) if valid, (False, errors)
+      if not. All errors accumulate — don't stop at the first.
+    hint: >
+      Use getattr(spec, field_name, "") and check .strip() for text fields.
+      len(spec.deliverables) < 3 adds an error message; it does NOT short-circuit.
+      Check 5 uses an all-empty spec — ensure you get ≥ 4 errors from it.
+    narration: >
+      validate_spec is a guard rail. Run it before generate_project_plan —
+      a plan built from a vague spec is a vague plan. The pattern of returning
+      (bool, list[str]) is common in Python validation: you get both the
+      pass/fail answer and the list of specific problems, which is more useful
+      than just raising an exception.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Scope creep kills projects — a validated spec prevents it"
+      - "CapstoneSpec: 7 fields, one source of truth for all generators"
+      - "validate_spec: (bool, list[str]); errors accumulate, don't short-circuit"
+      - "Minimum viable spec: name + tagline + 3 deliverables + 2 tech items"
+      - "Next: generate_project_plan and default_phases"
+    narration: >
+      Spec done and validated. Next: the implementation plan and the six build
+      phases that drive the tracker.

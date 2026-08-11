@@ -1,0 +1,93 @@
+day: "100"
+lesson: 3
+title: "Tracking and Completing"
+slides:
+  - type: title
+    heading: "Tracking Progress"
+    subheading: "build_status, mark_phase_done, completion certificate"
+    narration: >
+      The tracker has two operations: read (build_status) and write
+      (mark_phase_done). Once all phases are marked done, the project is
+      complete and format_completion_certificate generates the final document.
+      This lesson covers all three.
+
+  - type: code
+    label: "Tracker pattern"
+    heading: "The Tracker Workflow"
+    code: |
+      # Create report
+      report = CapstoneReport(spec=my_spec, phases=default_phases(my_spec))
+
+      # Check initial status
+      status = build_status(report)
+      print(status["completion_pct"])   # 0.0
+
+      # Work on Phase 1...
+      r = mark_phase_done(report, "Plan")    # True
+      r = mark_phase_done(report, "NoPhase") # False — wrong name
+
+      # Check progress
+      status = build_status(report)
+      print(status["completion_pct"])   # 16.7
+
+      # Complete all phases
+      for p in report.phases:
+          mark_phase_done(report, p.name)
+
+      print(build_status(report)["is_complete"])  # True
+    narration: >
+      The workflow is always the same: create the report, check status, mark
+      phases done as you complete them, check status again. build_status is
+      idempotent — you can call it as many times as you want without side effects.
+      mark_phase_done returns True/False so the caller knows whether the phase
+      name was found, without raising an exception for a missing phase — a design
+      choice consistent with how Waitlist.add returns False for duplicates.
+
+  - type: concept
+    label: "Completion certificate"
+    heading: "format_completion_certificate: The Final Document"
+    body: >
+      The certificate documents what was built, how far it got, and signs off.
+    bullets:
+      - "# 100 Days of AI — Capstone Completion"
+      - "## {name}: tagline + description"
+      - "## Build Progress: [x] done / [ ] not-done per phase"
+      - "**Overall: {completion_pct}% complete**"
+      - "## Tech Stack + ## Course Sections Applied"
+      - "Sign-off: *Built during 100 Days of AI — The Complete AI Engineering Bootcamp*"
+    narration: >
+      The completion certificate is the document you share when you announce
+      that you finished the capstone. Post it as a LinkedIn article, a GitHub
+      Gist, or a blog post. It summarises what you built, the technologies you
+      used, which sections of the course you applied, and shows the completed
+      build phases. The '[x]' checkbox format renders as a checked checkbox
+      in GitHub Markdown.
+
+  - type: exercise
+    heading: "Exercise 3 — build_status and mark_phase_done"
+    prompt: >
+      build_status(report) returns dict with phases (list[dict] with name/done/n_tasks),
+      total_phases, completed_phases, completion_pct (1 decimal), is_complete (bool,
+      True only when done==total and total>0). mark_phase_done(report, phase_name)
+      sets phase.done=True and returns True; returns False if name not found.
+    hint: >
+      Check 3: after marking Plan done, completion_pct = round(1/6*100, 1) = 16.7.
+      Check 4: mark all 6 phases — is_complete should be True. Check 5: each
+      phase dict in status["phases"] must have "name", "done", "n_tasks" keys.
+    narration: >
+      The completion_pct calculation uses max(total, 1) to avoid division by zero
+      on an empty report. This is a guard rail — the same principle as gate tests
+      checking edge cases. build_status never mutates; mark_phase_done mutates
+      exactly one phase. Two functions, two responsibilities, zero overlap.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "build_status: read-only snapshot — phases list + total/done/pct/complete"
+      - "mark_phase_done: write operation — True if found, False if not"
+      - "completion_pct: round(done/max(total,1)*100, 1)"
+      - "is_complete: done == total and total > 0 (not just done == total)"
+      - "Next: format_completion_certificate — the final document"
+    narration: >
+      Tracking done. Next: the completion certificate — the document that marks
+      the end of the capstone and the end of 100 days.

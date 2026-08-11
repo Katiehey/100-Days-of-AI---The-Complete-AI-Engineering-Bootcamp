@@ -1,0 +1,87 @@
+day: "100"
+lesson: 4
+title: "100 Days in Review"
+slides:
+  - type: title
+    heading: "100 Days in Review"
+    subheading: "What you built. What you learned. What comes next."
+    narration: >
+      Before the final exercise, it is worth pausing to look back at the full
+      arc of the course. One hundred days. Seven sections. Thirty-plus projects.
+      From a simple TTS pipeline on Day 1 to a complete AI product on Day 100.
+      This lesson reviews what was covered and what it all adds up to.
+
+  - type: concept
+    label: "The arc"
+    heading: "The Course Arc"
+    body: >
+      Seven sections, each building on the last.
+    bullets:
+      - "Warmup (1–5): Python + first LLM call + hygiene (logging, tests, git)"
+      - "Section 1 (6–20): Text AI — prompts, RAG, chatbots, tool use, eval"
+      - "Section 2 (21–35): Automation — files, APIs, email, scheduling, CLI"
+      - "Section 3 (36–50): Data — pandas, SQL, EDA, ML, pipelines, time series"
+      - "Section 4 (51–65): Real Apps — FastAPI, Streamlit, auth, deploy, payments"
+      - "Section 5 (66–78): Vision & Multimodal — images, OCR, TTS, video, agents"
+      - "Section 6 (79–88): AI Agents — loops, tools, memory, planning, safety"
+      - "Section 7 (89–100): Finance + Productizing — data, backtesting, bot, launch"
+    narration: >
+      The progression was deliberate. Each section introduced new primitives
+      that the next section builds on. The agent loop (Section 6) uses tool
+      routing from Section 1, persistence from Section 3, and APIs from
+      Section 4. The trading bot (Section 7) uses pandas from Section 3,
+      SQLite from Section 3/4, scheduling from Section 2, and LLM calls from
+      Section 1. Nothing in Section 7 would have been possible on Day 1.
+
+  - type: concept
+    label: "Skills earned"
+    heading: "Skills You Now Have"
+    body: >
+      Fourteen skills that most AI engineers spend years acquiring.
+    bullets:
+      - "LLM integration: prompting, structured output, streaming, tool use"
+      - "RAG pipeline: embeddings, vector DB, retrieval, grounding, citations"
+      - "Automation: file ops, APIs, email, scheduling, CLI tools"
+      - "Data engineering: pandas, SQL, ETL, time series, feature engineering"
+      - "Web apps: FastAPI (backend) + Streamlit (frontend) + auth + payments"
+      - "Multimodal: images (PIL/Vision), audio (Whisper/TTS), video (FFmpeg)"
+      - "AI agents: ReAct loop, memory, planning, multi-agent, guardrails, MCP"
+      - "Finance/Trading: OHLCV, indicators, backtesting, risk, paper trading"
+      - "Productizing: packaging, docs, pricing, feature gating, landing page"
+      - "Personal brand: portfolio site, GitHub README, case studies"
+    narration: >
+      These are not theoretical skills. Every one is demonstrated by a working
+      project in your 07_finance/, 06_agents/, 05_vision/, 04_apps/,
+      03_data/, 02_automation/, 01_text/, and 00_warmup/ directories.
+      The deliverable .py files are production-quality code. The exercise
+      notebooks demonstrate the concepts. The gate tests prove correctness.
+      This is a portfolio of evidence, not a list of claims.
+
+  - type: exercise
+    heading: "Exercise 4 — format_completion_certificate"
+    prompt: >
+      format_completion_certificate(report) returns Markdown starting with
+      '# 100 Days of AI — Capstone Completion'. Contains ## {spec.name},
+      **{spec.tagline}**, ## Build Progress with [x]/[ ] phase lines,
+      **Overall: {completion_pct}% complete**, ## Tech Stack, ## Course Sections
+      Applied, and a sign-off line after ---.
+    hint: >
+      Check 3: phases with done=True get '[x]'; phases with done=False get '[ ]'.
+      Use f"  {'[x]' if p['done'] else '[ ]'} {p['name']}" for each phase dict
+      from build_status(report)["phases"]. Check 5: sign-off after '---'.
+    narration: >
+      The certificate is the last artifact you generate in this course. After
+      Day 100, you can customise the format_completion_certificate function to
+      add your own flair: project metrics, a screenshot, testimonials.
+      The structure is a template, not a constraint.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "100 days, 7 sections, 14 skills, 30+ projects"
+      - "format_completion_certificate: Markdown certificate from CapstoneReport"
+      - "[x]/[ ] phase status from build_status phases list"
+      - "sign-off line after --- is the course's closing statement"
+      - "Next: Exercise 5 — the full capstone pipeline with your spec"
+    narration: >
+      One more exercise. The last one. Then the course is complete.

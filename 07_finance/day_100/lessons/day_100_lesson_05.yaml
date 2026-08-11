@@ -1,0 +1,83 @@
+day: "100"
+lesson: 5
+title: "What Comes Next"
+slides:
+  - type: title
+    heading: "What Comes Next"
+    subheading: "After 100 days — the AI engineering career"
+    narration: >
+      The course is done. Day 100 is complete. What comes next? This final lesson
+      is not about code. It is about how to turn 100 days of work into a career,
+      a business, or a research path. Three directions, and how to choose between them.
+
+  - type: concept
+    label: "Career paths"
+    heading: "Three Paths After the Bootcamp"
+    body: >
+      AI engineering opens three doors. Choose based on what energises you.
+    bullets:
+      - "Employment: AI engineer at a startup or enterprise (best portfolio helps most)"
+      - "Freelance: build AI products for clients (niche + case studies + pricing)"
+      - "Founder: build your own AI product (the capstone is the first product)"
+      - "Which fits? If you loved Section 7, consider founder. If Section 4, employment."
+      - "Many people do all three in sequence: employed → freelance → founder"
+    narration: >
+      The skills from this course are directly applicable to all three paths.
+      The trading bot is a demo for employment. The productizer module from Day 97
+      is the pricing model for freelancing. The capstone is the first product.
+      The portfolio from Day 99 is the marketing material for all three. The
+      choice of path depends on your risk tolerance, not your skill level.
+
+  - type: concept
+    label: "Keep building"
+    heading: "The Most Important Thing: Keep Building"
+    body: >
+      Skills atrophy without practice. Build one thing per month.
+    bullets:
+      - "Every skill in this course was reinforced by building, not by reading"
+      - "One small project per month: one prompt, one API, one deployed thing"
+      - "Open source: contribute to one AI project you use (ChromaDB, Ollama, etc.)"
+      - "Write one case study per project: forces you to articulate the 'why'"
+      - "The hardest skill to maintain: staying current (papers, HN, AI Twitter)"
+    narration: >
+      The AI field moves fast. The specific models and APIs from this course
+      will be superseded by newer ones within months. But the patterns — the
+      injection pattern, the gate test discipline, the spec-first approach,
+      the pipeline architecture — are stable. Learn the new APIs; keep the
+      patterns. A new LLM provider is just a new llm_fn injection.
+
+  - type: exercise
+    heading: "Exercise 5 — Full Capstone Pipeline"
+    prompt: >
+      Define MY_SPEC (edit the provided template or write your own), run
+      validate_spec (must pass), generate_project_plan, default_phases,
+      mark all 6 phases done, and format_completion_certificate. The certificate
+      must start with '# 100 Days of AI', contain your project name, show 100.0%,
+      and have all phases as [x].
+    hint: >
+      If you write your own spec: ensure ≥3 deliverables, ≥2 tech items, ≥1 section.
+      mark_phase_done must be called for each phase by name (exact match, case-sensitive).
+      The certificate ends with the course sign-off line after ---.
+    narration: >
+      This is the last exercise in the 100-day course. Completing it means you
+      have written, tested, and run code on all 100 days. You have built a
+      complete AI engineering skill set. The certificate you generate now is
+      the honest record of that work — not what someone awarded you, but what
+      you built and proved.
+
+  - type: summary
+    heading: "Day 100 Complete — Congratulations"
+    bullets:
+      - "100 days. 7 sections. 30+ projects. One complete AI engineering skill set."
+      - "CapstoneSpec → validate_spec → generate_project_plan → default_phases"
+      - "build_status → mark_phase_done → format_completion_certificate"
+      - "The spec-first discipline: validate before you build"
+      - "The gate-test discipline: test before you ship"
+      - "The portfolio: evidence of what you built"
+      - "What's next: keep building, one project per month"
+    narration: >
+      Congratulations. You have completed 100 Days of AI — The Complete AI
+      Engineering Bootcamp. From a simple TTS pipeline on Day 1 to a fully
+      specified, planned, and tracked AI product on Day 100. The skills are
+      yours now. The portfolio is evidence. The discipline — spec first, test
+      first, ship with documentation — is a habit. Go build something.
