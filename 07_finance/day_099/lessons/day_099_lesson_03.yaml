@@ -1,0 +1,84 @@
+day: "099"
+lesson: 3
+title: "GitHub Profile README"
+slides:
+  - type: title
+    heading: "GitHub Profile README"
+    subheading: "Your most-visited page"
+    narration: >
+      GitHub has a hidden feature: create a repository named the same as your
+      username, add a README.md, and it appears on your profile page at
+      github.com/yourusername. This is the highest-visibility page in your
+      personal brand — recruiters, potential collaborators, and clients all
+      land there when they look you up. generate_github_readme builds this
+      document from your PortfolioConfig.
+
+  - type: concept
+    label: "Profile README structure"
+    heading: "Profile README Structure"
+    body: >
+      Six sections, all visible above the fold on a laptop screen.
+    bullets:
+      - "# Hi, I'm {name} — personal, immediate"
+      - "{bio} — one sentence on who you are and what you build"
+      - "## What I Build — title + one sentence on focus area"
+      - "## Projects — bullet list: **[name](url)** — tagline"
+      - "## Tech Stack — dot-separated unique tech from all projects"
+      - "## Contact — email + LinkedIn"
+    narration: >
+      The greeting "Hi, I'm {name}" is deliberate — it makes the page feel
+      like a person, not a CV. The bio is the same text from PortfolioConfig,
+      so it stays consistent across the portfolio page and the README. The
+      project list links directly to the GitHub repos. The tech stack is
+      deduplicated across all projects and shows the top 8 items in the order
+      they first appear — which is roughly the order of importance.
+
+  - type: concept
+    label: "Deduplication"
+    heading: "Tech Stack: Order-Preserved Deduplication"
+    body: >
+      dict.fromkeys(all_tech)[:8] — the one-liner for ordered dedup.
+    bullets:
+      - "Problem: Python appears in 5 projects — show it once"
+      - "dict.fromkeys(list) preserves order and removes duplicates"
+      - "list(dict.fromkeys(all_tech)) → unique items in first-seen order"
+      - "[:8] caps at 8 items — readable; more than 8 is overwhelming"
+      - "Alternative: Counter(all_tech).most_common(8) — but loses first-seen order"
+    narration: >
+      The technique list(dict.fromkeys(iterable)) is a Python idiom worth
+      memorising. dict keys are insertion-ordered since Python 3.7, and a
+      dict cannot have duplicate keys — so fromkeys(list) gives you a
+      dict with one entry per unique item in the list, in the order of first
+      appearance. Converting back to a list gives the deduplicated version.
+      Counter would give frequency order, which might not be what you want
+      for the tech stack (you don't necessarily want the most-used tech first).
+
+  - type: exercise
+    heading: "Exercise 3 — generate_github_readme"
+    prompt: >
+      generate_github_readme(config) returns Markdown starting with
+      "# Hi, I'm {config.owner_name}". Include bio, ## What I Build,
+      ## Projects (one bullet per project), ## Tech Stack (unique, ≤8, dot-separated),
+      ## Contact (email, LinkedIn if set). LinkedIn line omitted when linkedin_url is "".
+    hint: >
+      Check 4: the tech stack section should contain "Python" exactly once even
+      though Python appears in all 3 sample projects. Split ## Tech Stack section
+      and count occurrences. Check 5: PortfolioConfig("A","E","B","a@b.com","gh")
+      has no linkedin_url — "LinkedIn" should not appear in the README.
+    narration: >
+      To activate the GitHub profile README after running generate_github_readme:
+      (1) create a new repository at github.com/new named exactly your username,
+      (2) add the generated text as README.md in that repo, (3) commit and push.
+      The README appears immediately on your profile page.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "GitHub profile README: username/username repo → appears on profile"
+      - "generate_github_readme: PortfolioConfig → Markdown"
+      - "dict.fromkeys(list)[:8]: order-preserved deduplication, max 8"
+      - "LinkedIn line: included only when linkedin_url is set"
+      - "Next: summarize_portfolio — analytics across all projects"
+    narration: >
+      The GitHub profile README is built. Next: summarize_portfolio — a quick
+      analytics function that shows what the portfolio covers.

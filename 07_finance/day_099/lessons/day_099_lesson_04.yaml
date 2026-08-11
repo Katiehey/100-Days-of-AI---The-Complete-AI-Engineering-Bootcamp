@@ -1,0 +1,80 @@
+day: "099"
+lesson: 4
+title: "Portfolio Analytics"
+slides:
+  - type: title
+    heading: "Portfolio Analytics"
+    subheading: "Understanding your portfolio at a glance"
+    narration: >
+      summarize_portfolio gives you a quick read on what your portfolio
+      covers: how many projects, which categories, and which technologies
+      appear most frequently. This is useful for identifying gaps (do you
+      have too many projects in one category?) and for writing the About
+      section on your portfolio site.
+
+  - type: concept
+    label: "Counter usage"
+    heading: "collections.Counter for Tech Frequency"
+    body: >
+      Counter counts hashable elements. most_common(n) returns the top n.
+    bullets:
+      - "Counter(['a','b','a','c','a']) → Counter({'a':3,'b':1,'c':1})"
+      - "counter.most_common(5) → [('a',3),('b',1),('c',1)]"
+      - "Extract just the items: [item for item, _ in counter.most_common(5)]"
+      - "Built from a flat list: extend() each project's tech_stack list"
+      - "Alternative to dict approach: dict preserves order; Counter gives frequency"
+    narration: >
+      Counter is the standard Python tool for counting frequencies. It is used
+      throughout AI engineering: counting token frequencies, computing word
+      distributions, tallying results from evaluation runs. In this context,
+      we use it to find which technologies you use most across your portfolio —
+      useful for answering the question "what's your primary stack?" on a
+      hiring call.
+
+  - type: concept
+    label: "Portfolio gaps"
+    heading: "Using Analytics to Spot Gaps"
+    body: >
+      A balanced portfolio shows breadth + depth.
+    bullets:
+      - "Too many in one category: add a project from a different domain"
+      - "Tech stack too narrow: show a second language or framework"
+      - "All backend, no frontend: add a Streamlit or FastAPI project (Days 51–53)"
+      - "No deployed demo: deploy the trading bot or RAG chatbot"
+      - "n_categories should be ≥ 3 for a well-rounded AI portfolio"
+    narration: >
+      summarize_portfolio's output can be used programmatically to check the
+      portfolio before publishing. For example: assert stats["n_categories"] >= 3.
+      This is the same principle as the gate tests throughout this course —
+      automated checks catch problems early. A portfolio that passes its own
+      automated checks is a portfolio you can be confident in.
+
+  - type: exercise
+    heading: "Exercise 4 — summarize_portfolio"
+    prompt: >
+      summarize_portfolio(config) returns a dict with n_projects (int),
+      categories (sorted list of unique strings), n_categories (int),
+      top_tech (list[str] from Counter.most_common(5)), and total_tech_entries
+      (int — sum of all tech_stack lengths, with repetition).
+    hint: >
+      Check 4: Python appears in all 3 sample projects (_P1, _P2, _P3) and
+      should be top_tech[0]. categories must be sorted — use sorted(set(...)).
+      total_tech_entries = sum(len(p.tech_stack) for p in config.projects) —
+      do NOT deduplicate this count.
+    narration: >
+      Note the distinction: total_tech_entries counts with repetition (3 projects
+      each using Python → 3 entries), while top_tech is deduplicated by Counter
+      (Python appears once, with count 3). This is a common distinction in
+      analytics: raw count vs unique count. Both are useful in different contexts.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Counter(tech).most_common(5): top 5 technologies by frequency"
+      - "total_tech_entries: raw count (with repetition, not deduplicated)"
+      - "categories: sorted(set(...)) for stable, alphabetical ordering"
+      - "Use analytics to check portfolio balance before publishing"
+      - "Next: export_portfolio — writing all files to disk"
+    narration: >
+      Analytics done. The final exercise puts it all together: export_portfolio
+      writes every artifact to disk, ready to deploy.

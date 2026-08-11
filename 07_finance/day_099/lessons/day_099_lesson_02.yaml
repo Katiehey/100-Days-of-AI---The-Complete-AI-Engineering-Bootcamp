@@ -1,0 +1,83 @@
+day: "099"
+lesson: 2
+title: "Writing Case Studies"
+slides:
+  - type: title
+    heading: "Case Studies"
+    subheading: "Turning a GitHub repo into a portfolio piece"
+    narration: >
+      A case study is not documentation. It is a story: the problem, the
+      solution, the technology, and the result. generate_case_study produces
+      a structured Markdown document that can be posted as a GitHub Gist,
+      a blog post, a DEV.to article, or a page on your portfolio site. Well-
+      written case studies get shared and attract inbound interest.
+
+  - type: concept
+    label: "Case study structure"
+    heading: "The Case Study Structure"
+    body: >
+      Six sections: name, category, overview, stack, achievements, links.
+    bullets:
+      - "# Name — immediately identifies the project"
+      - "**Category:** — context for the reader (Finance, AI Agents, etc.)"
+      - "## Overview — tagline + description: what it is and why it matters"
+      - "## Tech Stack — bullet list of technologies"
+      - "## Key Achievements — concrete metrics or milestones"
+      - "## Links — GitHub repo + live demo"
+    narration: >
+      The Overview section is the most important. The tagline (one sentence)
+      answers "what is this?" The description paragraph answers "why did you
+      build it and what does it do?". Together they give the reader enough
+      context to decide whether to keep reading or follow the GitHub link.
+      Key Achievements is where metrics go: "runs daily paper-trading loop
+      over 10 stocks", "processes 1000 documents in 45 seconds", "achieves
+      8% annual return in backtest". Real numbers beat vague adjectives.
+
+  - type: concept
+    label: "Good vs bad achievements"
+    heading: "Writing Key Achievements That Land"
+    body: >
+      Specificity wins. Vague claims are filtered out.
+    bullets:
+      - "❌ 'High performance' → ✅ 'Processes 500 docs/second on M2 laptop'"
+      - "❌ 'Robust error handling' → ✅ 'Retries 3× with exponential backoff'"
+      - "❌ 'AI-powered' → ✅ 'Llama 3.2 sentiment scoring at 200 tokens/s'"
+      - "❌ 'Used machine learning' → ✅ 'SVM classifier at 94% F1 on test set'"
+      - "Use numbers from your gate tests — they are the performance spec"
+    narration: >
+      The gate tests you wrote over 100 days contain concrete numbers: 5-bar
+      stop-loss tests, 252-row backtest results, n_buys/n_sells invariants.
+      These are the raw material for achievement bullets. "Stop-loss exits
+      a position within one bar of the trigger price" is a verifiable claim.
+      "Handles edge cases well" is not.
+
+  - type: exercise
+    heading: "Exercise 2 — generate_case_study"
+    prompt: >
+      generate_case_study(project) returns a Markdown string starting with
+      "# {project.name}". Include **Category:**, ## Overview (tagline + description),
+      ## Tech Stack (bullet list), ## Key Achievements (highlights or placeholder),
+      ## Links (GitHub + Demo if set). Use "\n".join(...) for bullet lists.
+    hint: >
+      Check 4: for an empty highlights list, output "- See project README for details".
+      Check 5: _P1 has github_url but no demo_url — the ## Links section should
+      not contain "Demo:". _P3 has both — its Links section should have both.
+    narration: >
+      The case study is generated from the ProjectEntry dataclass — the same
+      data that powers the portfolio page cards. This is the key principle:
+      one source of truth. Update the ProjectEntry, and all outputs (card,
+      case study, README) update automatically. Keep the highlights list
+      accurate and up-to-date as you ship.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Case study = story: problem → solution → tech → achievements → links"
+      - "Key Achievements: use concrete numbers from gate tests"
+      - "generate_case_study: Markdown from ProjectEntry in six sections"
+      - "Empty highlights → placeholder; demo_url optional"
+      - "Next: GitHub profile README — the most-visited page in your brand"
+    narration: >
+      Case studies done. Next: the GitHub profile README — the page at
+      github.com/yourusername that every visitor sees before they look at
+      any of your repositories.

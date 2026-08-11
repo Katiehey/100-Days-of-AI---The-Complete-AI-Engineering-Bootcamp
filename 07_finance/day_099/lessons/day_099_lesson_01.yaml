@@ -1,0 +1,81 @@
+day: "099"
+lesson: 1
+title: "Why Portfolio?"
+slides:
+  - type: title
+    heading: "Portfolio & Personal Brand"
+    subheading: "Showing the world 100 days of AI engineering"
+    narration: >
+      Day 99. You have built 30+ projects over 99 days. Today you package
+      them into a portfolio that communicates your skills to employers, clients,
+      and collaborators. A portfolio is proof of work — it answers the question
+      "can you build AI things?" with "here are the AI things I built." No
+      certification, no course completion badge, does what a live portfolio does.
+
+  - type: concept
+    label: "Portfolio vs resume"
+    heading: "Portfolio vs Resume: What Each Does"
+    body: >
+      A resume lists skills. A portfolio proves them.
+    bullets:
+      - "Resume: claims ('proficient in Python, ML, LLMs')"
+      - "Portfolio: evidence ('here is the trading bot I built')"
+      - "For AI engineering: most hiring is portfolio-driven, not credential-driven"
+      - "Three formats: GitHub projects, case study site, deployed demos"
+      - "Minimum viable portfolio: 3 projects, each with a README + case study"
+    narration: >
+      AI engineering is a practical field. Hiring managers and clients want to
+      see that you can build things, not that you attended courses. A portfolio
+      of 5 working projects beats a resume with 10 bullet points every time.
+      The projects from this course — the trading bot, the ops agent, the RAG
+      chatbot, the multimodal studio — are real portfolio pieces. Today's
+      portfolio.py generates the HTML site that showcases them.
+
+  - type: concept
+    label: "What to show"
+    heading: "What to Include in Your Portfolio"
+    body: >
+      Three project types tell a complete story.
+    bullets:
+      - "1. End-to-end product (Day 100 capstone) — shows you can ship"
+      - "2. Domain-specific tool (trading bot, ops agent) — shows depth"
+      - "3. Foundation skill (RAG chatbot, embeddings) — shows breadth"
+      - "For each project: tagline, tech stack, one key metric or achievement"
+      - "Best is 3–6 projects. More is not better — quality over quantity"
+    narration: >
+      A hiring manager spends 30 seconds on a portfolio. Three well-presented
+      projects are more effective than ten poorly documented ones. Each project
+      needs: a tagline (what it is), a tech stack (what you used), and one
+      achievement or metric (why it matters). The case study generator from
+      today's exercises produces exactly this structure.
+
+  - type: exercise
+    heading: "Exercise 1 — generate_portfolio_page"
+    prompt: >
+      generate_portfolio_page(config) returns a complete HTML5 document.
+      Use the provided _render_project_card helper for each project.
+      Required: <!DOCTYPE html> start; <title> and <h1> with owner_name;
+      bio visible; each project as <h3>; email and GitHub links;
+      a .grid div wrapping the cards.
+    hint: >
+      Use the string concatenation pattern from Day 98. The contact links
+      are built with contact_parts: append formatted <a> tags for each
+      of email, github_username, linkedin_url (if set), then join with " · ".
+    narration: >
+      The portfolio page is a single HTML file. Once complete, you can open it
+      in any browser immediately — no build step, no server. To deploy it:
+      push to a GitHub repo, enable GitHub Pages (Settings → Pages → Deploy
+      from branch), and it's live at {username}.github.io/{repo-name}.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Portfolio = evidence, not claims — proves skills better than a resume"
+      - "Three project types: end-to-end product, domain tool, foundation skill"
+      - "ProjectEntry: 8 fields covering everything a case study needs"
+      - "PortfolioConfig: metadata for all generators"
+      - "_render_project_card: private helper produces one .card div"
+      - "Next: generate_case_study — the case study format"
+    narration: >
+      The portfolio page structure is in place. Next: the case study format
+      that turns each GitHub repo into a story.

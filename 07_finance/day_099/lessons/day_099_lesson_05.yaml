@@ -1,0 +1,83 @@
+day: "099"
+lesson: 5
+title: "Exporting and Deploying"
+slides:
+  - type: title
+    heading: "export_portfolio"
+    subheading: "From Python to a live site"
+    narration: >
+      export_portfolio writes the HTML index page and all Markdown case studies
+      to a directory. From there, deploying is a single command: push the
+      directory to GitHub and enable Pages, or drop it into a Netlify site.
+      Today's lesson covers the full export → deploy path.
+
+  - type: concept
+    label: "Static site deployment"
+    heading: "Three Ways to Deploy the Portfolio"
+    body: >
+      Free, fast, and permanent. Three options.
+    bullets:
+      - "GitHub Pages: push to {username}.github.io repo → live at {username}.github.io"
+      - "Netlify: drag the export directory to app.netlify.com → live in 30 seconds"
+      - "Vercel: vercel deploy --prod from the export directory → live instantly"
+      - "Custom domain: buy a domain (~$12/year), point CNAME to Pages/Netlify"
+      - "All three are free for a static portfolio site"
+    narration: >
+      A static site is the right format for a portfolio — no server to maintain,
+      no database, no auth. Just HTML, CSS, and optionally JavaScript. export_portfolio
+      produces exactly what GitHub Pages and Netlify need: an index.html at the
+      root and supporting files in subdirectories. The case_studies/ directory
+      won't be rendered as HTML (they're Markdown files), but they can be converted
+      with a Markdown-to-HTML step or just linked from the portfolio page.
+
+  - type: concept
+    label: "slug generation"
+    heading: "File Naming: Slugs"
+    body: >
+      A slug is a URL-safe filename derived from a title.
+    bullets:
+      - "Rule: lowercase, spaces → underscores, hyphens → underscores"
+      - "'AI Trading Bot' → 'ai_trading_bot.md'"
+      - "'RAG Chatbot' → 'rag_chatbot.md'"
+      - "Avoids URL-encoding issues (%20 for space, etc.)"
+      - "Pattern: name.lower().replace(' ', '_').replace('-', '_')"
+    narration: >
+      Slugs appear throughout web development: URL paths, file names, database
+      keys. The pattern is always the same: lowercase, spaces and hyphens become
+      underscores or hyphens. export_portfolio uses underscores for the .md
+      file names. If you were generating HTML URLs, you would use hyphens
+      instead (hyphens are preferred in URLs for SEO).
+
+  - type: exercise
+    heading: "Exercise 5 — export_portfolio"
+    prompt: >
+      export_portfolio(config, output_dir) writes index.html and case_studies/{slug}.md
+      for each project. Returns list[str] of absolute paths — index.html first,
+      then case studies in project order. Use pathlib.Path throughout.
+      mkdir(parents=True, exist_ok=True) for output_dir; mkdir(exist_ok=True)
+      for case_studies/.
+    hint: >
+      Check 4: the slug for "AI Trading Bot" is "ai_trading_bot" and the file
+      is case_studies/ai_trading_bot.md. Check 5: written[0] should contain
+      "index.html". Use str(path) to convert pathlib.Path to string.
+    narration: >
+      After export_portfolio runs, open output_dir/index.html in a browser.
+      You will see your complete portfolio site — all three projects as cards,
+      your name and bio in the header, your contact links. The case_studies/
+      directory holds the Markdown files. This is a deployable product.
+
+  - type: summary
+    heading: "Day 99 Complete"
+    bullets:
+      - "ProjectEntry + PortfolioConfig: one source of truth for all generators"
+      - "generate_portfolio_page: HTML5 site with header + project grid"
+      - "generate_case_study: Markdown with Overview/Stack/Achievements/Links"
+      - "generate_github_readme: profile README with deduped tech stack"
+      - "summarize_portfolio: n_projects, categories, top_tech via Counter"
+      - "export_portfolio: writes index.html + case studies, returns paths"
+      - "Next: Day 100 — Final Capstone (ship your own AI product)"
+    narration: >
+      Day 99 is complete. Tomorrow is the final day: Day 100, the capstone where
+      you ship your own AI product from scratch — your choice of domain, your
+      choice of stack, fully deployed and documented. Everything from this course
+      has been building to that day.
