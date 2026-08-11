@@ -1,0 +1,100 @@
+day: "096"
+lesson: 4
+title: "BotRunner — The Complete Service"
+slides:
+  - type: title
+    heading: "BotRunner"
+    subheading: "One class, one call, full automation"
+    narration: >
+      BotRunner is the final integration layer. It owns the log file path,
+      the webhook URL, and the run count. A single call to run_once executes
+      the full pipeline: trade, log, alert. At the end of 30 days of paper
+      trading, you have a log file with 30 entries, a trade history in each
+      PaperAccount, and a clear record of every decision the bot made.
+
+  - type: code
+    label: "BotRunner"
+    heading: "Twelve Lines"
+    body: >
+      run → log → alert → count → return.
+    code: |
+      class BotRunner:
+          def __init__(self, log_path, webhook_url=None, run_time="16:00"):
+              self.log_path    = pathlib.Path(log_path)
+              self.webhook_url = webhook_url
+              self.run_time    = run_time
+              self._run_count  = 0
+
+          def run_once(self, df, signals, initial_cash=10_000.0, fraction=1.0):
+              from paper_trader import run_paper_trader, format_report
+              result = run_paper_trader(df, signals, initial_cash, fraction)
+              report = format_report(result)
+              log_result(report, self.log_path)
+              if result["n_trades"] > 0:
+                  send_alert(f"BOT: {result['n_trades']} trade(s) — "
+                             f"return {result['total_return']:.2%}",
+                             self.webhook_url)
+              self._run_count += 1
+              result["report"] = report
+              return result
+
+          def run_count(self): return self._run_count
+          def read_log(self):
+              return ("" if not self.log_path.exists()
+                      else self.log_path.read_text(encoding="utf-8"))
+    narration: >
+      The lazy import inside run_once (from paper_trader import ...) means
+      bot_runner.py can be imported without paper_trader.py being on the path.
+      The module loads cleanly; the dependency is resolved only when run_once
+      is actually called. This is the same pattern used in days 92–94 for Ollama:
+      import inside the else branch, lazy, not at module level.
+
+  - type: concept
+    label: "State tracking"
+    heading: "Why Track run_count?"
+    body: >
+      run_count is the simplest form of operational telemetry.
+    bullets:
+      - "run_count=0: bot has never executed (check that the scheduler started)"
+      - "run_count=N: N successful iterations (N × initial_cash managed)"
+      - "run_count unchanged after an exception: useful for monitoring"
+      - "Extend: add last_run_time, last_result, error_count for richer telemetry"
+      - "For now: run_count is sufficient to verify the bot is running"
+    narration: >
+      In a production system you would send run_count (and other metrics) to
+      a monitoring service like Grafana, DataDog, or Prometheus. But even just
+      checking runner.run_count() > 0 before going home tells you the bot ran
+      at least once today. Simple counts are often the most reliable monitoring
+      signal — they are hard to get wrong and easy to understand.
+
+  - type: exercise
+    heading: "Exercise 5 — BotRunner end-to-end"
+    prompt: >
+      Implement BotRunner. run_once: call run_paper_trader, format_report,
+      log_result, send_alert (if n_trades > 0), increment run_count,
+      add result["report"]. run_count: return self._run_count.
+      read_log: return file contents or "" if not yet created.
+    hint: >
+      Check 5 calls run_once twice with different signals and verifies the log
+      has 2 report entries. Use content.count("=== Paper Trading Report ===") == 2.
+      The inline _P_TRADER prelude provides run_paper_trader and format_report
+      directly so paper_trader.py does not need to be on the path.
+    narration: >
+      This is the last exercise of the course's bot section. After implementing
+      BotRunner, the entire Section 7 system is operational. Exercise 5 runs
+      two strategies end-to-end and reads the log back — the same workflow a
+      real operator would use to review the bot's overnight decisions.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "BotRunner: log_path, webhook_url, run_time, _run_count"
+      - "run_once: trade → log → alert → count → return with 'report' key"
+      - "Lazy import inside run_once: bot_runner loads without paper_trader"
+      - "read_log: returns '' before first run; grows with each run"
+      - "Next: Day 97 — Productizing Your AI (packaging and docs)"
+    narration: >
+      Day 96 is complete. The paper-trading bot is fully operational: it runs
+      daily, logs every decision, and alerts on trades. The next three days
+      shift focus to productizing and launching: how to package what you have
+      built into something others can use, pay for, and find.

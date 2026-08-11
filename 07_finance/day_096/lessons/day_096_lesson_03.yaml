@@ -1,0 +1,112 @@
+day: "096"
+lesson: 3
+title: "Scheduling: next_run_time and run_daily_loop"
+slides:
+  - type: title
+    heading: "Scheduling"
+    subheading: "Make the bot run itself"
+    narration: >
+      A bot that you have to start manually is not a bot — it is a script.
+      A bot that runs automatically at the same time every day, without any
+      human action, is a service. The scheduler answers the question: how long
+      until the next run? Then it sleeps for that duration and wakes up to run.
+      Two functions, ten lines, infinite automation.
+
+  - type: code
+    label: "next_run_time"
+    heading: "next_run_time: When Is the Next Run?"
+    body: >
+      If 16:00 has passed today, schedule for tomorrow.
+    code: |
+      def next_run_time(run_time_str="16:00"):
+          now   = datetime.datetime.now()
+          h, m  = (int(x) for x in run_time_str.split(":"))
+          today = now.replace(hour=h, minute=m, second=0, microsecond=0)
+          if today <= now:          # already passed today
+              today += datetime.timedelta(days=1)
+          return today
+
+      def seconds_until(target_dt):
+          delta = target_dt - datetime.datetime.now()
+          return max(0.0, delta.total_seconds())
+    narration: >
+      next_run_time uses datetime.replace() to construct today's target time
+      from the current date. If that time is already in the past (the bot
+      starts after 16:00 on the first day), it adds one day. This guarantees
+      the bot always returns a future time. seconds_until converts the timedelta
+      to a float, clamped to zero so a past target never produces a negative
+      sleep duration.
+
+  - type: code
+    label: "run_daily_loop"
+    heading: "run_daily_loop: The Infinite Scheduler"
+    body: >
+      Sleep until the target time; call bot_fn; repeat.
+    code: |
+      def run_daily_loop(bot_fn, run_time="16:00", max_iterations=None,
+                         _sleep_fn=None):
+          import time
+          if _sleep_fn is None:
+              _sleep_fn = time.sleep
+          count = 0
+          while max_iterations is None or count < max_iterations:
+              _sleep_fn(seconds_until(next_run_time(run_time)))
+              bot_fn()
+              count += 1
+          return count
+    narration: >
+      The injection pattern: _sleep_fn defaults to time.sleep (blocks until the
+      target time), but in tests it is replaced with lambda s: None (no wait).
+      This is the same pattern used throughout the course for network calls and
+      LLM calls. max_iterations=None means run forever; max_iterations=N means
+      run exactly N times, then stop. The function returns the run count — useful
+      for testing and monitoring.
+
+  - type: concept
+    label: "Scheduling in production"
+    heading: "Beyond run_daily_loop: Production Scheduling"
+    body: >
+      For real systems, use cron or a managed scheduler.
+    bullets:
+      - "run_daily_loop is educational — it blocks the process while sleeping"
+      - "Production: cron (Linux/Mac), Task Scheduler (Windows), or APScheduler"
+      - "Cloud: AWS EventBridge, GCP Cloud Scheduler, GitHub Actions workflow"
+      - "Advantage: the bot process only runs when needed (no wasted memory)"
+      - "The bot logic (bot_fn) is unchanged — only the trigger mechanism changes"
+    narration: >
+      run_daily_loop is the simplest possible scheduler: a loop that sleeps.
+      It works fine for a single bot on a personal machine. For production
+      deployments, you would use cron — a system service that runs commands
+      at scheduled times. A cron entry of "0 16 * * 1-5 python bot.py" runs
+      the bot at 16:00 Monday through Friday without any Python sleeping.
+      The bot code remains identical; only the trigger changes.
+
+  - type: exercise
+    heading: "Exercises 3 and 4 — Scheduling"
+    prompt: >
+      Exercise 3: implement next_run_time and seconds_until.
+      Exercise 4: implement run_daily_loop using the _sleep_fn injection.
+      Check 3 in Ex4 verifies that _sleep_fn is called with non-negative values.
+      Check 5 verifies max_iterations=0 → bot_fn never called → returns 0.
+    hint: >
+      Ex4 check 4: the failing_fn raises ValueError. run_daily_loop should NOT
+      catch exceptions from bot_fn — let them propagate. This is intentional:
+      an exception in the trading logic should be visible, not silently swallowed.
+    narration: >
+      Both exercises are under fifteen lines total. The key concepts are the
+      injection pattern (same as every LLM/network call in the course) and the
+      while loop condition (None → forever; int → finite). The failing_fn check
+      is a reminder of the principle: only catch exceptions you know how to
+      handle. Everything else propagates.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "next_run_time: today or tomorrow at HH:MM, always future"
+      - "seconds_until: timedelta → float, clamped to 0"
+      - "run_daily_loop: sleep → call → count, with _sleep_fn injection"
+      - "Production scheduling: cron or managed service over run_daily_loop"
+      - "Next: BotRunner — the complete stateful wrapper"
+    narration: >
+      Scheduling is done. Next: BotRunner, which combines all three pillars —
+      paper trading, logging, and alerting — into a single stateful class.

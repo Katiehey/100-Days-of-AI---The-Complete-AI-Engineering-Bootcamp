@@ -1,0 +1,87 @@
+day: "096"
+lesson: 2
+title: "Alerting with send_alert"
+slides:
+  - type: title
+    heading: "Alerting"
+    subheading: "Know immediately when your bot acts"
+    narration: >
+      An alert is a push notification from your bot to you. Without alerts,
+      you must actively check the log to know what the bot did. With alerts,
+      the bot notifies you the moment it buys or sells. For a paper-trading bot,
+      a print statement is sufficient. For a production bot, you would connect
+      it to Slack, Discord, or a custom webhook — but the interface is identical.
+
+  - type: code
+    label: "send_alert"
+    heading: "Webhook or Print — Same Interface"
+    body: >
+      None webhook → stdout. URL webhook → HTTP POST.
+    code: |
+      def send_alert(message, webhook_url=None):
+          if webhook_url is None:
+              print(f"[ALERT] {message}")
+              return True
+          try:
+              import requests
+              resp = requests.post(webhook_url,
+                                   json={"text": message}, timeout=5)
+              return resp.ok
+          except Exception:
+              return False
+    narration: >
+      The two-branch design is the production pattern for notification systems.
+      During development, webhook_url=None means you see the alert on screen.
+      In production, a Slack incoming webhook URL sends the same message to a
+      channel. The try/except ensures that a network failure does not crash the
+      bot — the alert is best-effort, not a hard requirement. The bot logs the
+      result regardless; the alert is just a convenience.
+
+  - type: concept
+    label: "Alert policy"
+    heading: "When to Alert"
+    body: >
+      Alert on decisions that require human awareness, not on every heartbeat.
+    bullets:
+      - "ALWAYS alert: new trade entry (BUY) — capital is now at risk"
+      - "ALWAYS alert: trade exit (SELL) — position closed, profit/loss realized"
+      - "CONSIDER alerting: large drawdown, strategy error, data anomaly"
+      - "NEVER alert: routine hold — no decision was made"
+      - "BotRunner sends alert when n_trades > 0 (entry or exit occurred)"
+    narration: >
+      Alert fatigue is a real problem. If your bot sends an alert every time it
+      runs — even when nothing happened — you will start ignoring the alerts.
+      Then when something important happens, you will miss it. The BotRunner
+      only alerts when trades were executed: when the bot bought or sold. A daily
+      run that held the previous position generates no alert. This keeps the
+      signal-to-noise ratio high.
+
+  - type: exercise
+    heading: "Exercise 2 — send_alert"
+    prompt: >
+      Implement send_alert(message, webhook_url=None). If webhook_url is None:
+      print f"[ALERT] {message}" and return True. If webhook_url is provided:
+      try requests.post(webhook_url, json={"text": message}, timeout=5);
+      return resp.ok. Catch all exceptions and return False.
+    hint: >
+      Check 4 uses "http://localhost:0/bad" as the webhook URL — the port 0
+      ensures a connection failure, testing the exception path. Use a bare
+      except Exception: return False (not except requests.exceptions.RequestException
+      — that requires requests to be imported at the outer scope).
+    narration: >
+      Eight lines. The key insight is the exception handling: if any error occurs
+      (connection refused, timeout, DNS failure), return False instead of crashing.
+      The bot must keep running even if the notification fails — a missed alert
+      is much better than a stopped bot.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "send_alert: print (dev) or webhook POST (prod) — same interface"
+      - "Alert policy: only alert on trades, not on holds"
+      - "Exception handling: return False on webhook failure, never crash"
+      - "timeout=5: don't block the bot waiting for a slow notification service"
+      - "Next: scheduling — when does the bot run?"
+    narration: >
+      Alerting is done. Next: the scheduler — the code that keeps the bot
+      waking up at market close every day without manual intervention.

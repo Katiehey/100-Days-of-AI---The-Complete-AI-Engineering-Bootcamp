@@ -1,0 +1,86 @@
+day: "096"
+lesson: 1
+title: "From Bot to Running Service"
+slides:
+  - type: title
+    heading: "The Trading Bot II"
+    subheading: "Scheduling, logging, and alerting"
+    narration: >
+      Day 96. Yesterday you built the bot logic — the paper-trading core.
+      Today you build the operational wrapper: the code that makes the bot
+      run automatically every day, write a log of what it did, and notify
+      you when it takes a position. A bot that runs once is a script. A bot
+      that runs reliably every day, logs its decisions, and alerts you when
+      something happens is a service.
+
+  - type: concept
+    label: "Three pillars"
+    heading: "The Three Pillars of a Running Bot"
+    body: >
+      Scheduling, logging, and alerting — the same three pillars in every
+      production automated system.
+    bullets:
+      - "Scheduling: WHEN does the bot run? (daily at market close)"
+      - "Logging: WHAT did it decide? (persistent, append-only record)"
+      - "Alerting: WHO needs to know? (trade entries, exits, errors)"
+      - "Without scheduling: you must run it manually"
+      - "Without logging: you cannot audit or debug past behavior"
+      - "Without alerting: you cannot react to positions in near-real-time"
+    narration: >
+      These three pillars are not unique to trading bots. Any automated process
+      that runs without direct human interaction needs all three. Scheduling
+      ensures the process runs on time. Logging creates the audit trail. Alerting
+      closes the loop — it converts the autonomous system back into a human-in-the-
+      loop system for the decisions that matter most. The pattern applies to
+      every bot, pipeline, and agent you will ever build.
+
+  - type: concept
+    label: "Append-only log"
+    heading: "Why Append-Only Logging?"
+    body: >
+      Never overwrite a log file — append to it.
+    bullets:
+      - "Overwriting: you lose all history every run — useless for debugging"
+      - "Appending: every session adds one entry — full audit trail"
+      - "open(path, 'a'): append mode; creates the file if it does not exist"
+      - "Each entry has a timestamp so you can tell sessions apart"
+      - "Log files are the primary forensic tool when something goes wrong"
+    narration: >
+      A log file written in append mode is an append-only journal of every
+      bot run. If the strategy starts losing money on Thursday, you can read
+      the log and see exactly what signals the bot received, what trades it
+      executed, and what the equity curve looked like. Without the log, you
+      have no way to determine whether the loss was due to a market event,
+      a strategy bug, or a data quality issue. The append-only pattern also
+      means the log is safe to read concurrently — there is never a partial
+      overwrite.
+
+  - type: exercise
+    heading: "Exercise 1 — log_result and format_log_entry"
+    prompt: >
+      Implement format_log_entry(report_text) to prepend a YYYY-MM-DD HH:MM:SS
+      timestamp header. Implement log_result(report_text, path) to append
+      format_log_entry output to a file using open(path, "a"). Create parent
+      directories with path.parent.mkdir(parents=True, exist_ok=True).
+    hint: >
+      ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"). The "a" mode
+      in open() creates the file if it does not exist. Check 5 calls log_result
+      twice and verifies both entries appear — the append mode test.
+    narration: >
+      Two functions, about ten lines total. The critical detail is the open mode:
+      "a" not "w". The format string "%Y-%m-%d %H:%M:%S" produces "2025-01-15 16:00:00"
+      — a human-readable timestamp that sorts lexicographically by time, making the
+      log easy to search and parse later.
+
+  - type: summary
+    heading: "What You Learned"
+    bullets:
+      - "Append-only logs: open(path, 'a') — never overwrite"
+      - "format_log_entry: adds timestamp header to report"
+      - "log_result: creates file (and dirs) if needed, appends entry"
+      - "datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')"
+      - "Next: send_alert — the notification layer"
+    narration: >
+      Logging is done. Next: alerting. The alert tells you immediately when
+      the bot takes a position — so you can monitor the real-money equivalent
+      or override a signal that looks wrong.

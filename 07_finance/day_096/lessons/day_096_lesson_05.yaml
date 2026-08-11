@@ -1,0 +1,93 @@
+day: "096"
+lesson: 5
+title: "The Full Automated Pipeline"
+slides:
+  - type: title
+    heading: "Putting It All Together"
+    subheading: "From raw data to automated daily decisions"
+    narration: >
+      The fifth lesson shows the complete automated pipeline that Days 89–96
+      have been building. Market data → indicators → strategy → risk → paper
+      trade → log → alert. This is the bot in its final form. The only step
+      missing for real money trading is replacing the paper_trader's Close
+      price with a live feed and replacing account.buy() with a broker API call.
+
+  - type: code
+    label: "Full pipeline"
+    heading: "The Eleven-Line Bot"
+    body: >
+      From market data to logged result — eleven lines.
+    code: |
+      # One-time setup
+      runner = BotRunner("logs/trading.log", webhook_url=None)
+
+      # Daily bot function (called by run_daily_loop at market close)
+      def daily_bot():
+          df      = add_indicators(store.load("AAPL"))
+          raw_sig = combined_signal(df)
+          rm      = RiskManager(stop_pct=0.05, drawdown_limit=-0.20)
+          sig     = rm.filter(raw_sig, df["Close"])
+          runner.run_once(df, sig, initial_cash=10_000.0)
+
+      # Start the scheduler (blocks; runs daily at 16:00)
+      run_daily_loop(daily_bot, run_time="16:00")
+    narration: >
+      Eleven lines. This is the complete system. Every module from Days 89–96
+      appears: market_data (store.load), indicators (add_indicators, combined_signal),
+      risk (RiskManager), paper_trader (inside run_once), bot_runner (BotRunner,
+      run_daily_loop). The daily_bot function is the bot_fn that run_daily_loop
+      calls every day at 16:00. In a real deployment, you would also add error
+      handling around daily_bot so a single failure doesn't stop the scheduler.
+
+  - type: concept
+    label: "From paper to live"
+    heading: "The Step from Paper to Live Trading"
+    body: >
+      One module changes. Everything else stays the same.
+    bullets:
+      - "Paper: run_paper_trader → simulates trades in Python memory"
+      - "Live: replace with broker API calls (Alpaca, Interactive Brokers, etc.)"
+      - "Signal generation: unchanged — same strategy, same risk filter"
+      - "Logging: unchanged — same log_result call"
+      - "Alerting: unchanged — same send_alert call"
+      - "Only paper_trader.py is swapped; bot_runner.py is production-ready today"
+    narration: >
+      This is the payoff for the modular design. Going from paper to live trading
+      means writing one new module — a broker adapter that replaces PaperAccount.
+      The broker adapter implements the same interface: buy(date, price), sell(date,
+      price), portfolio_value(price). Everything upstream (signals, risk) and
+      downstream (logging, alerting) remains unchanged. You have built a production-
+      grade architecture in 96 days.
+
+  - type: exercise
+    heading: "Project — 5-Day Paper Trading Simulation"
+    prompt: >
+      Simulate 5 daily bot runs using run_daily_loop with max_iterations=5
+      and _sleep_fn=lambda s: None. Use a new BotRunner each call? No —
+      the same BotRunner accumulates 5 log entries. The project runs three
+      strategies and compares their final log files.
+    hint: >
+      Use tempfile.TemporaryDirectory() for the log path. At the end, call
+      runner.read_log() and count "=== Paper Trading Report ===" entries to
+      verify 5 runs were logged. The solution asserts run_count == 5.
+    narration: >
+      The project simulates five market-close runs of the bot in seconds.
+      After completing it, you have a complete automated trading system:
+      a strategy, risk management, a paper-trading engine, a scheduler, a
+      logger, and an alerting system. The final three days package and launch
+      this and your other course projects as products.
+
+  - type: summary
+    heading: "Day 96 and Section 7 Bot Complete"
+    bullets:
+      - "format_log_entry + log_result: append-only session journal"
+      - "send_alert: webhook or stdout, same interface"
+      - "next_run_time + seconds_until + run_daily_loop: minimal scheduler"
+      - "BotRunner: stateful wrapper, run_once → log → alert → count"
+      - "Full pipeline: 11 lines from data to daily automation"
+      - "Paper → live: only paper_trader.py changes"
+    narration: >
+      Days 95 and 96 together form the complete paper-trading bot. Section 7
+      is now three days from completion. Days 97–99 shift to productizing and
+      launching the work from the entire bootcamp. Day 100 is the final capstone:
+      your own AI product, fully deployed.
