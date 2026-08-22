@@ -29,19 +29,31 @@ C_AMBER     = (245, 158, 11)    # #f59e0b  exercise
 C_EMERALD   = (16,  185, 129)   # #10b981  solution
 
 # ── Fonts ────────────────────────────────────────────────────────────────────
-_FONT_REG  = "/System/Library/Fonts/Helvetica.ttc"
-_FONT_MONO = "/System/Library/Fonts/Menlo.ttc"
+# First existing path wins, so the same code renders on macOS (local) and on
+# Linux/Colab (all-in-one render). DejaVu/Liberation ship on Debian/Ubuntu/Colab.
+_FONT_REG = [
+    "/System/Library/Fonts/Helvetica.ttc",                              # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                  # Colab/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+]
+_FONT_MONO = [
+    "/System/Library/Fonts/Menlo.ttc",                                  # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",              # Colab/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+]
 
 # PiP safe zone — keep content away from bottom-right corner
 _CONTENT_MAX_X = 960   # PiP starts at x=1060
 _CONTENT_MAX_Y = 640
 
 
-def _f(path: str, size: int) -> ImageFont.FreeTypeFont:
-    try:
-        return ImageFont.truetype(path, size)
-    except OSError:
-        return ImageFont.load_default(size=size)
+def _f(paths, size: int) -> ImageFont.FreeTypeFont:
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    return ImageFont.load_default(size=size)
 
 
 def _reg(size: int)  -> ImageFont.FreeTypeFont: return _f(_FONT_REG,  size)
