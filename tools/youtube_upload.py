@@ -230,35 +230,44 @@ def main():
         print("\nRegenerating site manifest...")
         subprocess.run([sys.executable, os.path.join(ROOT, "tools",
                         "build_site_manifest.py")], check=True)
-        if args.push:
-            git_push(targets)
     else:
         print("\nNothing uploaded.")
 
+    # Always try to publish when --push: flushes any commit a previous run left
+    # unpushed (e.g. if the push raced with another commit and failed).
+    if args.push:
+        git_push(targets)
+
 
 def git_push(targets: list) -> None:
-    """Commit docs/videos.json + course.json and push. Uses GITHUB_TOKEN if set."""
-    def run(*cmd, check=True):
-        return subprocess.run(cmd, cwd=ROOT, check=check,
-                              capture_output=True, text=True)
-    print("\nCommitting + pushing site update...")
+    """Commit docs changes, rebase on origin, and push. Never raises; masks the token.
+
+    Rebasing first means a racing commit on main (e.g. a Colab 'Save in GitHub')
+    can't cause a non-fast-forward failure that aborts a render loop.
+    """
+    token = os.environ.get("GITHUB_TOKEN")
+    mask = (lambda s: s.replace(token, "***")) if token else (lambda s: s)
+
+    def run(*cmd):
+        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+
+    print("\nPublishing site update...")
     run("git", "add", "docs/videos.json", "docs/course.json")
     label = targets[0] if len(targets) == 1 else f"{len(targets)} lessons"
-    commit = run("git", "commit", "-m", f"site: add YouTube video(s) for {label}",
-                 check=False)
-    if commit.returncode != 0 and "nothing to commit" in (commit.stdout + commit.stderr):
-        print("  nothing new to commit.")
+    run("git", "commit", "-m", f"site: add YouTube video(s) for {label}")  # no-op if nothing staged
+
+    pull = run("git", "pull", "--rebase", "--autostash", "origin", "main")
+    if pull.returncode != 0:
+        print("  pull --rebase failed:\n  " + mask(pull.stderr).strip())
         return
-    # If a token is available, push over an authenticated URL (works headless/Colab).
-    token = os.environ.get("GITHUB_TOKEN")
+
     if token:
-        slug = github_slug()
-        run("git", "push", f"https://{token}@github.com/{slug}.git", "HEAD")
+        push = run("git", "push", f"https://{token}@github.com/{github_slug()}.git", "HEAD:main")
     else:
-        push = run("git", "push", check=False)
-        if push.returncode != 0:
-            print(f"  push failed (set GITHUB_TOKEN or push manually):\n{push.stderr}")
-            return
+        push = run("git", "push", "origin", "HEAD:main")
+    if push.returncode != 0:
+        print("  push failed:\n  " + mask(push.stderr).strip())
+        return
     print("  pushed. GitHub Pages will rebuild shortly.")
 
 
