@@ -39,6 +39,19 @@ UPLOAD_URL = ("https://www.googleapis.com/upload/youtube/v3/videos"
               "?uploadType=resumable&part=snippet,status")
 
 
+def github_slug() -> str:
+    """Return 'owner/repo' from the origin remote (for authenticated push URLs)."""
+    try:
+        url = subprocess.run(
+            ["git", "-C", ROOT, "remote", "get-url", "origin"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError:
+        return "OWNER/REPO"
+    m = re.search(r"github\.com[:/](.+?)(?:\.git)?$", url)
+    return m.group(1) if m else "OWNER/REPO"
+
+
 # ── .env ─────────────────────────────────────────────────────────────────────
 
 def load_env() -> dict:
