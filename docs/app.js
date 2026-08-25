@@ -27,7 +27,9 @@ function dayDone(day) {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-fetch("course.json")
+// Cache-bust so a freshly deployed course.json isn't masked by the CDN/browser
+// cache (GitHub Pages serves JSON with a ~10 min max-age).
+fetch(`course.json?v=${Date.now()}`)
   .then(r => r.json())
   .then(data => { COURSE = data; renderSidebar(); route(); })
   .catch(err => {
