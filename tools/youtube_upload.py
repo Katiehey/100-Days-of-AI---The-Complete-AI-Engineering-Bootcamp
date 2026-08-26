@@ -179,6 +179,27 @@ def save_videos(videos: dict) -> None:
         f.write("\n")
 
 
+def git(*cmd) -> subprocess.CompletedProcess:
+    """Run a git command in the repo root, capturing output. Never raises."""
+    return subprocess.run(["git", *cmd], cwd=ROOT, capture_output=True, text=True)
+
+
+def remote_videos() -> dict:
+    """videos.json as it currently exists on origin/main ({} on any error).
+
+    Lets us treat origin as the source of truth for what's already published, so a
+    stale local clone never re-uploads (which would duplicate the video and waste
+    quota).
+    """
+    r = git("show", "origin/main:docs/videos.json")
+    if r.returncode != 0:
+        return {}
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return {}
+
+
 # ── Orchestration ────────────────────────────────────────────────────────────
 
 def final_path(lesson_id: str) -> str:
@@ -218,11 +239,17 @@ def main():
         ap.error("give a lesson id, --day N, or --all-local")
 
     env = load_env()
+    # Learn what's already published so a stale local clone never re-uploads a
+    # lesson origin already has (which would duplicate the video and waste quota).
+    if args.push:
+        git("fetch", "origin", "main")
     videos = load_videos()
+    videos.update(remote_videos())   # origin is the source of truth for existing IDs
+    save_videos(videos)
     token = access_token(env)
     print(f"Authenticated. {len(targets)} lesson(s) to process.\n")
 
-    changed = False
+    uploaded = {}                    # lesson_id -> video_id, only this run's uploads
     for lid in targets:
         path = final_path(lid)
         if not os.path.exists(path):
@@ -235,53 +262,78 @@ def main():
         print(f"  {lid}: uploading ({mb:.1f} MB)...", flush=True)
         vid = upload_video(token, path, build_snippet(lid))
         videos[lid] = vid
-        save_videos(videos)          # persist after each success
-        changed = True
+        uploaded[lid] = vid
+        save_videos(videos)          # persist immediately so a crash can't lose the ID
         print(f"  {lid}: done → https://youtu.be/{vid}")
 
-    if changed:
-        print("\nRegenerating site manifest...")
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools",
-                        "build_site_manifest.py")], check=True)
-    else:
+    if not uploaded:
         print("\nNothing uploaded.")
 
-    # Always try to publish when --push: flushes any commit a previous run left
-    # unpushed (e.g. if the push raced with another commit and failed).
+    # When --push, always reconcile local IDs onto origin — this both publishes
+    # this run's uploads and flushes any a previous run left unpushed.
     if args.push:
-        git_push(targets)
+        publish(uploaded)
 
 
-def git_push(targets: list) -> None:
-    """Commit docs changes, rebase on origin, and push. Never raises; masks the token.
+def publish(uploaded: dict) -> None:
+    """Union all locally-known video IDs onto origin/main's videos.json and push.
 
-    Rebasing first means a racing commit on main (e.g. a Colab 'Save in GitHub')
-    can't cause a non-fast-forward failure that aborts a render loop.
+    Conflict-free by construction: origin's file is the base and our IDs are merged
+    on top (ours win), so there is never a git merge/rebase conflict to leave marker
+    lines in the JSON. Retries if origin advances underneath us (a racing push).
+    Never raises; masks the token in any error output.
     """
     token = os.environ.get("GITHUB_TOKEN")
     mask = (lambda s: s.replace(token, "***")) if token else (lambda s: s)
 
-    def run(*cmd):
-        return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
-
     print("\nPublishing site update...")
-    run("git", "add", "docs/videos.json", "docs/course.json")
-    label = targets[0] if len(targets) == 1 else f"{len(targets)} lessons"
-    run("git", "commit", "-m", f"site: add YouTube video(s) for {label}")  # no-op if nothing staged
+    # Defensive: clear any stale rebase state left by an older script version.
+    rebase_dir = os.path.join(ROOT, ".git", "rebase-merge")
+    if os.path.isdir(rebase_dir):
+        subprocess.run(["rm", "-rf", rebase_dir])
 
-    pull = run("git", "pull", "--rebase", "--autostash", "origin", "main")
-    if pull.returncode != 0:
-        print("  pull --rebase failed:\n  " + mask(pull.stderr).strip())
-        return
+    local = load_videos()            # everything we know, incl. this run's uploads
 
-    if token:
-        push = run("git", "push", f"https://{token}@github.com/{github_slug()}.git", "HEAD:main")
-    else:
-        push = run("git", "push", "origin", "HEAD:main")
-    if push.returncode != 0:
-        print("  push failed:\n  " + mask(push.stderr).strip())
-        return
-    print("  pushed. GitHub Pages will rebuild shortly.")
+    for attempt in range(1, 6):
+        git("fetch", "origin", "main")
+        # Align HEAD + tree to origin so the push is a guaranteed fast-forward.
+        # Safe: the only tracked files this tool writes are docs/videos.json and
+        # docs/course.json (both regenerable); render artifacts are gitignored.
+        git("reset", "--hard", "origin/main")
+
+        merged = load_videos()
+        merged.update(local)         # union; our IDs win
+        save_videos(merged)
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools",
+                        "build_site_manifest.py")], capture_output=True, text=True)
+
+        status = git("status", "--porcelain", "docs/videos.json", "docs/course.json")
+        if not status.stdout.strip():
+            print("  nothing to publish — origin already has these IDs.")
+            return
+
+        git("add", "docs/videos.json", "docs/course.json")
+        if uploaded:
+            label = (next(iter(uploaded)) if len(uploaded) == 1
+                     else f"{len(uploaded)} lessons")
+        else:
+            label = "reconcile"
+        git("commit", "-m", f"site: add YouTube video(s) for {label}")
+
+        if token:
+            push = git("push", f"https://{token}@github.com/{github_slug()}.git", "HEAD:main")
+        else:
+            push = git("push", "origin", "HEAD:main")
+        if push.returncode == 0:
+            print("  pushed. GitHub Pages will rebuild shortly.")
+            return
+        print(f"  push attempt {attempt} failed (origin moved?); retrying...\n  "
+              + mask(push.stderr).strip())
+
+    print("  WARNING: could not push after 5 attempts. These IDs are safe in your"
+          " local docs/videos.json — re-run with --push to retry:")
+    for k in sorted(local):
+        print(f"    {k}: {local[k]}")
 
 
 if __name__ == "__main__":
